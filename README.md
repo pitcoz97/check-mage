@@ -89,7 +89,7 @@ chess-server/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/chess-server.git
+git clone https://github.com/pitcoz97/check-mage.git
 cd chess-server
 ```
 
