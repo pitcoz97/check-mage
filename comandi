@@ -1,0 +1,16 @@
+// Giocatore bianco (terminale 1)
+{"type":"move","payload":{"move":"f2f3"}}
+
+// Giocatore nero (terminale 2)
+{"type":"move","payload":{"move":"e7e5"}}
+
+// Giocatore bianco (terminale 1)
+{"type":"move","payload":{"move":"g2g4"}}
+
+// Giocatore nero (terminale 2) — scacco matto!
+{"type":"move","payload":{"move":"d8h4"}}
+
+{"type":"resign","payload":{}}
+{"type":"draw_offer","payload":{}}
+{"type":"draw_accepted","payload":{}}
+{"type":"draw_declined","payload":{}}
