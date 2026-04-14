@@ -154,6 +154,9 @@ func (r *Room) handleMove(sender *Client, move string) {
 
 	r.Board.Moves = append(r.Board.Moves, move)
 
+	// Aggiorna la FEN con la posizione corrente
+	r.Board.FEN = engine.SF.GetFEN(r.Board.Moves)
+
 	// Cambia turno
 	if r.Board.Turn == "white" {
 		r.Board.Turn = "black"

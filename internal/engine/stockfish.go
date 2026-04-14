@@ -247,3 +247,29 @@ func (e *Engine) isDraw(moves []string) bool {
 	}
 	return false
 }
+
+// GetFEN ritorna la FEN della posizione attuale data la lista di mosse
+func (e *Engine) GetFEN(moves []string) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	position := "position startpos"
+	if len(moves) > 0 {
+		position += " moves " + strings.Join(moves, " ")
+	}
+	e.send(position)
+
+	// "d" è il comando UCI che mostra lo stato della board
+	// tra le info che restituisce c'è la FEN corrente
+	e.send("d")
+	lines := e.readUntil("Checkers")
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "Fen:") {
+			return strings.TrimPrefix(line, "Fen: ")
+		}
+	}
+
+	// FEN di partenza come fallback
+	return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+}
