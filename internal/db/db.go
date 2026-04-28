@@ -3,9 +3,11 @@ package db
 import (
 	"chess-server/internal/config"
 	"chess-server/internal/logger"
+	"context"
 	"database/sql"
 	"fmt"
 	"math"
+	"time"
 
 	_ "github.com/lib/pq" // driver postgres, importato per i side effect
 	"go.uber.org/zap"
@@ -111,4 +113,25 @@ func calculateElo(whiteElo, blackElo int, result string) (int, int) {
 	newBlack := blackElo + int(math.Round(K*(scoreBlack-expectedBlack)))
 
 	return newWhite, newBlack
+}
+
+// QueryContext con timeout — usa questo invece di Query diretto
+// Esempio: db.QueryWithTimeout(...)
+func QueryWithTimeout(query string, args ...interface{}) (*sql.Rows, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return DB.QueryContext(ctx, query, args...)
+}
+
+func QueryRowWithTimeout(query string, args ...interface{}) *sql.Row {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return DB.QueryRowContext(ctx, query, args...)
+}
+
+// HealthCheck verifica che il DB sia raggiungibile
+func HealthCheck() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return DB.PingContext(ctx)
 }

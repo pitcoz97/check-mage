@@ -7,6 +7,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
+	"golang.org/x/time/rate"
 )
 
 var upgrader = websocket.Upgrader{
@@ -32,6 +33,7 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		Username: username,
 		Conn:     conn,
 		Send:     make(chan []byte, 256),
+		Limiter:  rate.NewLimiter(5, 10), // 5 msg/sec, burst massimo 10
 	}
 
 	// JoinQueue decide se è una nuova partita o una riconnessione

@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+
+	"go.uber.org/zap"
 )
 
 // Engine rappresenta un processo Stockfish attivo
@@ -19,8 +21,12 @@ type Engine struct {
 
 var SF *Engine
 
-// Init avvia il processo Stockfish
 func Init() error {
+	SF = &Engine{}
+	return initEngine(SF)
+}
+
+func initEngine(e *Engine) error {
 	cmd := exec.Command("stockfish")
 
 	stdinPipe, err := cmd.StdinPipe()
@@ -37,18 +43,14 @@ func Init() error {
 		return fmt.Errorf("errore avvio stockfish: %w", err)
 	}
 
-	SF = &Engine{
-		cmd:    cmd,
-		stdin:  bufio.NewWriter(stdinPipe),
-		stdout: bufio.NewScanner(stdoutPipe),
-	}
+	e.cmd = cmd
+	e.stdin = bufio.NewWriter(stdinPipe)
+	e.stdout = bufio.NewScanner(stdoutPipe)
 
-	// Inizializza UCI
-	SF.send("uci")
-	SF.waitFor("uciok")
-
-	SF.send("isready")
-	SF.waitFor("readyok")
+	e.send("uci")
+	e.waitFor("uciok")
+	e.send("isready")
+	e.waitFor("readyok")
 
 	logger.L.Info("Stockfish pronto")
 	return nil
@@ -82,9 +84,20 @@ func (e *Engine) readUntil(token string) []string {
 	return lines
 }
 
+func (e *Engine) IsMoveLegal(moves []string, newMove string) bool {
+	result, err := e.safeCall(func() interface{} {
+		return e.IsMoveLegalInternal(moves, newMove)
+	})
+	if err != nil {
+		logger.L.Error("IsMoveLegal fallito", zap.Error(err))
+		return false
+	}
+	return result.(bool)
+}
+
 // IsMoveLegal verifica se una mossa è legale data la lista di mosse precedenti
 // moves è la sequenza di mosse in formato UCI es. ["e2e4", "e7e5", "g1f3"]
-func (e *Engine) IsMoveLegal(moves []string, newMove string) bool {
+func (e *Engine) IsMoveLegalInternal(moves []string, newMove string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -272,4 +285,44 @@ func (e *Engine) GetFEN(moves []string) string {
 
 	// FEN di partenza come fallback
 	return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+}
+
+// Restart riavvia Stockfish se crasha
+func (e *Engine) Restart() error {
+	logger.L.Warn("Riavvio Stockfish in corso...")
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// Prova a chiudere il vecchio processo
+	if e.cmd != nil && e.cmd.Process != nil {
+		e.cmd.Process.Kill()
+		e.cmd.Wait()
+	}
+
+	// Riavvia
+	if err := initEngine(e); err != nil {
+		return err
+	}
+
+	logger.L.Info("Stockfish riavviato!")
+	return nil
+}
+
+// safeCall esegue una funzione con recovery da panic
+// Se Stockfish crasha, prova a riavviarlo
+func (e *Engine) safeCall(fn func() interface{}) (result interface{}, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.L.Error("Stockfish panic, tentativo di riavvio",
+				zap.Any("error", r),
+			)
+			if restartErr := e.Restart(); restartErr != nil {
+				err = fmt.Errorf("stockfish crash e riavvio fallito: %v", restartErr)
+			}
+		}
+	}()
+
+	result = fn()
+	return result, nil
 }

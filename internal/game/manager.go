@@ -94,6 +94,19 @@ func (m *Manager) JoinQueue(client *Client) bool {
 	// })
 }
 
+// LeaveQueue rimuove un client dalla coda se è ancora in attesa
+func (m *Manager) LeaveQueue(client *Client) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.waiting != nil && m.waiting.UserID == client.UserID {
+		m.waiting = nil
+		logger.L.Info("Giocatore rimosso dalla coda",
+			zap.String("player", client.Username),
+		)
+	}
+}
+
 func (m *Manager) RemoveRoom(id string, whiteID, blackID int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

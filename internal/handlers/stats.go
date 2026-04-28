@@ -106,3 +106,57 @@ func GameHistory(w http.ResponseWriter, r *http.Request) {
 		Data:    games,
 	})
 }
+
+// GetUserProfile ritorna il profilo pubblico di un utente
+func GetUserProfile(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	userID, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Error:   "ID non valido",
+		})
+		return
+	}
+
+	var user models.User
+	err = db.DB.QueryRow(`
+        SELECT id, username, elo, created_at
+        FROM users WHERE id = $1`, userID,
+	).Scan(&user.ID, &user.Username, &user.Elo, &user.CreatedAt)
+
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Error:   "Utente non trovato",
+		})
+		return
+	}
+
+	// Statistiche partite
+	var wins, losses, draws int
+	db.DB.QueryRow(`
+        SELECT
+            COUNT(*) FILTER (WHERE (white_id = $1 AND result = '1-0') OR (black_id = $1 AND result = '0-1')) AS wins,
+            COUNT(*) FILTER (WHERE (white_id = $1 AND result = '0-1') OR (black_id = $1 AND result = '1-0')) AS losses,
+            COUNT(*) FILTER (WHERE result = '1/2-1/2') AS draws
+        FROM games
+        WHERE white_id = $1 OR black_id = $1
+    `, userID).Scan(&wins, &losses, &draws)
+
+	json.NewEncoder(w).Encode(models.APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"user": user,
+			"stats": map[string]int{
+				"wins":   wins,
+				"losses": losses,
+				"draws":  draws,
+				"total":  wins + losses + draws,
+			},
+		},
+	})
+}

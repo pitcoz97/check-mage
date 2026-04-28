@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"chess-server/internal/db"
 	"chess-server/internal/models"
 	"encoding/json"
 	"net/http"
@@ -9,13 +10,17 @@ import (
 func StatusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	data := map[string]string{
-		"status"  : "ok",
-		"version" : "0.1.0",
+	dbStatus := "ok"
+	if err := db.HealthCheck(); err != nil {
+		dbStatus = "unavailable"
+		w.WriteHeader(http.StatusServiceUnavailable)
 	}
 
 	json.NewEncoder(w).Encode(models.APIResponse{
-		Success : true,
-		Data	: data,
+		Success: dbStatus == "ok",
+		Data: map[string]string{
+			"status":  dbStatus,
+			"version": "0.1.0",
+		},
 	})
 }

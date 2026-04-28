@@ -36,6 +36,17 @@ func main() {
 	mw.InitLimiters()
 	db.Connect()
 
+	// Monitora la salute del DB ogni 30 secondi
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := db.HealthCheck(); err != nil {
+				logger.L.Error("DB non raggiungibile", zap.Error(err))
+			}
+		}
+	}()
+
 	// Avvia Stockfish
 	if err := engine.Init(); err != nil {
 		logger.L.Fatal("Errore avvio Stockfish DB", zap.Error(err))

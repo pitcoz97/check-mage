@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/gorilla/websocket"
+	"golang.org/x/time/rate"
 )
 
 // Client rappresenta un giocatore connesso via WebSocket
@@ -16,6 +17,7 @@ type Client struct {
 	Conn     *websocket.Conn
 	Send     chan []byte // canale per i messaggi in uscita — come una coda
 	Room     *Room
+	Limiter  *rate.Limiter // max messaggi al secondo
 }
 
 // WritePump legge dal canale Send e scrive sul WebSocket
@@ -35,6 +37,9 @@ func (c *Client) WritePump() {
 // Gira in una goroutine dedicata per ogni client
 func (c *Client) ReadPump() {
 	defer func() {
+
+		GameManager.LeaveQueue(c)
+
 		if c.Room != nil {
 			c.Room.Leave(c)
 		}
@@ -46,6 +51,12 @@ func (c *Client) ReadPump() {
 		if err != nil {
 			// Connessione chiusa o errore di rete
 			break
+		}
+
+		// Rate limit sui messaggi in arrivo
+		if !c.Limiter.Allow() {
+			c.sendError("Stai inviando messaggi troppo velocemente")
+			continue
 		}
 
 		var msg models.WSMessage

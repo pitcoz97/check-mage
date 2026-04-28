@@ -104,34 +104,23 @@ func (r *Room) HandleMessage(sender *Client, msg models.WSMessage) {
 
 func (r *Room) handleMove(sender *Client, move string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
-	// Verifica il turno
 	senderColor := r.getColor(sender)
 	if senderColor != r.Board.Turn {
+		r.mu.Unlock()
 		sender.sendError("Non è il tuo turno")
 		return
 	}
 
-	// Valida la mossa con Stockfish
 	if !engine.SF.IsMoveLegal(r.Board.Moves, move) {
+		r.mu.Unlock()
 		sender.sendError(fmt.Sprintf("Mossa illegale: %s", move))
 		return
 	}
 
-	// Se c'era un'offerta di patta pendente, decade con la mossa
-	if r.drawOfferer != nil {
-		opponent := r.getOpponent(sender)
-		opponent.SendMessage(models.MsgDrawDeclined, map[string]string{
-			"message": "L'offerta di patta è decaduta (mossa giocata)",
-		})
-		r.drawOfferer = nil
-	}
-
-	// Calcola il tempo impiegato per questa mossa
+	// Calcola il tempo impiegato
 	elapsed := time.Since(r.lastMoveAt)
 
-	// Sottrai il tempo e aggiungi l'incremento
 	if senderColor == "white" {
 		r.WhiteTime -= elapsed
 		r.WhiteTime += r.Increment
@@ -151,13 +140,9 @@ func (r *Room) handleMove(sender *Client, move string) {
 	}
 
 	r.lastMoveAt = time.Now()
-
 	r.Board.Moves = append(r.Board.Moves, move)
-
-	// Aggiorna la FEN con la posizione corrente
 	r.Board.FEN = engine.SF.GetFEN(r.Board.Moves)
 
-	// Cambia turno
 	if r.Board.Turn == "white" {
 		r.Board.Turn = "black"
 	} else {
@@ -172,11 +157,12 @@ func (r *Room) handleMove(sender *Client, move string) {
 		zap.Duration("black_time", r.BlackTime.Round(time.Second)),
 	)
 
-	// Controlla se la partita è finita
+	// Controlla fine partita — sblocca il mutex PRIMA di chiamare endGame
+	// perché endGame chiama Broadcast che potrebbe bloccarsi
 	status := engine.SF.GetGameStatus(r.Board.Moves)
+
 	switch status {
 	case engine.StatusCheckmate:
-		// Chi ha appena mosso ha vinto
 		result := models.ResultWhiteWins
 		if senderColor == "black" {
 			result = models.ResultBlackWins
@@ -194,8 +180,11 @@ func (r *Room) handleMove(sender *Client, move string) {
 		r.Board.Status = "draw"
 		r.mu.Unlock()
 		r.endGame(models.ResultDraw, "draw")
+
+	default:
+		r.mu.Unlock()
+		r.broadcastState()
 	}
-	r.broadcastState()
 }
 
 func (r *Room) Broadcast(msgType string, payload interface{}) {

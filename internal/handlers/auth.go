@@ -5,6 +5,7 @@ import (
 	"chess-server/internal/db"
 	mw "chess-server/internal/middleware"
 	"chess-server/internal/models"
+	"chess-server/internal/validation"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -34,6 +35,16 @@ func Register(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(models.APIResponse{
 			Success: false,
 			Error:   "Username, email e password sono obbligatori",
+		})
+		return
+	}
+
+	// Dopo il Decode della request, prima dell'hash:
+	if err := validation.ValidateRegister(req.Username, req.Email, req.Password); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Error:   err.Error(),
 		})
 		return
 	}
@@ -118,7 +129,127 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Genera il JWT
-	token, err := generateJWT(user.ID, user.Username)
+	accessToken, err := generateJWT(user.ID, user.Username)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Error:   "Errore generazione token",
+		})
+		return
+	}
+
+	refreshToken, err := generateRefreshToken(user.ID)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(models.APIResponse{Success: false, Error: "Errore generazione token"})
+		return
+	}
+
+	json.NewEncoder(w).Encode(models.APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"tokens": models.TokenPair{
+				AccessToken:  accessToken,
+				RefreshToken: refreshToken,
+			},
+			"user": user,
+		},
+	})
+}
+
+// generateJWT crea un token JWT firmato
+func generateJWT(userID int, username string) (string, error) {
+	// Claims = payload del token (cosa ci mettiamo dentro)
+	claims := jwt.MapClaims{
+		"user_id":  userID,
+		"username": username,
+		"type":     "access",
+		"exp":      time.Now().Add(24 * time.Hour).Unix(), // scade dopo 24h
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(config.C.JWTSecret))
+}
+
+// generateRefreshToken genera un refresh token (scade in 30 giorni)
+func generateRefreshToken(userID int) (string, error) {
+	claims := jwt.MapClaims{
+		"user_id": userID,
+		"type":    "refresh",
+		"exp":     time.Now().Add(30 * 24 * time.Hour).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(config.C.JWTSecret))
+}
+
+// RefreshToken gestisce POST /auth/refresh
+func RefreshToken(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Error:   "Dati non validi",
+		})
+		return
+	}
+
+	// Valida il refresh token
+	token, err := jwt.Parse(body.RefreshToken, func(t *jwt.Token) (interface{}, error) {
+		return []byte(config.C.JWTSecret), nil
+	})
+	if err != nil || !token.Valid {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Error:   "Refresh token non valido o scaduto",
+		})
+		return
+	}
+
+	claims := token.Claims.(jwt.MapClaims)
+
+	// Verifica che sia effettivamente un refresh token
+	if claims["type"] != "refresh" {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Error:   "Token non valido",
+		})
+		return
+	}
+
+	userID := int(claims["user_id"].(float64))
+
+	// Verifica che l'utente esista ancora nel DB
+	var username string
+	err = db.DB.QueryRow(`SELECT username FROM users WHERE id = $1`, userID).Scan(&username)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Error:   "Utente non trovato",
+		})
+		return
+	}
+
+	// Genera nuova coppia di token
+	accessToken, err := generateJWT(userID, username)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Error:   "Errore generazione token",
+		})
+		return
+	}
+
+	refreshToken, err := generateRefreshToken(userID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(models.APIResponse{
@@ -130,38 +261,37 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(models.APIResponse{
 		Success: true,
-		Data: map[string]interface{}{
-			"token": token,
-			"user":  user,
+		Data: models.TokenPair{
+			AccessToken:  accessToken,
+			RefreshToken: refreshToken,
 		},
 	})
-}
-
-// generateJWT crea un token JWT firmato
-func generateJWT(userID int, username string) (string, error) {
-	// Claims = payload del token (cosa ci mettiamo dentro)
-	claims := jwt.MapClaims{
-		"user_id":  userID,
-		"username": username,
-		"exp":      time.Now().Add(24 * time.Hour).Unix(), // scade dopo 24h
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(config.C.JWTSecret))
 }
 
 // Me restituisce il profilo dell'utente loggato
 func Me(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Legge i dati dell'utente iniettati dal middleware
 	claims := r.Context().Value(mw.UserKey).(jwt.MapClaims)
+	userID := int(claims["user_id"].(float64))
+
+	var user models.User
+	err := db.DB.QueryRow(`
+        SELECT id, username, email, elo, created_at
+        FROM users WHERE id = $1`, userID,
+	).Scan(&user.ID, &user.Username, &user.Email, &user.Elo, &user.CreatedAt)
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(models.APIResponse{
+			Success: false,
+			Error:   "Errore recupero profilo",
+		})
+		return
+	}
 
 	json.NewEncoder(w).Encode(models.APIResponse{
 		Success: true,
-		Data: map[string]interface{}{
-			"user_id":  claims["user_id"],
-			"username": claims["username"],
-		},
+		Data:    user,
 	})
 }
