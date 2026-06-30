@@ -5,6 +5,7 @@ import (
 	"chess-server/internal/logger"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -213,8 +214,8 @@ func (e *Engine) GetGameStatus(fen string) GameStatus {
 		return StatusStalemate
 	}
 
-	// Controlla patta per insufficienza materiale o regola delle 50 mosse
-	if e.isDraw(fen) {
+	// Controlla patta per regola delle 50 mosse o materiale insufficiente
+	if isDrawByRule(fen) {
 		return StatusDraw
 	}
 
@@ -238,18 +239,45 @@ func (e *Engine) isInCheck(fen string) bool {
 	return false
 }
 
-// isDraw verifica condizioni di patta
-func (e *Engine) isDraw(fen string) bool {
-	e.send(positionFromFEN(fen))
-	e.send("go depth 1")
-	lines := e.readUntil("bestmove")
+// isDrawByRule rileva le patte deducibili dalla sola FEN: regola delle 50
+// mosse e materiale insufficiente.
+//
+// NB: NON usa la valutazione del motore. Una valutazione ~0 NON è una patta:
+// quasi tutte le posizioni equilibrate valgono "score cp 0" a bassa profondità
+// (la versione precedente dichiarava patta dopo poche mosse per questo motivo).
+// La tripla ripetizione richiede lo storico delle posizioni e non è qui gestita.
+func isDrawByRule(fen string) bool {
+	fields := strings.Fields(fen)
 
-	for _, line := range lines {
-		if strings.Contains(line, "score cp 0") {
+	// 5° campo della FEN: halfmove clock (mosse senza catture né spinte di
+	// pedone). 100 mezze-mosse = 50 mosse complete.
+	if len(fields) >= 5 {
+		if hc, err := strconv.Atoi(fields[4]); err == nil && hc >= 100 {
 			return true
 		}
 	}
+
+	if len(fields) >= 1 {
+		return insufficientMaterial(fields[0])
+	}
 	return false
+}
+
+// insufficientMaterial indica una patta per impossibilità di matto. È
+// volutamente conservativa: dichiara patta solo nei casi netti — re contro re,
+// re + un solo pezzo minore contro re — così da non terminare mai una partita
+// ancora giocabile. (KB vs KB con alfieri sulle stesse case non è coperto.)
+func insufficientMaterial(placement string) bool {
+	minors := 0
+	for i := 0; i < len(placement); i++ {
+		switch placement[i] {
+		case 'p', 'P', 'r', 'R', 'q', 'Q':
+			return false // pedoni, torri o donne: il matto è possibile
+		case 'b', 'B', 'n', 'N':
+			minors++
+		}
+	}
+	return minors <= 1
 }
 
 // ApplyMove applica una mossa UCI (es. "e2e4") alla FEN data e ritorna la FEN
