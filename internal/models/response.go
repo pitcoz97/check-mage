@@ -25,6 +25,10 @@ const (
 	MsgDrawDeclined         = "draw_declined"
 	MsgResign               = "resign"
 
+	// Fasi del turno (scacchi + magie)
+	MsgPassPhase    = "pass_phase"    // il giocatore passa alla fase successiva
+	MsgPhaseChanged = "phase_changed" // notifica server→client di cambio fase/turno
+
 	// Risultati partita
 	ResultWhiteWins = "1-0"
 	ResultBlackWins = "0-1"

@@ -23,6 +23,9 @@ type Client struct {
 // WritePump legge dal canale Send e scrive sul WebSocket
 // Gira in una goroutine dedicata per ogni client
 func (c *Client) WritePump() {
+	if c.Conn == nil {
+		return // nessuna connessione reale (es. client mock nei test)
+	}
 	defer c.Conn.Close()
 
 	for msg := range c.Send {
@@ -36,6 +39,9 @@ func (c *Client) WritePump() {
 // ReadPump legge i messaggi in arrivo dal WebSocket
 // Gira in una goroutine dedicata per ogni client
 func (c *Client) ReadPump() {
+	if c.Conn == nil {
+		return // nessuna connessione reale (es. client mock nei test)
+	}
 	defer func() {
 
 		GameManager.LeaveQueue(c)

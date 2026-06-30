@@ -5,7 +5,9 @@ import (
 	"chess-server/internal/db"
 	"chess-server/internal/engine"
 	"chess-server/internal/logger"
+	"chess-server/internal/match"
 	"chess-server/internal/models"
+	"chess-server/internal/phase"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -20,7 +22,8 @@ type Room struct {
 	ID                string
 	White             *Client
 	Black             *Client
-	Board             *Board              // stato della scacchiera
+	Board             *Board              // stato della scacchiera (scacchi puri)
+	Match             *match.State        // orchestrazione fasi/turno (scacchi + magie)
 	WhiteTime         time.Duration       // tempo rimanente bianco
 	BlackTime         time.Duration       // tempo rimanente nero
 	Increment         time.Duration       // incremento per mossa (es. 5 secondi)
@@ -51,6 +54,7 @@ func NewRoom(id string, white, black *Client, baseTime, increment time.Duration)
 			Turn:   "white",
 			Status: "active",
 		},
+		Match:             match.New(), // draw / turno 1 / Bianco
 		WhiteTime:         baseTime,
 		BlackTime:         baseTime,
 		Increment:         increment,
@@ -85,6 +89,9 @@ func (r *Room) HandleMessage(sender *Client, msg models.WSMessage) {
 		}
 		r.handleMove(sender, moveData.Move)
 
+	case models.MsgPassPhase:
+		r.handlePassPhase(sender)
+
 	case models.MsgResign:
 		r.handleResign(sender)
 
@@ -109,6 +116,12 @@ func (r *Room) handleMove(sender *Client, move string) {
 	if senderColor != r.Board.Turn {
 		r.mu.Unlock()
 		sender.sendError("Non è il tuo turno")
+		return
+	}
+
+	if r.Match.CurrentPhase != phase.PhaseMove {
+		r.mu.Unlock()
+		sender.sendError(fmt.Sprintf("Non puoi muovere nella fase %s", r.Match.CurrentPhase))
 		return
 	}
 
@@ -182,9 +195,76 @@ func (r *Room) handleMove(sender *Client, move string) {
 		r.endGame(models.ResultDraw, "draw")
 
 	default:
+		// La mossa è l'unica azione della fase move: avanza a main2 (stesso
+		// giocatore, che ora può castare magie e poi passare il turno).
+		r.Match.Advance(r.phaseHooks())
 		r.mu.Unlock()
 		r.broadcastState()
+		r.broadcastPhase()
 	}
+}
+
+// handlePassPhase gestisce il passaggio volontario alla fase successiva.
+func (r *Room) handlePassPhase(sender *Client) {
+	r.mu.Lock()
+
+	senderColor := match.Player(r.getColor(sender))
+	if !r.Match.IsActive(senderColor) {
+		r.mu.Unlock()
+		sender.sendError("Non è il tuo turno")
+		return
+	}
+
+	if !r.Match.Allows(phase.ActionPassPhase) {
+		r.mu.Unlock()
+		sender.sendError(fmt.Sprintf("Non puoi passare nella fase %s", r.Match.CurrentPhase))
+		return
+	}
+
+	r.Match.Advance(r.phaseHooks())
+
+	logger.L.Info("Fase passata",
+		zap.String("room", r.ID),
+		zap.String("player", sender.Username),
+		zap.String("phase", string(r.Match.CurrentPhase)),
+		zap.Int("turn", r.Match.TurnNumber),
+	)
+
+	r.mu.Unlock()
+	r.broadcastPhase()
+}
+
+// phaseHooks restituisce gli hook di ingresso fase per questo match. In Step 1
+// sono placeholder che si limitano a loggare; gli step successivi vi
+// agganceranno la pesca (OnDraw) e i trigger di fine turno (OnEndTurn).
+func (r *Room) phaseHooks() match.Hooks {
+	return match.Hooks{
+		OnDraw: func(s *match.State) {
+			// TODO(step2): pescare 1 carta per s.ActivePlayer.
+			logger.L.Debug("Ingresso fase draw",
+				zap.String("room", r.ID),
+				zap.String("active", string(s.ActivePlayer)),
+				zap.Int("turn", s.TurnNumber),
+			)
+		},
+		OnEndTurn: func(s *match.State) {
+			// TODO(step4): decrementare i contatori degli effetti attivi.
+			logger.L.Debug("Ingresso fase end_turn",
+				zap.String("room", r.ID),
+				zap.String("active", string(s.ActivePlayer)),
+				zap.Int("turn", s.TurnNumber),
+			)
+		},
+	}
+}
+
+// broadcastPhase notifica entrambi i client del cambio di fase/turno.
+func (r *Room) broadcastPhase() {
+	r.Broadcast(models.MsgPhaseChanged, map[string]interface{}{
+		"phase":         r.Match.CurrentPhase,
+		"active_player": r.Match.ActivePlayer,
+		"turn_number":   r.Match.TurnNumber,
+	})
 }
 
 func (r *Room) Broadcast(msgType string, payload interface{}) {
@@ -264,10 +344,13 @@ func (r *Room) Reconnect(client *Client) {
 
 	// Manda lo stato completo al giocatore riconnesso
 	client.SendMessage(models.MsgGameState, map[string]interface{}{
-		"board":       r.Board,
-		"white_time":  r.WhiteTime.Milliseconds(),
-		"black_time":  r.BlackTime.Milliseconds(),
-		"reconnected": true,
+		"board":         r.Board,
+		"white_time":    r.WhiteTime.Milliseconds(),
+		"black_time":    r.BlackTime.Milliseconds(),
+		"phase":         r.Match.CurrentPhase,
+		"active_player": r.Match.ActivePlayer,
+		"turn_number":   r.Match.TurnNumber,
+		"reconnected":   true,
 	})
 
 	// Notifica l'avversario
@@ -365,7 +448,12 @@ func (r *Room) endGame(result, reason string) {
 }
 
 // runTimer fa scorrere il tempo del giocatore di turno
-// e termina la partita se scade
+// e termina la partita se scade.
+//
+// NOTA: l'orologio segue Board.Turn (il lato che deve muovere negli scacchi),
+// che si ribalta alla mossa, non Match.ActivePlayer. In Step 1 è ininfluente
+// (i giocatori passano le fasi main istantaneamente); andrà rivisto quando le
+// magie daranno durata reale alle fasi main.
 func (r *Room) runTimer() {
 	tickGame := time.NewTicker(100 * time.Millisecond) // aggiorna ogni 100ms
 	tickBroadcast := time.NewTicker(1 * time.Second)   // aggiorna ogni 100ms
@@ -418,9 +506,12 @@ func (r *Room) broadcastTimers() {
 // broadcastState manda lo stato completo inclusi i tempi
 func (r *Room) broadcastState() {
 	r.Broadcast(models.MsgGameState, map[string]interface{}{
-		"board":      r.Board,
-		"white_time": r.WhiteTime.Milliseconds(),
-		"black_time": r.BlackTime.Milliseconds(),
+		"board":         r.Board,
+		"white_time":    r.WhiteTime.Milliseconds(),
+		"black_time":    r.BlackTime.Milliseconds(),
+		"phase":         r.Match.CurrentPhase,
+		"active_player": r.Match.ActivePlayer,
+		"turn_number":   r.Match.TurnNumber,
 	})
 }
 

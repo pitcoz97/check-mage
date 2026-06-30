@@ -2,6 +2,7 @@ package game
 
 import (
 	"chess-server/internal/logger"
+	"chess-server/internal/match"
 	"sync"
 	"testing"
 	"time"
@@ -215,6 +216,7 @@ func TestManager_Reconnection(t *testing.T) {
 	room := &Room{
 		ID:     "room-1-2",
 		Board:  &Board{Status: "active"},
+		Match:  match.New(),
 		White:  createMockClient(1, "player1"),
 		Black:  createMockClient(2, "player2"),
 	}
@@ -241,6 +243,7 @@ func TestManager_Reconnection_RoomNotActive(t *testing.T) {
 	room := &Room{
 		ID:     "room-1-2",
 		Board:  &Board{Status: "checkmate"},
+		Match:  match.New(),
 		White:  createMockClient(1, "player1"),
 		Black:  createMockClient(2, "player2"),
 	}
