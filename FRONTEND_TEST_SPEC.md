@@ -139,6 +139,18 @@ Ogni turno scorre: **`draw → main1 → move → main2 → end_turn`** (poi tur
 
 ---
 
+## 7bis. 🆕 Effetti persistenti sui pezzi (freeze / shield)
+
+Alcune magie applicano effetti che **durano nel tempo** e seguono il **pezzo** (non la casella).
+
+- [ ] Renderizzare gli effetti attivi da `game_state.active_effects` (`[{square, effects:[{kind, remaining_turns}]}]`) — es. icona ghiaccio su un pezzo congelato, scudo su un pezzo protetto.
+- [ ] Aggiornarli quando arriva un `spell_cast` con `effects_applied` di tipo `freeze_piece`/`shield_piece` (`{kind, target, remaining_turns}`).
+- [ ] Rimuoverli quando arriva `effect_expired` (`{square, effect_kind}`).
+- [ ] **Freeze**: un pezzo congelato non può muoversi; se il giocatore prova a muoverlo il server risponde `error: "Il pezzo in X è congelato"`. Idealmente disabilita la selezione di quel pezzo.
+- [ ] **Shield**: protegge un pezzo proprio e **assorbe una cattura**. Quando l'avversario prova a catturare un pezzo scudato, il server **rifiuta la mossa** (`error`) e **consuma lo scudo** (ricevi `effect_expired` per quella casella). Lo scudo segue il pezzo se questo si muove.
+- Durata: `remaining_turns` si riferisce ai **turni del proprietario** del pezzo (freeze 2 = il pezzo resta congelato per 2 turni di chi lo possiede). Il decremento avviene a fine turno; ricevi `effect_expired` quando arriva a 0.
+- Decisioni server (per i test): lo scudo protegge **solo dalle catture scacchistiche**, non da `disintegrate`; la cattura *en passant* di un pedone scudato non è bloccata (caso limite).
+
 ## 8. Riferimento messaggi WebSocket
 
 ### Client → Server
@@ -157,13 +169,14 @@ Ogni turno scorre: **`draw → main1 → move → main2 → end_turn`** (poi tur
 
 | `type` | `payload` | Destinatario |
 |---|---|---|
-| `game_state` | `{board:{fen,moves,turn,status}, white_time, black_time, phase, active_player, turn_number, white_mana, white_max_mana, black_mana, black_max_mana, white_hand_size, black_hand_size, white_deck_size, black_deck_size, reconnected?}` | entrambi (pubblico) |
+| `game_state` | `{board:{fen,moves,turn,status}, white_time, black_time, phase, active_player, turn_number, white_mana, white_max_mana, black_mana, black_max_mana, white_hand_size, black_hand_size, white_deck_size, black_deck_size, active_effects:[{square, effects:[{kind, remaining_turns}]}], reconnected?}` | entrambi (pubblico) |
 | `hand` | `{hand:[id...], mana, max_mana, deck_size}` | **solo proprietario** |
 | `card_drawn` | `{card_id, deck_size}` | **solo chi pesca** |
 | `hand_size_changed` | `{player, size}` | entrambi |
 | `mana_changed` | `{player, current, max}` | entrambi |
 | `phase_changed` | `{phase, active_player, turn_number}` | entrambi |
-| `spell_cast` | `{player, spell_id, targets, effects_applied:[{kind, target?, piece_destroyed?}]}` | entrambi |
+| `spell_cast` | `{player, spell_id, targets, effects_applied:[{kind, target?, piece_destroyed?, remaining_turns?}]}` | entrambi |
+| `effect_expired` | `{square, effect_kind, piece_id?}` | entrambi |
 | `timer_update` | `{white_time, black_time, turn}` | entrambi |
 | `game_over` | `{result, reason, winner?}` | entrambi |
 | `opponent_disconnected` | `{message}` | avversario |
@@ -187,10 +200,13 @@ Ogni turno scorre: **`draw → main1 → move → main2 → end_turn`** (poi tur
 | `surge` | Surge | 3 | none | noop |
 | `nova` | Nova | 5 | none | noop |
 | `disintegrate` | Disintegrate | 4 | enemy_piece | **destroy_piece** (rimuove un pezzo nemico) |
+| `frostbolt` | Frost Bolt | 2 | enemy_piece | **freeze_piece** (congela un pezzo nemico per 2 suoi turni) |
+| `aegis` | Aegis | 3 | own_piece | **shield_piece** (protegge un pezzo proprio, assorbe 1 cattura, 2 turni) |
 
 - Mazzo: 40 carte (condiviso/identico per i due giocatori in Fase 1).
 - `noop` = la carta costa mana e va nello scarto, ma **non** ha effetti (utile a testare mana/mano).
-- Solo `disintegrate` modifica davvero la scacchiera.
+- `disintegrate` modifica la FEN; `frostbolt`/`aegis` aggiungono **effetti persistenti** ai pezzi (vedi §7bis).
+- Bersagli: `enemy_piece`/`own_piece` richiedono **una casella** in `targets` (es. `["e7"]`).
 
 ---
 
@@ -216,5 +232,7 @@ Ogni turno scorre: **`draw → main1 → move → main2 → end_turn`** (poi tur
 4. **Magia noop**: casta `spark` in `main1` → mana −1, carta nello scarto, `spell_cast` a entrambi, board invariata.
 5. **Magia destroy_piece**: con `disintegrate` in mano, casta su un pezzo nemico (es. `e7`) in `main1` → `spell_cast` con `piece_destroyed`, `game_state` con FEN aggiornata; poi una mossa legale successiva deve essere accettata sulla **nuova** posizione.
 6. **Rifiuti magia**: casella vuota / pezzo proprio / re / mana insufficiente / carta non in mano / fase sbagliata → `error`, nessun costo.
+6bis. **Freeze**: con `frostbolt` congela un pezzo nemico; al suo turno l'avversario non può muoverlo (errore). Dopo `remaining_turns` turni arriva `effect_expired` e il pezzo torna mobile.
+6ter. **Shield**: con `aegis` proteggi un tuo pezzo; quando l'avversario tenta di catturarlo la mossa è rifiutata e arriva `effect_expired` (scudo consumato). Al tentativo successivo la cattura va a segno.
 7. **Riconnessione**: chiudi e riapri il WS dello stesso utente a partita in corso → ricevi `game_state` (`reconnected: true`) + `hand` privata ripristinata; l'avversario riceve `opponent_reconnected`.
 8. **Disconnessione/timeout**: chiudi un client e non riconnetterti per 30s → l'altro vince per `abandonment`.

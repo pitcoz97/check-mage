@@ -44,6 +44,8 @@ func (t TargetType) TargetCount() int {
 const (
 	EffectNoop         = "noop"          // nessun effetto (placeholder)
 	EffectDestroyPiece = "destroy_piece" // distrugge un pezzo nemico (Step 3)
+	EffectFreezePiece  = "freeze_piece"  // congela un pezzo nemico (Step 4)
+	EffectShieldPiece  = "shield_piece"  // protegge un pezzo proprio (Step 4)
 )
 
 // Effect è un effetto componibile di una magia.
@@ -68,8 +70,8 @@ func noop() []Effect { return []Effect{{Kind: EffectNoop}} }
 // castableInMain elenca le fasi main (default per le magie del MVP).
 var castableInMain = []phase.Phase{phase.PhaseMain1, phase.PhaseMain2}
 
-// Catalog è la libreria delle magie indicizzata per ID. Set MVP: 5 placeholder
-// (effetto noop) + "Disintegrate" (Step 3: distrugge un pezzo nemico).
+// Catalog è la libreria delle magie indicizzata per ID. Set MVP: placeholder
+// noop + magie con effetti reali (destroy/freeze/shield).
 var Catalog = map[string]Spell{
 	"spark":        {ID: "spark", Name: "Spark", ManaCost: 1, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
 	"jolt":         {ID: "jolt", Name: "Jolt", ManaCost: 2, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
@@ -77,6 +79,8 @@ var Catalog = map[string]Spell{
 	"surge":        {ID: "surge", Name: "Surge", ManaCost: 3, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
 	"nova":         {ID: "nova", Name: "Nova", ManaCost: 5, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
 	"disintegrate": {ID: "disintegrate", Name: "Disintegrate", ManaCost: 4, Phases: castableInMain, TargetType: TargetEnemyPiece, Effects: []Effect{{Kind: EffectDestroyPiece}}},
+	"frostbolt":    {ID: "frostbolt", Name: "Frost Bolt", ManaCost: 2, Phases: castableInMain, TargetType: TargetEnemyPiece, Effects: []Effect{{Kind: EffectFreezePiece, Params: map[string]interface{}{"turns": 2}}}},
+	"aegis":        {ID: "aegis", Name: "Aegis", ManaCost: 3, Phases: castableInMain, TargetType: TargetOwnPiece, Effects: []Effect{{Kind: EffectShieldPiece, Params: map[string]interface{}{"turns": 2}}}},
 }
 
 // deckRecipe definisce quante copie di ogni carta compongono il mazzo MVP.
@@ -88,11 +92,13 @@ var deckRecipe = []struct {
 	Count int
 }{
 	{"spark", 10},
-	{"jolt", 8},
-	{"pulse", 8},
-	{"surge", 7},
+	{"jolt", 7},
+	{"pulse", 7},
+	{"surge", 6},
 	{"disintegrate", 4},
-	{"nova", 3},
+	{"frostbolt", 3},
+	{"aegis", 2},
+	{"nova", 1},
 }
 
 // BuildDeck costruisce un mazzo ordinato (non mischiato) dal deckRecipe.

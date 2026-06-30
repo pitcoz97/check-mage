@@ -26,6 +26,7 @@ type Room struct {
 	Black             *Client
 	Board             *Board              // stato della scacchiera (scacchi puri)
 	Match             *match.State        // orchestrazione fasi/turno (scacchi + magie)
+	Tracker           *effects.Tracker    // identità pezzi + effetti persistenti (freeze/shield)
 	WhiteTime         time.Duration       // tempo rimanente bianco
 	BlackTime         time.Duration       // tempo rimanente nero
 	Increment         time.Duration       // incremento per mossa (es. 5 secondi)
@@ -66,7 +67,8 @@ func NewRoom(id string, white, black *Client, baseTime, increment time.Duration)
 		disconnectedTimer: make(map[int]*time.Timer),
 		posCounts:         make(map[string]int),
 	}
-	room.recordPosition() // conta la posizione iniziale (tripla ripetizione)
+	room.Tracker = effects.NewTracker(room.Board.FEN) // identità pezzi per gli effetti
+	room.recordPosition()                             // conta la posizione iniziale (tripla ripetizione)
 
 	white.Room = room
 	black.Room = room
@@ -181,6 +183,28 @@ func (r *Room) handleMove(sender *Client, move string) {
 		return
 	}
 
+	from, to := move[:2], move[2:4]
+
+	// Effetto freeze: un pezzo congelato non può muoversi.
+	if r.Tracker.IsFrozen(from) {
+		r.mu.Unlock()
+		sender.sendError(fmt.Sprintf("Il pezzo in %s è congelato", from))
+		return
+	}
+
+	// Effetto shield: catturare un pezzo protetto è impedito; lo scudo assorbe
+	// il tentativo (viene consumato) e la mossa è rifiutata.
+	if r.Tracker.HasShield(to) {
+		r.Tracker.ConsumeShield(to)
+		r.mu.Unlock()
+		sender.sendError(fmt.Sprintf("Il pezzo in %s è protetto da uno scudo (assorbito)", to))
+		r.Broadcast(models.MsgEffectExpired, map[string]interface{}{
+			"square":      to,
+			"effect_kind": effects.KindShield,
+		})
+		return
+	}
+
 	// Calcola il tempo impiegato
 	elapsed := time.Since(r.lastMoveAt)
 
@@ -207,6 +231,12 @@ func (r *Room) handleMove(sender *Client, move string) {
 	// La FEN è la fonte di verità (le magie possono editarla fuori dalle mosse).
 	r.Board.FEN = engine.SF.ApplyMove(r.Board.FEN, move)
 	r.Board.Turn = sideToMove(r.Board.FEN)
+	// Tieni allineata l'identità dei pezzi (gli effetti seguono il pezzo).
+	var promo byte
+	if len(move) >= 5 {
+		promo = move[4]
+	}
+	r.Tracker.MovePiece(from, to, promo)
 	r.recordPosition()
 
 	logger.L.Info("Mossa giocata",
@@ -249,11 +279,13 @@ func (r *Room) handleMove(sender *Client, move string) {
 		// auto-avanza (main2/draw/main1 si saltano da soli se non richiedono
 		// input). Snapshot dei passaggi sotto lock, broadcast dopo.
 		results := append([]match.AdvanceResult{r.Match.Advance()}, r.Match.AutoAdvance()...)
+		expired := r.tickEffectsOnNewTurn(results)
 		r.mu.Unlock()
 		r.broadcastState()
 		for _, res := range results {
 			r.applyAdvanceBroadcasts(res)
 		}
+		r.broadcastExpired(expired)
 	}
 }
 
@@ -276,6 +308,7 @@ func (r *Room) handlePassPhase(sender *Client) {
 
 	// Passa la fase, poi auto-avanza le fasi che non richiedono input.
 	results := append([]match.AdvanceResult{r.Match.Advance()}, r.Match.AutoAdvance()...)
+	expired := r.tickEffectsOnNewTurn(results)
 
 	logger.L.Info("Fase passata",
 		zap.String("room", r.ID),
@@ -288,6 +321,7 @@ func (r *Room) handlePassPhase(sender *Client) {
 	for _, res := range results {
 		r.applyAdvanceBroadcasts(res)
 	}
+	r.broadcastExpired(expired)
 }
 
 // handleCastSpell gestisce il gioco di una magia. In Step 2 gli effetti sono
@@ -316,6 +350,7 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 	// Dopo il cast il giocatore potrebbe essere rimasto senza mana/carte: la
 	// fase main si auto-avanza di conseguenza.
 	autoResults := r.Match.AutoAdvance()
+	expired := r.tickEffectsOnNewTurn(autoResults)
 
 	logger.L.Info("Magia giocata",
 		zap.String("room", r.ID),
@@ -346,6 +381,7 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 	for _, ar := range autoResults {
 		r.applyAdvanceBroadcasts(ar)
 	}
+	r.broadcastExpired(expired)
 }
 
 // applySpellEffects esegue gli effetti di una magia sulla board (FEN). Ritorna
@@ -377,10 +413,35 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 			}
 			fen = newFEN
 			changed = true
+			r.Tracker.RemoveAt(targets[0]) // l'identità del pezzo distrutto sparisce
 			applied = append(applied, map[string]interface{}{
 				"kind":            eff.Kind,
 				"target":          targets[0],
 				"piece_destroyed": destroyed,
+			})
+
+		case spells.EffectFreezePiece:
+			if len(targets) == 0 {
+				return nil, false, fmt.Errorf("la magia %s richiede un bersaglio", def.Name)
+			}
+			turns := paramInt(eff.Params, "turns", 1)
+			if err := effects.FreezePiece(r.Tracker, targets[0], casterColor, turns, def.ID); err != nil {
+				return nil, false, err
+			}
+			applied = append(applied, map[string]interface{}{
+				"kind": eff.Kind, "target": targets[0], "remaining_turns": turns,
+			})
+
+		case spells.EffectShieldPiece:
+			if len(targets) == 0 {
+				return nil, false, fmt.Errorf("la magia %s richiede un bersaglio", def.Name)
+			}
+			turns := paramInt(eff.Params, "turns", 1)
+			if err := effects.ShieldPiece(r.Tracker, targets[0], casterColor, turns, def.ID); err != nil {
+				return nil, false, err
+			}
+			applied = append(applied, map[string]interface{}{
+				"kind": eff.Kind, "target": targets[0], "remaining_turns": turns,
 			})
 
 		default:
@@ -393,6 +454,60 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 		r.Board.FEN = fen
 	}
 	return applied, changed, nil
+}
+
+// tickEffectsOnNewTurn, se nei risultati c'è un nuovo turno, decrementa gli
+// effetti del giocatore che ha appena finito (così "freeze 2" dura 2 suoi turni)
+// e restituisce gli effetti scaduti. Va invocata con r.mu tenuto.
+func (r *Room) tickEffectsOnNewTurn(results []match.AdvanceResult) []effects.ExpiredEffect {
+	for _, res := range results {
+		if res.NewTurn {
+			finishing := res.ActivePlayer.Opponent() // chi ha appena chiuso il turno
+			return r.Tracker.TickColor(toEffectsColor(finishing))
+		}
+	}
+	return nil
+}
+
+// broadcastExpired notifica entrambi i client degli effetti scaduti.
+func (r *Room) broadcastExpired(expired []effects.ExpiredEffect) {
+	for _, e := range expired {
+		r.Broadcast(models.MsgEffectExpired, map[string]interface{}{
+			"square":      e.Square,
+			"effect_kind": e.Kind,
+			"piece_id":    e.PieceID,
+		})
+	}
+}
+
+// toEffectsColor mappa il giocatore del match nel colore del package effects.
+func toEffectsColor(p match.Player) effects.Color {
+	if p == match.PlayerBlack {
+		return effects.Black
+	}
+	return effects.White
+}
+
+// activeEffects restituisce gli effetti persistenti attivi (nil-safe).
+func (r *Room) activeEffects() []effects.PieceEffectInfo {
+	if r.Tracker == nil {
+		return nil
+	}
+	return r.Tracker.ActiveEffects()
+}
+
+// paramInt legge un parametro intero da una mappa (gestendo int e float64).
+func paramInt(params map[string]interface{}, key string, def int) int {
+	if params == nil {
+		return def
+	}
+	switch v := params[key].(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	}
+	return def
 }
 
 // applyAdvanceBroadcasts traduce un AdvanceResult in messaggi WebSocket.
@@ -734,6 +849,7 @@ func (r *Room) publicState() map[string]interface{} {
 		"black_hand_size": len(r.Match.Black.Hand),
 		"white_deck_size": len(r.Match.White.Deck),
 		"black_deck_size": len(r.Match.Black.Deck),
+		"active_effects":  r.activeEffects(),
 	}
 }
 
