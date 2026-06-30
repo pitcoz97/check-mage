@@ -216,7 +216,7 @@ func TestManager_Reconnection(t *testing.T) {
 	room := &Room{
 		ID:     "room-1-2",
 		Board:  &Board{Status: "active"},
-		Match:  match.New(),
+		Match:  match.New(0),
 		White:  createMockClient(1, "player1"),
 		Black:  createMockClient(2, "player2"),
 	}
@@ -243,7 +243,7 @@ func TestManager_Reconnection_RoomNotActive(t *testing.T) {
 	room := &Room{
 		ID:     "room-1-2",
 		Board:  &Board{Status: "checkmate"},
-		Match:  match.New(),
+		Match:  match.New(0),
 		White:  createMockClient(1, "player1"),
 		Black:  createMockClient(2, "player2"),
 	}

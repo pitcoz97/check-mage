@@ -29,6 +29,14 @@ const (
 	MsgPassPhase    = "pass_phase"    // il giocatore passa alla fase successiva
 	MsgPhaseChanged = "phase_changed" // notifica server→client di cambio fase/turno
 
+	// Card game (scacchi + magie)
+	MsgCastSpell       = "cast_spell"        // client→server: gioca una magia
+	MsgSpellCast       = "spell_cast"        // server→client: magia giocata (broadcast)
+	MsgHand            = "hand"              // server→client: mano completa (solo al proprietario)
+	MsgCardDrawn       = "card_drawn"        // server→client: carta pescata (solo a chi pesca)
+	MsgHandSizeChanged = "hand_size_changed" // server→client: cambio dimensione mano (broadcast)
+	MsgManaChanged     = "mana_changed"      // server→client: cambio mana (broadcast)
+
 	// Risultati partita
 	ResultWhiteWins = "1-0"
 	ResultBlackWins = "0-1"

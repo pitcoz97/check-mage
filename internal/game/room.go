@@ -54,7 +54,7 @@ func NewRoom(id string, white, black *Client, baseTime, increment time.Duration)
 			Turn:   "white",
 			Status: "active",
 		},
-		Match:             match.New(), // draw / turno 1 / Bianco
+		Match:             match.New(time.Now().UnixNano()), // draw / turno 1 / Bianco, mazzi mischiati
 		WhiteTime:         baseTime,
 		BlackTime:         baseTime,
 		Increment:         increment,
@@ -66,8 +66,12 @@ func NewRoom(id string, white, black *Client, baseTime, increment time.Duration)
 	white.Room = room
 	black.Room = room
 
-	// Manda lo stato iniziale con i tempi
+	// Manda lo stato iniziale con i tempi e la fase
 	room.broadcastState()
+
+	// Manda a ciascun giocatore la propria mano iniziale (anti-cheat: solo la sua)
+	room.sendHand(match.PlayerWhite)
+	room.sendHand(match.PlayerBlack)
 
 	// Avvia il timer per il bianco (inizia sempre lui)
 	go room.runTimer()
@@ -91,6 +95,17 @@ func (r *Room) HandleMessage(sender *Client, msg models.WSMessage) {
 
 	case models.MsgPassPhase:
 		r.handlePassPhase(sender)
+
+	case models.MsgCastSpell:
+		var spellData struct {
+			SpellID string   `json:"spell_id"`
+			Targets []string `json:"targets"`
+		}
+		if err := json.Unmarshal(msg.Payload, &spellData); err != nil {
+			sender.sendError("Formato cast_spell non valido")
+			return
+		}
+		r.handleCastSpell(sender, spellData.SpellID, spellData.Targets)
 
 	case models.MsgResign:
 		r.handleResign(sender)
@@ -196,11 +211,12 @@ func (r *Room) handleMove(sender *Client, move string) {
 
 	default:
 		// La mossa è l'unica azione della fase move: avanza a main2 (stesso
-		// giocatore, che ora può castare magie e poi passare il turno).
-		r.Match.Advance(r.phaseHooks())
+		// giocatore, che ora può castare magie e poi passare il turno). La
+		// mossa non chiude mai il turno, quindi nessuna pesca qui.
+		res := r.Match.Advance()
 		r.mu.Unlock()
 		r.broadcastState()
-		r.broadcastPhase()
+		r.applyAdvanceBroadcasts(res)
 	}
 }
 
@@ -221,7 +237,7 @@ func (r *Room) handlePassPhase(sender *Client) {
 		return
 	}
 
-	r.Match.Advance(r.phaseHooks())
+	res := r.Match.Advance()
 
 	logger.L.Info("Fase passata",
 		zap.String("room", r.ID),
@@ -231,30 +247,57 @@ func (r *Room) handlePassPhase(sender *Client) {
 	)
 
 	r.mu.Unlock()
-	r.broadcastPhase()
+	r.applyAdvanceBroadcasts(res)
 }
 
-// phaseHooks restituisce gli hook di ingresso fase per questo match. In Step 1
-// sono placeholder che si limitano a loggare; gli step successivi vi
-// agganceranno la pesca (OnDraw) e i trigger di fine turno (OnEndTurn).
-func (r *Room) phaseHooks() match.Hooks {
-	return match.Hooks{
-		OnDraw: func(s *match.State) {
-			// TODO(step2): pescare 1 carta per s.ActivePlayer.
-			logger.L.Debug("Ingresso fase draw",
-				zap.String("room", r.ID),
-				zap.String("active", string(s.ActivePlayer)),
-				zap.Int("turn", s.TurnNumber),
-			)
-		},
-		OnEndTurn: func(s *match.State) {
-			// TODO(step4): decrementare i contatori degli effetti attivi.
-			logger.L.Debug("Ingresso fase end_turn",
-				zap.String("room", r.ID),
-				zap.String("active", string(s.ActivePlayer)),
-				zap.Int("turn", s.TurnNumber),
-			)
-		},
+// handleCastSpell gestisce il gioco di una magia. In Step 2 gli effetti sono
+// noop: scala il mana e manda la carta nello scarto senza toccare la board.
+func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string) {
+	r.mu.Lock()
+
+	senderColor := match.Player(r.getColor(sender))
+	res, err := r.Match.CastSpell(senderColor, spellID, targets)
+	if err != nil {
+		r.mu.Unlock()
+		sender.sendError(err.Error())
+		return
+	}
+
+	logger.L.Info("Magia giocata",
+		zap.String("room", r.ID),
+		zap.String("player", sender.Username),
+		zap.String("spell", res.Spell.ID),
+		zap.Int("mana_after", res.ManaAfter),
+	)
+
+	r.mu.Unlock()
+
+	// spell_cast a entrambi: rivela solo la carta giocata e gli effetti applicati.
+	r.Broadcast(models.MsgSpellCast, map[string]interface{}{
+		"player":          senderColor,
+		"spell_id":        res.Spell.ID,
+		"targets":         res.Targets,
+		"effects_applied": res.EffectsApplied,
+	})
+	r.broadcastMana(match.ManaState{Player: senderColor, Current: res.ManaAfter, Max: res.ManaMax})
+	r.Broadcast(models.MsgHandSizeChanged, map[string]interface{}{
+		"player": senderColor,
+		"size":   res.HandSize,
+	})
+}
+
+// applyAdvanceBroadcasts traduce un AdvanceResult in messaggi WebSocket.
+// Va invocato SENZA tenere il lock.
+func (r *Room) applyAdvanceBroadcasts(res match.AdvanceResult) {
+	r.broadcastPhase()
+	if !res.NewTurn {
+		return
+	}
+	if res.Mana != nil {
+		r.broadcastMana(*res.Mana)
+	}
+	if res.Draw != nil {
+		r.broadcastDraw(*res.Draw)
 	}
 }
 
@@ -264,6 +307,59 @@ func (r *Room) broadcastPhase() {
 		"phase":         r.Match.CurrentPhase,
 		"active_player": r.Match.ActivePlayer,
 		"turn_number":   r.Match.TurnNumber,
+	})
+}
+
+// broadcastMana notifica entrambi del nuovo mana di un giocatore (info pubblica).
+func (r *Room) broadcastMana(m match.ManaState) {
+	r.Broadcast(models.MsgManaChanged, map[string]interface{}{
+		"player":  m.Player,
+		"current": m.Current,
+		"max":     m.Max,
+	})
+}
+
+// broadcastDraw manda card_drawn solo a chi pesca (anti-cheat) e
+// hand_size_changed a entrambi.
+func (r *Room) broadcastDraw(d match.DrawResult) {
+	if d.CardID != "" {
+		if c := r.clientOf(d.Player); c != nil {
+			c.SendMessage(models.MsgCardDrawn, map[string]interface{}{
+				"card_id":   d.CardID,
+				"deck_size": d.DeckSize,
+			})
+		}
+	}
+	r.Broadcast(models.MsgHandSizeChanged, map[string]interface{}{
+		"player": d.Player,
+		"size":   d.HandSize,
+	})
+}
+
+// clientOf restituisce il client del colore dato.
+func (r *Room) clientOf(p match.Player) *Client {
+	if p == match.PlayerWhite {
+		return r.White
+	}
+	return r.Black
+}
+
+// sendHand manda la mano completa (e il mana) solo al giocatore proprietario.
+// Il chiamante deve tenere r.mu, oppure invocarla in fase di init.
+func (r *Room) sendHand(p match.Player) {
+	c := r.clientOf(p)
+	if c == nil {
+		return
+	}
+	ps := r.Match.White
+	if p == match.PlayerBlack {
+		ps = r.Match.Black
+	}
+	c.SendMessage(models.MsgHand, map[string]interface{}{
+		"hand":      ps.Hand,
+		"mana":      ps.Mana,
+		"max_mana":  ps.MaxMana,
+		"deck_size": len(ps.Deck),
 	})
 }
 
@@ -342,16 +438,13 @@ func (r *Room) Reconnect(client *Client) {
 		zap.String("player", client.Username),
 	)
 
-	// Manda lo stato completo al giocatore riconnesso
-	client.SendMessage(models.MsgGameState, map[string]interface{}{
-		"board":         r.Board,
-		"white_time":    r.WhiteTime.Milliseconds(),
-		"black_time":    r.BlackTime.Milliseconds(),
-		"phase":         r.Match.CurrentPhase,
-		"active_player": r.Match.ActivePlayer,
-		"turn_number":   r.Match.TurnNumber,
-		"reconnected":   true,
-	})
+	// Manda lo stato pubblico completo al giocatore riconnesso
+	state := r.publicState()
+	state["reconnected"] = true
+	client.SendMessage(models.MsgGameState, state)
+
+	// Re-invia la mano privata (anti-cheat: solo la sua)
+	r.sendHand(match.Player(r.getColor(client)))
 
 	// Notifica l'avversario
 	opponent := r.getOpponent(client)
@@ -505,14 +598,28 @@ func (r *Room) broadcastTimers() {
 
 // broadcastState manda lo stato completo inclusi i tempi
 func (r *Room) broadcastState() {
-	r.Broadcast(models.MsgGameState, map[string]interface{}{
-		"board":         r.Board,
-		"white_time":    r.WhiteTime.Milliseconds(),
-		"black_time":    r.BlackTime.Milliseconds(),
-		"phase":         r.Match.CurrentPhase,
-		"active_player": r.Match.ActivePlayer,
-		"turn_number":   r.Match.TurnNumber,
-	})
+	r.Broadcast(models.MsgGameState, r.publicState())
+}
+
+// publicState costruisce lo stato condiviso (nessuna identità di carta in mano:
+// solo dimensioni, mana e fase — anti-cheat).
+func (r *Room) publicState() map[string]interface{} {
+	return map[string]interface{}{
+		"board":           r.Board,
+		"white_time":      r.WhiteTime.Milliseconds(),
+		"black_time":      r.BlackTime.Milliseconds(),
+		"phase":           r.Match.CurrentPhase,
+		"active_player":   r.Match.ActivePlayer,
+		"turn_number":     r.Match.TurnNumber,
+		"white_mana":      r.Match.White.Mana,
+		"white_max_mana":  r.Match.White.MaxMana,
+		"black_mana":      r.Match.Black.Mana,
+		"black_max_mana":  r.Match.Black.MaxMana,
+		"white_hand_size": len(r.Match.White.Hand),
+		"black_hand_size": len(r.Match.Black.Hand),
+		"white_deck_size": len(r.Match.White.Deck),
+		"black_deck_size": len(r.Match.Black.Deck),
+	}
 }
 
 // handleResign gestisce la resa di un giocatore
