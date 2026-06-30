@@ -40,7 +40,13 @@ func (t TargetType) TargetCount() int {
 	return 1
 }
 
-// Effect è un effetto componibile di una magia. In Step 2 esiste solo "noop".
+// Kind degli effetti (cresce ad ogni step della roadmap).
+const (
+	EffectNoop         = "noop"          // nessun effetto (placeholder)
+	EffectDestroyPiece = "destroy_piece" // distrugge un pezzo nemico (Step 3)
+)
+
+// Effect è un effetto componibile di una magia.
 type Effect struct {
 	Kind   string                 `json:"kind"`
 	Params map[string]interface{} `json:"params,omitempty"`
@@ -56,21 +62,21 @@ type Spell struct {
 	Effects    []Effect      `json:"effects"`
 }
 
-// noop è l'effetto placeholder usato in Step 2.
-func noop() []Effect { return []Effect{{Kind: "noop"}} }
+// noop è l'effetto placeholder.
+func noop() []Effect { return []Effect{{Kind: EffectNoop}} }
 
 // castableInMain elenca le fasi main (default per le magie del MVP).
 var castableInMain = []phase.Phase{phase.PhaseMain1, phase.PhaseMain2}
 
-// Catalog è la libreria delle magie indicizzata per ID. Step 2: 6 placeholder
-// con costi 1-5 ed effetto noop.
+// Catalog è la libreria delle magie indicizzata per ID. Set MVP: 5 placeholder
+// (effetto noop) + "Disintegrate" (Step 3: distrugge un pezzo nemico).
 var Catalog = map[string]Spell{
-	"spark": {ID: "spark", Name: "Spark", ManaCost: 1, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
-	"jolt":  {ID: "jolt", Name: "Jolt", ManaCost: 2, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
-	"pulse": {ID: "pulse", Name: "Pulse", ManaCost: 2, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
-	"surge": {ID: "surge", Name: "Surge", ManaCost: 3, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
-	"blast": {ID: "blast", Name: "Blast", ManaCost: 4, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
-	"nova":  {ID: "nova", Name: "Nova", ManaCost: 5, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
+	"spark":        {ID: "spark", Name: "Spark", ManaCost: 1, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
+	"jolt":         {ID: "jolt", Name: "Jolt", ManaCost: 2, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
+	"pulse":        {ID: "pulse", Name: "Pulse", ManaCost: 2, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
+	"surge":        {ID: "surge", Name: "Surge", ManaCost: 3, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
+	"nova":         {ID: "nova", Name: "Nova", ManaCost: 5, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
+	"disintegrate": {ID: "disintegrate", Name: "Disintegrate", ManaCost: 4, Phases: castableInMain, TargetType: TargetEnemyPiece, Effects: []Effect{{Kind: EffectDestroyPiece}}},
 }
 
 // deckRecipe definisce quante copie di ogni carta compongono il mazzo MVP.
@@ -85,7 +91,7 @@ var deckRecipe = []struct {
 	{"jolt", 8},
 	{"pulse", 8},
 	{"surge", 7},
-	{"blast", 4},
+	{"disintegrate", 4},
 	{"nova", 3},
 }
 

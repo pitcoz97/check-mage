@@ -1,6 +1,7 @@
 package match
 
 import (
+	"fmt"
 	"testing"
 
 	"chess-server/internal/phase"
@@ -158,6 +159,12 @@ func TestDeterminism(t *testing.T) {
 	}
 }
 
+// noApply è una callback di applicazione effetti che non fa nulla (per i test
+// del solo livello card game).
+func noApply(def spells.Spell, targets []string) ([]interface{}, error) {
+	return nil, nil
+}
+
 func TestCastSpell_Success(t *testing.T) {
 	s := New(1)
 	s.CurrentPhase = phase.PhaseMain1 // bianco può castare
@@ -165,7 +172,7 @@ func TestCastSpell_Success(t *testing.T) {
 	s.White.Hand = []string{"spark"}
 	s.White.Mana = 5
 
-	res, err := s.CastSpell(PlayerWhite, "spark", nil)
+	res, err := s.CastSpell(PlayerWhite, "spark", nil, noApply)
 	if err != nil {
 		t.Fatalf("cast fallito inatteso: %v", err)
 	}
@@ -192,33 +199,48 @@ func TestCastSpell_Rejections(t *testing.T) {
 	// Fase sbagliata.
 	s := base()
 	s.CurrentPhase = phase.PhaseMove
-	if _, err := s.CastSpell(PlayerWhite, "nova", nil); err == nil {
+	if _, err := s.CastSpell(PlayerWhite, "nova", nil, noApply); err == nil {
 		t.Error("cast in fase move dovrebbe fallire")
 	}
 
 	// Non è il tuo turno.
 	s = base()
-	if _, err := s.CastSpell(PlayerBlack, "nova", nil); err == nil {
+	if _, err := s.CastSpell(PlayerBlack, "nova", nil, noApply); err == nil {
 		t.Error("cast fuori turno dovrebbe fallire")
 	}
 
 	// Mana insufficiente.
 	s = base()
 	s.White.Mana = 1
-	if _, err := s.CastSpell(PlayerWhite, "nova", nil); err == nil {
+	if _, err := s.CastSpell(PlayerWhite, "nova", nil, noApply); err == nil {
 		t.Error("cast con mana insufficiente dovrebbe fallire")
 	}
 
 	// Carta non in mano.
 	s = base()
-	if _, err := s.CastSpell(PlayerWhite, "blast", nil); err == nil {
+	if _, err := s.CastSpell(PlayerWhite, "surge", nil, noApply); err == nil {
 		t.Error("cast di carta non in mano dovrebbe fallire")
 	}
 
 	// Magia sconosciuta.
 	s = base()
-	if _, err := s.CastSpell(PlayerWhite, "boom", nil); err == nil {
+	if _, err := s.CastSpell(PlayerWhite, "boom", nil, noApply); err == nil {
 		t.Error("cast di magia sconosciuta dovrebbe fallire")
+	}
+
+	// Effetto fallito (apply ritorna errore) => cast annullato senza costi.
+	s = base()
+	failApply := func(def spells.Spell, targets []string) ([]interface{}, error) {
+		return nil, fmt.Errorf("bersaglio non valido")
+	}
+	if _, err := s.CastSpell(PlayerWhite, "nova", nil, failApply); err == nil {
+		t.Error("se apply fallisce il cast deve fallire")
+	}
+	if s.White.Mana != 5 {
+		t.Errorf("mana speso nonostante apply fallito: %d, atteso 5", s.White.Mana)
+	}
+	if s.White.HandIndex("nova") < 0 {
+		t.Error("la carta deve restare in mano se apply fallisce")
 	}
 }
 

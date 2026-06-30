@@ -3,11 +3,13 @@ package game
 import (
 	"chess-server/internal/config"
 	"chess-server/internal/db"
+	"chess-server/internal/effects"
 	"chess-server/internal/engine"
 	"chess-server/internal/logger"
 	"chess-server/internal/match"
 	"chess-server/internal/models"
 	"chess-server/internal/phase"
+	"chess-server/internal/spells"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -252,7 +254,14 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 	r.mu.Lock()
 
 	senderColor := match.Player(r.getColor(sender))
-	res, err := r.Match.CastSpell(senderColor, spellID, targets)
+	boardChanged := false
+	apply := func(def spells.Spell, t []string) ([]interface{}, error) {
+		applied, changed, err := r.applySpellEffects(def, t, senderColor)
+		boardChanged = changed
+		return applied, err
+	}
+
+	res, err := r.Match.CastSpell(senderColor, spellID, targets, apply)
 	if err != nil {
 		r.mu.Unlock()
 		sender.sendError(err.Error())
@@ -280,6 +289,58 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 		"player": senderColor,
 		"size":   res.HandSize,
 	})
+	// Se un effetto ha modificato la scacchiera (es. destroy_piece), risincronizza
+	// lo stato (FEN aggiornata) con entrambi i client.
+	if boardChanged {
+		r.broadcastState()
+	}
+}
+
+// applySpellEffects esegue gli effetti di una magia sulla board (FEN). Ritorna
+// gli effetti applicati (arricchiti per il broadcast), se la board è cambiata, e
+// un eventuale errore (che annulla il cast senza spendere mana). Va invocata con
+// r.mu tenuto.
+func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster match.Player) ([]interface{}, bool, error) {
+	casterColor := effects.White
+	if caster == match.PlayerBlack {
+		casterColor = effects.Black
+	}
+
+	applied := make([]interface{}, 0, len(def.Effects))
+	fen := r.Board.FEN
+	changed := false
+
+	for _, eff := range def.Effects {
+		switch eff.Kind {
+		case spells.EffectNoop:
+			applied = append(applied, map[string]interface{}{"kind": eff.Kind})
+
+		case spells.EffectDestroyPiece:
+			if len(targets) == 0 {
+				return nil, false, fmt.Errorf("la magia %s richiede un bersaglio", def.Name)
+			}
+			newFEN, destroyed, err := effects.DestroyPiece(fen, targets[0], casterColor)
+			if err != nil {
+				return nil, false, err
+			}
+			fen = newFEN
+			changed = true
+			applied = append(applied, map[string]interface{}{
+				"kind":            eff.Kind,
+				"target":          targets[0],
+				"piece_destroyed": destroyed,
+			})
+
+		default:
+			return nil, false, fmt.Errorf("effetto non supportato: %s", eff.Kind)
+		}
+	}
+
+	if changed {
+		// Una magia non passa il turno: il lato al tratto della FEN resta invariato.
+		r.Board.FEN = fen
+	}
+	return applied, changed, nil
 }
 
 // applyAdvanceBroadcasts traduce un AdvanceResult in messaggi WebSocket.

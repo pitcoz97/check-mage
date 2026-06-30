@@ -37,8 +37,9 @@ Standard Go layout with `internal/` packages:
 - `internal/models/` - Shared data structures
 - `internal/validation/` - Input validation for registration (username/email/password rules)
 - `internal/phase/` - Pure turn-phase definitions: the phase enum, ordering, and per-phase legal actions (see "Magic Chess" below)
-- `internal/spells/` - Data-driven spell catalog, deck/hand model, and mana constants
-- `internal/match/` - Phase/turn + card-game orchestration (FSM, mana, decks, casting); knows nothing about the board/FEN/Stockfish
+- `internal/spells/` - Data-driven spell catalog, deck/hand model, mana constants, and effect-kind constants
+- `internal/effects/` - Spell effect handlers that edit the board, operating purely on the FEN string (no Stockfish dependency): `DestroyPiece`, `PieceAt`
+- `internal/match/` - Phase/turn + card-game orchestration (FSM, mana, decks, casting); knows nothing about the board/FEN/Stockfish (board effects are delegated via an `ApplyEffects` callback)
 
 ### Key Global Singletons
 
@@ -81,16 +82,18 @@ A turn-based magic layer (Magic: The Gathering / Hearthstone–style phases, man
 Packages:
 - `internal/phase/` — `Phase` enum and the fixed turn sequence `draw → main1 → move → main2 → end_turn` (`Next` wraps `end_turn → draw`), plus `ActionKind` and `AllowedActions`/`IsAllowed`. `move` is mandatory (no pass); spells are castable only in `main1`/`main2`.
 - `internal/spells/` — `Spell` (data-driven: `ManaCost`, `Phases`, `TargetType`, composable `Effect`s), the hardcoded `Catalog` (Step 2: 6 placeholders, cost 1–5, `noop` effect), `BuildDeck` (40-card recipe), and `PlayerState` (hand/deck/discard/mana). Mana constants: `InitialMana=1`, `MaxManaCap=10`, `StartingHand=4`, `DeckSize=40`.
-- `internal/match/` — `match.State` orchestrates phase/turn **and** the card game. `New(seed)` builds+shuffles both decks deterministically and deals opening hands. `Advance()` advances the FSM and returns an `AdvanceResult`; reaching `end_turn` rolls over to the opponent's `draw` (swap `ActivePlayer`, `TurnNumber++`, refresh mana, draw a card) — callers never observe `end_turn`. `CastSpell(player, id, targets)` validates turn/phase/mana/hand/targets, spends mana, and discards the card.
+- `internal/effects/` — pure-FEN board effect handlers. `DestroyPiece(fen, square, casterColor) → (newFEN, pieceName, err)` removes an enemy piece (rejects empty squares, own pieces, and the king). No Stockfish needed, so fully unit-tested.
+- `internal/match/` — `match.State` orchestrates phase/turn **and** the card game. `New(seed)` builds+shuffles both decks deterministically and deals opening hands. `Advance()` advances the FSM and returns an `AdvanceResult`; reaching `end_turn` rolls over to the opponent's `draw` (swap `ActivePlayer`, `TurnNumber++`, refresh mana, draw a card) — callers never observe `end_turn`. `CastSpell(player, id, targets, apply)` validates turn/phase/mana/hand/target-cardinality, then runs the `apply` callback (board effects, owned by `game.Room`) **before** spending mana — so a failed/invalid effect aborts the cast at zero cost.
 
-**Status — Step 2 done (mana, decks, hands; spell effects are still `noop`):**
-- `game.Room` holds a `*match.State` (seeded from `time.Now().UnixNano()` in `NewRoom`). `HandleMessage` dispatches `pass_phase` and `cast_spell`; `handleMove` gates on the `move` phase and advances to `main2`.
-- Mana: starts at 1, +1 per the player's own turn (white turns 1/3/5 → 1/2/3), capped at 10, refilled at the start of each turn. Opening hand = 4 each; the active player draws 1 at the start of their turn (the starting player, white, skips the turn-1 draw — Hearthstone style).
-- **Anti-cheat**: a player only ever receives their own hand (`hand`/`card_drawn`); opponents see only sizes/mana via `game_state` and `hand_size_changed`.
-- Determinism: each match stores a `seed`; same seed ⇒ same shuffle and draw order (covered by tests).
-- Reconnection re-sends the reconnecting player's private hand + public state from the in-memory `Room`. **Still no DB persistence of live matches** — a server restart loses active games. A match-persistence layer (and the DB schema for mana/deck/hand/effects) is deferred to a dedicated step.
-- Known limitation: clocks follow `Board.Turn` (chess side-to-move), not `match.ActivePlayer`; revisit when spells give the main phases real duration.
-- Not yet implemented (later steps in `update.md`): real spell effects (`destroy_piece`, `freeze_piece`, …) in `internal/effects`, per-piece persistent effects with `PieceID` tracking, targeting that touches the board, and DB persistence.
+**Status — Step 3 done (`destroy_piece` is a real, board-editing effect):**
+- `game.Room` holds a `*match.State` (seeded from `time.Now().UnixNano()` in `NewRoom`). `HandleMessage` dispatches `pass_phase` and `cast_spell`; `handleMove` gates on the `move` phase and advances to `main2`. `Room.applySpellEffects` is the `ApplyEffects` callback: it dispatches each `spells.Effect` (currently `noop`, `destroy_piece`) onto `Board.FEN` and reports what was applied; a board-editing spell triggers a fresh `game_state` broadcast.
+- Spells: 5 `noop` placeholders + **Disintegrate** (cost 4, `enemy_piece`, `destroy_piece`). `spell_cast` includes `effects_applied: [{kind, target, piece_destroyed}]`. A spell never changes the FEN side-to-move (it doesn't pass the turn), so the next move is still validated on the updated FEN.
+- Mana: starts at 1, +1 per the player's own turn (white turns 1/3/5 → 1/2/3), capped at 10, refilled at turn start. Opening hand = 4; active player draws 1 at turn start (white skips the turn-1 draw — Hearthstone style).
+- **Anti-cheat**: a player only ever receives their own hand (`hand`/`card_drawn`); opponents see only sizes/mana.
+- Determinism: each match stores a `seed`; same seed ⇒ same shuffle and draw order.
+- Reconnection re-sends the player's private hand + public state from the in-memory `Room`. **Still no DB persistence of live matches** — a restart loses active games; deferred to a dedicated step.
+- Known limitations: clocks follow `Board.Turn`, not `match.ActivePlayer`; destroying a rook does not yet clear castling rights in the FEN.
+- Not yet implemented (later steps in `update.md`): persistent per-piece effects (`freeze_piece`/`shield_piece`) with `PieceID` tracking, `draw_card`/`gain_mana`/`move_piece`, and DB persistence.
 
 ### Dependencies
 

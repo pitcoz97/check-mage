@@ -170,20 +170,29 @@ func (s *State) drawCard(p Player) DrawResult {
 	return res
 }
 
-// CastResult riporta l'esito di un cast riuscito.
+// CastResult riporta l'esito di un cast riuscito. EffectsApplied contiene gli
+// effetti effettivamente applicati (arricchiti dei dettagli, es. il pezzo
+// distrutto), pronti per il broadcast.
 type CastResult struct {
 	Spell          spells.Spell
-	EffectsApplied []spells.Effect
+	EffectsApplied []interface{}
 	Targets        []string
 	ManaAfter      int
 	ManaMax        int
 	HandSize       int
 }
 
-// CastSpell valida e applica il cast di una magia. In Step 2 gli effetti sono
-// noop: viene scalato il mana e la carta va nello scarto, senza toccare la
-// scacchiera. La validazione dei target controlla per ora solo la cardinalità.
-func (s *State) CastSpell(p Player, spellID string, targets []string) (CastResult, error) {
+// ApplyEffects è la callback con cui game.Room esegue gli effetti della magia
+// sulla scacchiera (che match volutamente non conosce). Riceve la definizione e
+// i bersagli, applica gli effetti alla board e ritorna gli effetti applicati
+// (per il broadcast) oppure un errore. In caso di errore il cast è annullato
+// senza spendere mana né scartare la carta.
+type ApplyEffects func(def spells.Spell, targets []string) ([]interface{}, error)
+
+// CastSpell valida le regole del card game (turno, fase, carta in mano, mana,
+// cardinalità dei bersagli), poi delega l'esecuzione degli effetti sulla board
+// alla callback apply. Solo se tutto riesce scala il mana e scarta la carta.
+func (s *State) CastSpell(p Player, spellID string, targets []string, apply ApplyEffects) (CastResult, error) {
 	if !s.IsActive(p) {
 		return CastResult{}, errors.New("non è il tuo turno")
 	}
@@ -212,15 +221,20 @@ func (s *State) CastSpell(p Player, spellID string, targets []string) (CastResul
 			def.Name, def.TargetType.TargetCount(), len(targets))
 	}
 
-	// Applica: scala il mana, sposta la carta dalla mano allo scarto.
+	// Esegue gli effetti sulla board PRIMA di spendere mana: se falliscono
+	// (es. bersaglio non valido) il cast è annullato senza costi.
+	applied, err := apply(def, targets)
+	if err != nil {
+		return CastResult{}, err
+	}
+
 	ps.Mana -= def.ManaCost
 	ps.Hand = append(ps.Hand[:idx], ps.Hand[idx+1:]...)
 	ps.Discard = append(ps.Discard, spellID)
 
-	// TODO(step3+): eseguire def.Effects su scacchiera/stato. In Step 2 sono noop.
 	return CastResult{
 		Spell:          def,
-		EffectsApplied: def.Effects,
+		EffectsApplied: applied,
 		Targets:        targets,
 		ManaAfter:      ps.Mana,
 		ManaMax:        ps.MaxMana,
