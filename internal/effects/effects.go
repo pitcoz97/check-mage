@@ -171,7 +171,38 @@ func DestroyPiece(fen, square string, caster Color) (newFEN, destroyed string, e
 
 	destroyed = pieceName(p)
 	grid[row][col] = 0
-	// TODO(step+): se il pezzo distrutto è una torre sulla casella d'arrocco,
-	// andrebbero ripuliti i relativi diritti d'arrocco nella FEN.
-	return replacePlacement(fen, encodePlacement(grid)), destroyed, nil
+	newFEN = replacePlacement(fen, encodePlacement(grid))
+	// Se è stata distrutta una torre sulla sua casella d'arrocco, revoca il
+	// relativo diritto d'arrocco nella FEN.
+	newFEN = clearCastlingForRook(newFEN, square, p)
+	return newFEN, destroyed, nil
+}
+
+// clearCastlingForRook rimuove dal campo arrocchi della FEN il diritto associato
+// a una torre distrutta sulla sua casella iniziale (a1/h1/a8/h8).
+func clearCastlingForRook(fen, square string, piece byte) string {
+	var right byte
+	switch {
+	case piece == 'R' && square == "a1":
+		right = 'Q'
+	case piece == 'R' && square == "h1":
+		right = 'K'
+	case piece == 'r' && square == "a8":
+		right = 'q'
+	case piece == 'r' && square == "h8":
+		right = 'k'
+	default:
+		return fen
+	}
+
+	fields := strings.Fields(fen)
+	if len(fields) < 3 || fields[2] == "-" {
+		return fen
+	}
+	newCast := strings.ReplaceAll(fields[2], string(right), "")
+	if newCast == "" {
+		newCast = "-"
+	}
+	fields[2] = newCast
+	return strings.Join(fields, " ")
 }

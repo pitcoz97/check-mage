@@ -67,6 +67,41 @@ func TestDestroyPiece_Rejections(t *testing.T) {
 	}
 }
 
+func TestDestroyPiece_ClearsCastling(t *testing.T) {
+	// Torre nera in h8, il bianco la distrugge → cade il diritto "k".
+	fen := "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+	newFEN, _, err := DestroyPiece(fen, "h8", White)
+	if err != nil {
+		t.Fatalf("errore inatteso: %v", err)
+	}
+	cast := castlingField(newFEN)
+	if cast != "KQq" {
+		t.Errorf("arrocco = %s, atteso KQq (caduto 'k')", cast)
+	}
+
+	// Torre bianca in a1 → cade "Q".
+	newFEN, _, _ = DestroyPiece(fen, "a1", Black)
+	if c := castlingField(newFEN); c != "Kkq" {
+		t.Errorf("arrocco = %s, atteso Kkq (caduto 'Q')", c)
+	}
+}
+
+func castlingField(fen string) string {
+	n := 0
+	start := 0
+	for i := 0; i < len(fen); i++ {
+		if fen[i] == ' ' {
+			n++
+			if n == 2 {
+				start = i + 1
+			} else if n == 3 {
+				return fen[start:i]
+			}
+		}
+	}
+	return ""
+}
+
 // TestEncodeRoundTrip verifica che parse+encode preservi la posizione.
 func TestEncodeRoundTrip(t *testing.T) {
 	for _, fen := range []string{startFEN, knightE4} {

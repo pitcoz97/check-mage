@@ -226,14 +226,14 @@ func (e *Engine) GetGameStatus(fen string) GameStatus {
 // Lo fa tentando di trovare una mossa che cattura il re avversario
 func (e *Engine) isInCheck(fen string) bool {
 	e.send(positionFromFEN(fen))
-	e.send("go depth 1")
-	lines := e.readUntil("bestmove")
+	// "d" stampa una riga "Checkers: <case>" con i pezzi che danno scacco
+	// (vuota se il re non è sotto scacco). Affidabile, niente euristiche.
+	e.send("d")
+	lines := e.readUntil("Checkers")
 
 	for _, line := range lines {
-		// Se Stockfish trova "score mate 1" siamo sotto scacco matto
-		// Se trova "score cp" molto alto potremmo essere sotto scacco
-		if strings.Contains(line, "score mate") {
-			return true
+		if strings.HasPrefix(line, "Checkers:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "Checkers:")) != ""
 		}
 	}
 	return false
