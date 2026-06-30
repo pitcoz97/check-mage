@@ -33,6 +33,7 @@ type Room struct {
 	lastMoveAt        time.Time           // quando è stata fatta l'ultima mossa
 	drawOfferer       *Client             // chi ha offerto la patta (nil se nessuna offerta)
 	disconnectedTimer map[int]*time.Timer // userID -> timer di disconnessione
+	posCounts         map[string]int      // FEN normalizzata -> occorrenze (tripla ripetizione)
 	mu                sync.Mutex          // protegge lo stato durante il timer
 }
 
@@ -63,7 +64,9 @@ func NewRoom(id string, white, black *Client, baseTime, increment time.Duration)
 		timerStop:         make(chan struct{}),
 		lastMoveAt:        time.Now(),
 		disconnectedTimer: make(map[int]*time.Timer),
+		posCounts:         make(map[string]int),
 	}
+	room.recordPosition() // conta la posizione iniziale (tripla ripetizione)
 
 	white.Room = room
 	black.Room = room
@@ -75,10 +78,40 @@ func NewRoom(id string, white, black *Client, baseTime, increment time.Duration)
 	room.sendHand(match.PlayerWhite)
 	room.sendHand(match.PlayerBlack)
 
+	// La fase draw del 1° turno passa da sola (e la main1 se il Bianco non può
+	// castare): il Bianco parte già nella prima fase che richiede input.
+	for _, res := range room.Match.AutoAdvance() {
+		room.applyAdvanceBroadcasts(res)
+	}
+
 	// Avvia il timer per il bianco (inizia sempre lui)
 	go room.runTimer()
 
 	return room
+}
+
+// normalizeFEN tiene solo i campi rilevanti per la ripetizione (posizione,
+// lato al tratto, arrocchi, en passant), scartando i contatori di mosse.
+func normalizeFEN(fen string) string {
+	fields := strings.Fields(fen)
+	if len(fields) >= 4 {
+		return strings.Join(fields[:4], " ")
+	}
+	return fen
+}
+
+// recordPosition registra la posizione corrente per la regola della tripla
+// ripetizione. Va chiamata dopo ogni cambio di Board.FEN, con r.mu tenuto.
+func (r *Room) recordPosition() {
+	if r.posCounts == nil {
+		r.posCounts = make(map[string]int)
+	}
+	r.posCounts[normalizeFEN(r.Board.FEN)]++
+}
+
+// isThreefold indica se la posizione corrente è comparsa almeno 3 volte.
+func (r *Room) isThreefold() bool {
+	return r.posCounts[normalizeFEN(r.Board.FEN)] >= 3
 }
 
 // HandleMessage smista i messaggi ricevuti dai client
@@ -174,6 +207,7 @@ func (r *Room) handleMove(sender *Client, move string) {
 	// La FEN è la fonte di verità (le magie possono editarla fuori dalle mosse).
 	r.Board.FEN = engine.SF.ApplyMove(r.Board.FEN, move)
 	r.Board.Turn = sideToMove(r.Board.FEN)
+	r.recordPosition()
 
 	logger.L.Info("Mossa giocata",
 		zap.String("room", r.ID),
@@ -186,6 +220,9 @@ func (r *Room) handleMove(sender *Client, move string) {
 	// Controlla fine partita — sblocca il mutex PRIMA di chiamare endGame
 	// perché endGame chiama Broadcast che potrebbe bloccarsi
 	status := engine.SF.GetGameStatus(r.Board.FEN)
+	if status == engine.StatusOngoing && r.isThreefold() {
+		status = engine.StatusDraw
+	}
 
 	switch status {
 	case engine.StatusCheckmate:
@@ -208,13 +245,15 @@ func (r *Room) handleMove(sender *Client, move string) {
 		r.endGame(models.ResultDraw, "draw")
 
 	default:
-		// La mossa è l'unica azione della fase move: avanza a main2 (stesso
-		// giocatore, che ora può castare magie e poi passare il turno). La
-		// mossa non chiude mai il turno, quindi nessuna pesca qui.
-		res := r.Match.Advance()
+		// La mossa è l'unica azione della fase move: avanza a main2, poi
+		// auto-avanza (main2/draw/main1 si saltano da soli se non richiedono
+		// input). Snapshot dei passaggi sotto lock, broadcast dopo.
+		results := append([]match.AdvanceResult{r.Match.Advance()}, r.Match.AutoAdvance()...)
 		r.mu.Unlock()
 		r.broadcastState()
-		r.applyAdvanceBroadcasts(res)
+		for _, res := range results {
+			r.applyAdvanceBroadcasts(res)
+		}
 	}
 }
 
@@ -235,7 +274,8 @@ func (r *Room) handlePassPhase(sender *Client) {
 		return
 	}
 
-	res := r.Match.Advance()
+	// Passa la fase, poi auto-avanza le fasi che non richiedono input.
+	results := append([]match.AdvanceResult{r.Match.Advance()}, r.Match.AutoAdvance()...)
 
 	logger.L.Info("Fase passata",
 		zap.String("room", r.ID),
@@ -245,7 +285,9 @@ func (r *Room) handlePassPhase(sender *Client) {
 	)
 
 	r.mu.Unlock()
-	r.applyAdvanceBroadcasts(res)
+	for _, res := range results {
+		r.applyAdvanceBroadcasts(res)
+	}
 }
 
 // handleCastSpell gestisce il gioco di una magia. In Step 2 gli effetti sono
@@ -267,6 +309,13 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 		sender.sendError(err.Error())
 		return
 	}
+
+	if boardChanged {
+		r.recordPosition() // la board è cambiata: conta per la tripla ripetizione
+	}
+	// Dopo il cast il giocatore potrebbe essere rimasto senza mana/carte: la
+	// fase main si auto-avanza di conseguenza.
+	autoResults := r.Match.AutoAdvance()
 
 	logger.L.Info("Magia giocata",
 		zap.String("room", r.ID),
@@ -293,6 +342,9 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 	// lo stato (FEN aggiornata) con entrambi i client.
 	if boardChanged {
 		r.broadcastState()
+	}
+	for _, ar := range autoResults {
+		r.applyAdvanceBroadcasts(ar)
 	}
 }
 
@@ -344,9 +396,15 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 }
 
 // applyAdvanceBroadcasts traduce un AdvanceResult in messaggi WebSocket.
+// Usa lo snapshot nel risultato (non lo stato live di r.Match) perché una
+// singola azione può produrre più passaggi calcolati prima del broadcast.
 // Va invocato SENZA tenere il lock.
 func (r *Room) applyAdvanceBroadcasts(res match.AdvanceResult) {
-	r.broadcastPhase()
+	r.Broadcast(models.MsgPhaseChanged, map[string]interface{}{
+		"phase":         res.Phase,
+		"active_player": res.ActivePlayer,
+		"turn_number":   res.TurnNumber,
+	})
 	if !res.NewTurn {
 		return
 	}
@@ -356,15 +414,6 @@ func (r *Room) applyAdvanceBroadcasts(res match.AdvanceResult) {
 	if res.Draw != nil {
 		r.broadcastDraw(*res.Draw)
 	}
-}
-
-// broadcastPhase notifica entrambi i client del cambio di fase/turno.
-func (r *Room) broadcastPhase() {
-	r.Broadcast(models.MsgPhaseChanged, map[string]interface{}{
-		"phase":         r.Match.CurrentPhase,
-		"active_player": r.Match.ActivePlayer,
-		"turn_number":   r.Match.TurnNumber,
-	})
 }
 
 // broadcastMana notifica entrambi del nuovo mana di un giocatore (info pubblica).

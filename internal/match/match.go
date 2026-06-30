@@ -85,11 +85,25 @@ type ManaState struct {
 }
 
 // AdvanceResult riporta cosa è successo durante un Advance, così che il
-// chiamante (game.Room) possa tradurlo in messaggi WebSocket.
+// chiamante (game.Room) possa tradurlo in messaggi WebSocket. Phase/
+// ActivePlayer/TurnNumber sono lo snapshot DOPO quel passaggio: servono perché
+// un'azione può produrre più passaggi (auto-avanzamento) e i broadcast vanno
+// fatti con lo stato di ciascun passaggio, non con quello finale.
 type AdvanceResult struct {
-	NewTurn bool        // true se è iniziato un nuovo turno (rollover)
-	Draw    *DrawResult // pesca d'inizio turno (nil se nessun nuovo turno)
-	Mana    *ManaState  // mana del giocatore attivo dopo il refresh
+	Phase        phase.Phase
+	ActivePlayer Player
+	TurnNumber   int
+	NewTurn      bool        // true se è iniziato un nuovo turno (rollover)
+	Draw         *DrawResult // pesca d'inizio turno (nil se nessun nuovo turno)
+	Mana         *ManaState  // mana del giocatore attivo dopo il refresh
+}
+
+// snapshot completa il risultato con lo stato corrente della FSM.
+func (s *State) snapshot(r AdvanceResult) AdvanceResult {
+	r.Phase = s.CurrentPhase
+	r.ActivePlayer = s.ActivePlayer
+	r.TurnNumber = s.TurnNumber
+	return r
 }
 
 // Advance porta il match alla fase successiva in cui il giocatore attivo deve
@@ -105,12 +119,12 @@ func (s *State) Advance() AdvanceResult {
 	if err != nil {
 		// Stato corrotto: ripartiamo dalla draw del giocatore attivo.
 		s.CurrentPhase = phase.PhaseDraw
-		return AdvanceResult{}
+		return s.snapshot(AdvanceResult{})
 	}
 
 	if next != phase.PhaseEndTurn {
 		s.CurrentPhase = next
-		return AdvanceResult{}
+		return s.snapshot(AdvanceResult{})
 	}
 
 	// next == end_turn: transizione di fine turno + rollover all'avversario.
@@ -120,15 +134,52 @@ func (s *State) Advance() AdvanceResult {
 	s.ActivePlayer = s.ActivePlayer.Opponent()
 	s.TurnNumber++
 	s.CurrentPhase = phase.PhaseDraw
-	return s.beginTurn()
-}
-
-// beginTurn applica gli effetti d'inizio turno del giocatore attivo: refill del
-// mana e pesca automatica.
-func (s *State) beginTurn() AdvanceResult {
 	mana := s.refreshMana(s.ActivePlayer)
 	draw := s.drawCard(s.ActivePlayer)
-	return AdvanceResult{NewTurn: true, Draw: &draw, Mana: &mana}
+	return s.snapshot(AdvanceResult{NewTurn: true, Draw: &draw, Mana: &mana})
+}
+
+// CanCastAny indica se il giocatore attivo ha almeno una magia giocabile ORA:
+// carta in mano, mana sufficiente e fase consentita dalla magia.
+func (s *State) CanCastAny() bool {
+	if !s.Allows(phase.ActionCastSpell) {
+		return false
+	}
+	ps := s.player(s.ActivePlayer)
+	for _, id := range ps.Hand {
+		def, ok := spells.Catalog[id]
+		if ok && def.ManaCost <= ps.Mana && phaseAllowsSpell(def, s.CurrentPhase) {
+			return true
+		}
+	}
+	return false
+}
+
+// shouldAutoAdvance indica se la fase corrente va saltata senza input utente:
+// la draw passa sempre da sola (la pesca è già avvenuta nel rollover); le fasi
+// main passano se il giocatore non può castare nulla (niente mana o niente
+// carte giocabili); la move richiede sempre la mossa.
+func (s *State) shouldAutoAdvance() bool {
+	switch s.CurrentPhase {
+	case phase.PhaseDraw:
+		return true
+	case phase.PhaseMain1, phase.PhaseMain2:
+		return !s.CanCastAny()
+	default:
+		return false
+	}
+}
+
+// AutoAdvance fa avanzare la FSM finché la fase corrente non richiede input
+// dell'utente, restituendo in ordine i passaggi avvenuti (eventualmente vuoto).
+// Il numero di passaggi è limitato dalla struttura della FSM (la move è sempre
+// un punto d'arresto); il cap è solo una salvaguardia.
+func (s *State) AutoAdvance() []AdvanceResult {
+	var results []AdvanceResult
+	for i := 0; i < 12 && s.shouldAutoAdvance(); i++ {
+		results = append(results, s.Advance())
+	}
+	return results
 }
 
 // playerTurnIndex è il numero d'ordine del turno del giocatore (1 = primo

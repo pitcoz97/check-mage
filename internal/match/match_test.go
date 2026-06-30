@@ -244,6 +244,79 @@ func TestCastSpell_Rejections(t *testing.T) {
 	}
 }
 
+func TestCanCastAny(t *testing.T) {
+	s := New(1)
+	s.CurrentPhase = phase.PhaseMain1
+	s.White.Hand = []string{"spark"} // costa 1
+	s.White.Mana = 1
+	if !s.CanCastAny() {
+		t.Error("con spark e 1 mana in main1 dovrebbe poter castare")
+	}
+
+	s.White.Mana = 0
+	if s.CanCastAny() {
+		t.Error("senza mana non dovrebbe poter castare")
+	}
+
+	s.White.Mana = 5
+	s.White.Hand = nil
+	if s.CanCastAny() {
+		t.Error("senza carte non dovrebbe poter castare")
+	}
+
+	// Fuori dalle fasi main non si casta.
+	s.White.Hand = []string{"spark"}
+	s.White.Mana = 5
+	s.CurrentPhase = phase.PhaseMove
+	if s.CanCastAny() {
+		t.Error("in fase move non si dovrebbe poter castare")
+	}
+}
+
+func TestAutoAdvance_SkipsDrawAndUncastableMain(t *testing.T) {
+	s := New(1)
+	s.CurrentPhase = phase.PhaseDraw
+	s.White.Hand = nil // niente carte: main1 non si ferma
+
+	s.AutoAdvance()
+
+	if s.CurrentPhase != phase.PhaseMove {
+		t.Errorf("draw + main1 (senza carte) dovrebbero saltare fino a move, fase = %s", s.CurrentPhase)
+	}
+}
+
+func TestAutoAdvance_StopsAtCastableMain(t *testing.T) {
+	s := New(1)
+	s.CurrentPhase = phase.PhaseDraw
+	s.White.Hand = []string{"spark"}
+	s.White.Mana = 1
+
+	s.AutoAdvance()
+
+	if s.CurrentPhase != phase.PhaseMain1 {
+		t.Errorf("con una carta castabile ci si deve fermare in main1, fase = %s", s.CurrentPhase)
+	}
+}
+
+func TestAutoAdvance_NoopAtMove(t *testing.T) {
+	s := New(1)
+	s.CurrentPhase = phase.PhaseMove
+	if res := s.AutoAdvance(); len(res) != 0 {
+		t.Errorf("in move non deve avanzare, passaggi = %d", len(res))
+	}
+}
+
+func TestAdvanceResult_Snapshot(t *testing.T) {
+	s := New(1)
+	res := s.Advance() // draw -> main1
+	if res.Phase != phase.PhaseMain1 {
+		t.Errorf("snapshot fase = %s, atteso main1", res.Phase)
+	}
+	if res.ActivePlayer != PlayerWhite || res.TurnNumber != 1 {
+		t.Errorf("snapshot player/turn errati: %s/%d", res.ActivePlayer, res.TurnNumber)
+	}
+}
+
 func TestOpponent(t *testing.T) {
 	if PlayerWhite.Opponent() != PlayerBlack {
 		t.Error("l'avversario del bianco deve essere il nero")
