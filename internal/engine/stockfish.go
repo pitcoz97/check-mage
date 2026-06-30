@@ -21,6 +21,21 @@ type Engine struct {
 
 var SF *Engine
 
+// StartingFEN è la posizione iniziale standard degli scacchi.
+const StartingFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+// positionFromFEN costruisce il comando UCI "position" a partire da una FEN
+// arbitraria, opzionalmente seguita da mosse. Tutto l'engine è FEN-based: la
+// FEN è la fonte di verità (così le magie che editano la board sono
+// rappresentabili, cosa impossibile con una sola move-list da startpos).
+func positionFromFEN(fen string, moves ...string) string {
+	pos := "position fen " + fen
+	if len(moves) > 0 {
+		pos += " moves " + strings.Join(moves, " ")
+	}
+	return pos
+}
+
 func Init() error {
 	SF = &Engine{}
 	return initEngine(SF)
@@ -84,9 +99,9 @@ func (e *Engine) readUntil(token string) []string {
 	return lines
 }
 
-func (e *Engine) IsMoveLegal(moves []string, newMove string) bool {
+func (e *Engine) IsMoveLegal(fen, newMove string) bool {
 	result, err := e.safeCall(func() interface{} {
-		return e.IsMoveLegalInternal(moves, newMove)
+		return e.IsMoveLegalInternal(fen, newMove)
 	})
 	if err != nil {
 		logger.L.Error("IsMoveLegal fallito", zap.Error(err))
@@ -95,21 +110,15 @@ func (e *Engine) IsMoveLegal(moves []string, newMove string) bool {
 	return result.(bool)
 }
 
-// IsMoveLegal verifica se una mossa è legale data la lista di mosse precedenti
-// moves è la sequenza di mosse in formato UCI es. ["e2e4", "e7e5", "g1f3"]
-func (e *Engine) IsMoveLegalInternal(moves []string, newMove string) bool {
+// IsMoveLegalInternal verifica se una mossa UCI (es. "e2e4") è legale nella
+// posizione data dalla FEN.
+func (e *Engine) IsMoveLegalInternal(fen, newMove string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Imposta la posizione attuale (senza la nuova mossa)
-	position := "position startpos"
-	if len(moves) > 0 {
-		position += " moves " + strings.Join(moves, " ")
-	}
-	e.send(position)
+	e.send(positionFromFEN(fen))
 
-	// Chiedi le mosse legali nella posizione DOPO la mossa proposta
-	// Se la posizione è illegale, Stockfish non troverà mosse valide
+	// Elenca le mosse legali della posizione: se newMove è tra queste è legale.
 	e.send("go perft 1")
 	lines := e.readUntil("Nodes searched")
 
@@ -126,17 +135,13 @@ func (e *Engine) IsMoveLegalInternal(moves []string, newMove string) bool {
 	return false
 }
 
-// BestMove ritorna la mossa migliore data una posizione
+// BestMove ritorna la mossa migliore nella posizione data dalla FEN.
 // depth = profondità di analisi (1-20, più alto = più forte ma più lento)
-func (e *Engine) BestMove(moves []string, depth int) string {
+func (e *Engine) BestMove(fen string, depth int) string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	position := "position startpos"
-	if len(moves) > 0 {
-		position += " moves " + strings.Join(moves, " ")
-	}
-	e.send(position)
+	e.send(positionFromFEN(fen))
 
 	e.send(fmt.Sprintf("go depth %d", depth))
 	lines := e.readUntil("bestmove")
@@ -169,16 +174,12 @@ const (
 	StatusDraw                        // patta per altre ragioni
 )
 
-// GetGameStatus controlla se la partita è finita
-func (e *Engine) GetGameStatus(moves []string) GameStatus {
+// GetGameStatus controlla se la partita è finita nella posizione data dalla FEN
+func (e *Engine) GetGameStatus(fen string) GameStatus {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	position := "position startpos"
-	if len(moves) > 0 {
-		position += " moves " + strings.Join(moves, " ")
-	}
-	e.send(position)
+	e.send(positionFromFEN(fen))
 
 	// Conta le mosse legali disponibili
 	e.send("go perft 1")
@@ -206,14 +207,14 @@ func (e *Engine) GetGameStatus(moves []string) GameStatus {
 	// Nessuna mossa legale = scacco matto o stallo
 	if legalMoves == 0 {
 		// Verifica se il re è sotto scacco
-		if e.isInCheck(moves) {
+		if e.isInCheck(fen) {
 			return StatusCheckmate
 		}
 		return StatusStalemate
 	}
 
 	// Controlla patta per insufficienza materiale o regola delle 50 mosse
-	if e.isDraw(moves) {
+	if e.isDraw(fen) {
 		return StatusDraw
 	}
 
@@ -222,14 +223,8 @@ func (e *Engine) GetGameStatus(moves []string) GameStatus {
 
 // isInCheck verifica se il giocatore di turno è sotto scacco
 // Lo fa tentando di trovare una mossa che cattura il re avversario
-func (e *Engine) isInCheck(moves []string) bool {
-	// Aggiungi una mossa nulla per invertire il turno
-	// e chiedi a Stockfish se può catturare il re
-	position := "position startpos"
-	if len(moves) > 0 {
-		position += " moves " + strings.Join(moves, " ")
-	}
-	e.send(position)
+func (e *Engine) isInCheck(fen string) bool {
+	e.send(positionFromFEN(fen))
 	e.send("go depth 1")
 	lines := e.readUntil("bestmove")
 
@@ -244,12 +239,8 @@ func (e *Engine) isInCheck(moves []string) bool {
 }
 
 // isDraw verifica condizioni di patta
-func (e *Engine) isDraw(moves []string) bool {
-	position := "position startpos"
-	if len(moves) > 0 {
-		position += " moves " + strings.Join(moves, " ")
-	}
-	e.send(position)
+func (e *Engine) isDraw(fen string) bool {
+	e.send(positionFromFEN(fen))
 	e.send("go depth 1")
 	lines := e.readUntil("bestmove")
 
@@ -261,30 +252,26 @@ func (e *Engine) isDraw(moves []string) bool {
 	return false
 }
 
-// GetFEN ritorna la FEN della posizione attuale data la lista di mosse
-func (e *Engine) GetFEN(moves []string) string {
+// ApplyMove applica una mossa UCI (es. "e2e4") alla FEN data e ritorna la FEN
+// risultante. La mossa va validata prima con IsMoveLegal.
+func (e *Engine) ApplyMove(fen, move string) string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	position := "position startpos"
-	if len(moves) > 0 {
-		position += " moves " + strings.Join(moves, " ")
-	}
-	e.send(position)
+	e.send(positionFromFEN(fen, move))
 
-	// "d" è il comando UCI che mostra lo stato della board
-	// tra le info che restituisce c'è la FEN corrente
+	// "d" è il comando UCI che mostra lo stato della board, FEN inclusa.
 	e.send("d")
 	lines := e.readUntil("Checkers")
 
 	for _, line := range lines {
 		if strings.HasPrefix(line, "Fen:") {
-			return strings.TrimPrefix(line, "Fen: ")
+			return strings.TrimSpace(strings.TrimPrefix(line, "Fen: "))
 		}
 	}
 
-	// FEN di partenza come fallback
-	return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+	// In caso di problemi, ritorna la FEN invariata.
+	return fen
 }
 
 // Restart riavvia Stockfish se crasha

@@ -29,7 +29,7 @@ Standard Go layout with `internal/` packages:
 - `internal/api/router.go` - Chi router with route groups and middleware chain
 - `internal/config/` - Environment-based config loader using godotenv
 - `internal/db/` - PostgreSQL connection and persistence (games, ELO updates)
-- `internal/engine/stockfish.go` - Stockfish UCI interface for move validation and game status
+- `internal/engine/stockfish.go` - Stockfish UCI interface, **FEN-based**: `IsMoveLegal(fen, move)`, `ApplyMove(fen, move) → newFEN`, `GetGameStatus(fen)`. The FEN is the source of truth (so board-editing spells are representable). `Room.Board.FEN` is updated after each move via `ApplyMove`; `Board.Moves` is kept only as history for PGN.
 - `internal/game/` - Core game logic: WebSocket client, room management, matchmaking
 - `internal/handlers/` - HTTP handlers for auth, stats, status, WebSocket upgrade
 - `internal/middleware/` - JWT auth and per-IP rate limiting

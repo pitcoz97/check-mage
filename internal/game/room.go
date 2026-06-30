@@ -140,7 +140,7 @@ func (r *Room) handleMove(sender *Client, move string) {
 		return
 	}
 
-	if !engine.SF.IsMoveLegal(r.Board.Moves, move) {
+	if !engine.SF.IsMoveLegal(r.Board.FEN, move) {
 		r.mu.Unlock()
 		sender.sendError(fmt.Sprintf("Mossa illegale: %s", move))
 		return
@@ -169,13 +169,9 @@ func (r *Room) handleMove(sender *Client, move string) {
 
 	r.lastMoveAt = time.Now()
 	r.Board.Moves = append(r.Board.Moves, move)
-	r.Board.FEN = engine.SF.GetFEN(r.Board.Moves)
-
-	if r.Board.Turn == "white" {
-		r.Board.Turn = "black"
-	} else {
-		r.Board.Turn = "white"
-	}
+	// La FEN è la fonte di verità (le magie possono editarla fuori dalle mosse).
+	r.Board.FEN = engine.SF.ApplyMove(r.Board.FEN, move)
+	r.Board.Turn = sideToMove(r.Board.FEN)
 
 	logger.L.Info("Mossa giocata",
 		zap.String("room", r.ID),
@@ -187,7 +183,7 @@ func (r *Room) handleMove(sender *Client, move string) {
 
 	// Controlla fine partita — sblocca il mutex PRIMA di chiamare endGame
 	// perché endGame chiama Broadcast che potrebbe bloccarsi
-	status := engine.SF.GetGameStatus(r.Board.Moves)
+	status := engine.SF.GetGameStatus(r.Board.FEN)
 
 	switch status {
 	case engine.StatusCheckmate:
@@ -453,6 +449,15 @@ func (r *Room) Reconnect(client *Client) {
 			"message": client.Username + " si è riconnesso!",
 		})
 	}
+}
+
+// sideToMove ricava il colore di chi deve muovere dal 2° campo della FEN.
+func sideToMove(fen string) string {
+	fields := strings.Fields(fen)
+	if len(fields) >= 2 && fields[1] == "b" {
+		return "black"
+	}
+	return "white"
 }
 
 func (r *Room) getColor(client *Client) string {
