@@ -368,8 +368,19 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 		zap.String("room", r.ID),
 		zap.String("player", sender.Username),
 		zap.String("spell", res.Spell.ID),
+		zap.Strings("targets", res.Targets),
 		zap.Int("mana_after", res.ManaAfter),
 	)
+	// Audit: un log per ogni effetto applicato (utile per debug/bilanciamento).
+	for _, e := range res.EffectsApplied {
+		if m, ok := e.(map[string]interface{}); ok {
+			logger.L.Info("Effetto applicato",
+				zap.String("room", r.ID),
+				zap.String("spell", res.Spell.ID),
+				zap.Any("effect", m),
+			)
+		}
+	}
 
 	r.mu.Unlock()
 
@@ -527,6 +538,11 @@ func (r *Room) tickEffectsOnNewTurn(results []match.AdvanceResult) []effects.Exp
 // broadcastExpired notifica entrambi i client degli effetti scaduti.
 func (r *Room) broadcastExpired(expired []effects.ExpiredEffect) {
 	for _, e := range expired {
+		logger.L.Info("Effetto scaduto",
+			zap.String("room", r.ID),
+			zap.String("square", e.Square),
+			zap.String("kind", e.Kind),
+		)
 		r.Broadcast(models.MsgEffectExpired, map[string]interface{}{
 			"square":      e.Square,
 			"effect_kind": e.Kind,

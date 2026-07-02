@@ -2,7 +2,7 @@
 
 Checklist completa delle funzionalità che il client di test ("Chess server web frontend")
 deve avere per esercitare **tutto** il server, incluse le modifiche **scacchi + magie**
-(Step 1–3 della roadmap in `update.md`).
+(roadmap in `update.md`). Riferimento autoritativo del protocollo: [PROTOCOL.md](PROTOCOL.md).
 
 Spunta `[x]` man mano che implementi. Le sezioni 🆕 sono le novità magia.
 

@@ -95,8 +95,9 @@ Packages:
 - Reconnection re-sends the player's private hand + public state from the in-memory `Room`. **Still no DB persistence of live matches** — a restart loses active games; deferred to a dedicated step.
 - Draws: `engine.GetGameStatus` uses perft for checkmate/stalemate and `isInCheck` reads Stockfish's `Checkers:` line; `isDrawByRule` covers fifty-move + insufficient material (pure, no engine eval — the old `score cp 0` heuristic caused false draws). Threefold repetition is tracked in `Room.posCounts` (normalized FEN, counted after each board change).
 - Known limitation: clocks follow `Board.Turn` (chess side-to-move), not `match.ActivePlayer`.
+- Testing/logging (Step 6): `internal/match/integration_test.go` simulates a full magic game (mana growth, gain_mana combo, draw, freeze expiry, shield, deck depletion) with no Stockfish needed; `internal/game/reconnect_test.go` asserts reconnection re-sends the private hand + public state (incl. `active_effects`). Each cast, applied effect, and effect expiry is logged with structured zap fields. The WebSocket protocol is documented in `PROTOCOL.md`.
 - Known limitation: a board-editing spell that checkmates the opponent isn't auto-detected (game-over is only checked after a move); a `move_piece` only guards the *caster's* king.
-- Not yet implemented (Step 6 in `update.md`): end-to-end integration test with magic, structured cast/effect logging audit, and DB persistence of live matches.
+- Not yet implemented: DB persistence of live matches (schema for phase/mana/deck/hand/effects), so a server restart still loses active games.
 
 ### Dependencies
 
