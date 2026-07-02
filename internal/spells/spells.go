@@ -30,14 +30,19 @@ const (
 	TargetPiece      TargetType = "piece"
 	TargetOwnPiece   TargetType = "own_piece"
 	TargetEnemyPiece TargetType = "enemy_piece"
+	TargetPieceMove  TargetType = "piece_move" // due caselle: partenza + arrivo
 )
 
 // TargetCount restituisce quanti bersagli si attende un TargetType.
 func (t TargetType) TargetCount() int {
-	if t == TargetNone {
+	switch t {
+	case TargetNone:
 		return 0
+	case TargetPieceMove:
+		return 2
+	default:
+		return 1
 	}
-	return 1
 }
 
 // Kind degli effetti (cresce ad ogni step della roadmap).
@@ -46,6 +51,9 @@ const (
 	EffectDestroyPiece = "destroy_piece" // distrugge un pezzo nemico (Step 3)
 	EffectFreezePiece  = "freeze_piece"  // congela un pezzo nemico (Step 4)
 	EffectShieldPiece  = "shield_piece"  // protegge un pezzo proprio (Step 4)
+	EffectDrawCard     = "draw_card"     // pesca carte (Step 5)
+	EffectGainMana     = "gain_mana"     // mana extra questo turno (Step 5)
+	EffectMovePiece    = "move_piece"    // sposta un pezzo proprio su casella vuota (Step 5)
 )
 
 // Effect è un effetto componibile di una magia.
@@ -81,6 +89,9 @@ var Catalog = map[string]Spell{
 	"disintegrate": {ID: "disintegrate", Name: "Disintegrate", ManaCost: 4, Phases: castableInMain, TargetType: TargetEnemyPiece, Effects: []Effect{{Kind: EffectDestroyPiece}}},
 	"frostbolt":    {ID: "frostbolt", Name: "Frost Bolt", ManaCost: 2, Phases: castableInMain, TargetType: TargetEnemyPiece, Effects: []Effect{{Kind: EffectFreezePiece, Params: map[string]interface{}{"turns": 2}}}},
 	"aegis":        {ID: "aegis", Name: "Aegis", ManaCost: 3, Phases: castableInMain, TargetType: TargetOwnPiece, Effects: []Effect{{Kind: EffectShieldPiece, Params: map[string]interface{}{"turns": 2}}}},
+	"insight":      {ID: "insight", Name: "Insight", ManaCost: 1, Phases: castableInMain, TargetType: TargetNone, Effects: []Effect{{Kind: EffectDrawCard, Params: map[string]interface{}{"count": 1}}}},
+	"channel":      {ID: "channel", Name: "Channel", ManaCost: 0, Phases: castableInMain, TargetType: TargetNone, Effects: []Effect{{Kind: EffectGainMana, Params: map[string]interface{}{"amount": 2}}}},
+	"teleport":     {ID: "teleport", Name: "Teleport", ManaCost: 3, Phases: castableInMain, TargetType: TargetPieceMove, Effects: []Effect{{Kind: EffectMovePiece}}},
 }
 
 // deckRecipe definisce quante copie di ogni carta compongono il mazzo MVP.
@@ -91,13 +102,16 @@ var deckRecipe = []struct {
 	ID    string
 	Count int
 }{
-	{"spark", 10},
-	{"jolt", 7},
-	{"pulse", 7},
-	{"surge", 6},
-	{"disintegrate", 4},
+	{"spark", 8},
+	{"jolt", 6},
+	{"pulse", 5},
+	{"surge", 4},
+	{"insight", 4},
+	{"channel", 3},
 	{"frostbolt", 3},
-	{"aegis", 2},
+	{"aegis", 3},
+	{"disintegrate", 2},
+	{"teleport", 1},
 	{"nova", 1},
 }
 

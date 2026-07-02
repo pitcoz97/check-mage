@@ -317,6 +317,38 @@ func TestAdvanceResult_Snapshot(t *testing.T) {
 	}
 }
 
+func TestDrawFor(t *testing.T) {
+	s := New(1)
+	handBefore := len(s.White.Hand)
+	deckBefore := len(s.White.Deck)
+
+	d := s.DrawFor(PlayerWhite)
+	if d.CardID == "" {
+		t.Fatal("DrawFor dovrebbe pescare una carta")
+	}
+	if len(s.White.Hand) != handBefore+1 {
+		t.Errorf("mano = %d, attesa %d", len(s.White.Hand), handBefore+1)
+	}
+	if len(s.White.Deck) != deckBefore-1 {
+		t.Errorf("mazzo = %d, atteso %d", len(s.White.Deck), deckBefore-1)
+	}
+}
+
+func TestGainMana(t *testing.T) {
+	s := New(1)
+	s.White.Mana = 3
+	m := s.GainMana(PlayerWhite, 2)
+	if m.Current != 5 || s.White.Mana != 5 {
+		t.Errorf("mana dopo +2 = %d, atteso 5", s.White.Mana)
+	}
+	// Cap assoluto.
+	s.White.Mana = 9
+	s.GainMana(PlayerWhite, 5)
+	if s.White.Mana != spells.MaxManaCap {
+		t.Errorf("mana = %d, atteso cap %d", s.White.Mana, spells.MaxManaCap)
+	}
+}
+
 func TestOpponent(t *testing.T) {
 	if PlayerWhite.Opponent() != PlayerBlack {
 		t.Error("l'avversario del bianco deve essere il nero")

@@ -175,6 +175,15 @@ const (
 	StatusDraw                        // patta per altre ragioni
 )
 
+// IsInCheck indica se il lato al tratto (nella FEN data) è sotto scacco.
+// Utile per validare gli effetti che spostano pezzi (non lasciare il re
+// sotto scacco): imposta il lato voluto nella FEN e chiama questo.
+func (e *Engine) IsInCheck(fen string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.isInCheck(fen)
+}
+
 // GetGameStatus controlla se la partita è finita nella posizione data dalla FEN
 func (e *Engine) GetGameStatus(fen string) GameStatus {
 	e.mu.Lock()

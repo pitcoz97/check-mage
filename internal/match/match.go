@@ -139,6 +139,23 @@ func (s *State) Advance() AdvanceResult {
 	return s.snapshot(AdvanceResult{NewTurn: true, Draw: &draw, Mana: &mana})
 }
 
+// DrawFor pesca una carta per il giocatore dato (effetto draw_card).
+func (s *State) DrawFor(p Player) DrawResult {
+	return s.drawCard(p)
+}
+
+// GainMana aggiunge mana al giocatore dato per questo turno (effetto gain_mana),
+// senza superare il cap assoluto. Il mana torna al massimo del turno alla
+// prossima ricarica.
+func (s *State) GainMana(p Player, amount int) ManaState {
+	ps := s.player(p)
+	ps.Mana += amount
+	if ps.Mana > spells.MaxManaCap {
+		ps.Mana = spells.MaxManaCap
+	}
+	return ManaState{Player: p, Current: ps.Mana, Max: ps.MaxMana}
+}
+
 // CanCastAny indica se il giocatore attivo ha almeno una magia giocabile ORA:
 // carta in mano, mana sufficiente e fase consentita dalla magia.
 func (s *State) CanCastAny() bool {

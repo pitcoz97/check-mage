@@ -202,11 +202,16 @@ Alcune magie applicano effetti che **durano nel tempo** e seguono il **pezzo** (
 | `disintegrate` | Disintegrate | 4 | enemy_piece | **destroy_piece** (rimuove un pezzo nemico) |
 | `frostbolt` | Frost Bolt | 2 | enemy_piece | **freeze_piece** (congela un pezzo nemico per 2 suoi turni) |
 | `aegis` | Aegis | 3 | own_piece | **shield_piece** (protegge un pezzo proprio, assorbe 1 cattura, 2 turni) |
+| `insight` | Insight | 1 | none | **draw_card** (pesca 1 carta extra) |
+| `channel` | Channel | 0 | none | **gain_mana** (+2 mana solo per questo turno) |
+| `teleport` | Teleport | 3 | piece_move | **move_piece** (sposta un pezzo proprio su una casella vuota) |
 
 - Mazzo: 40 carte (condiviso/identico per i due giocatori in Fase 1).
 - `noop` = la carta costa mana e va nello scarto, ma **non** ha effetti (utile a testare mana/mano).
-- `disintegrate` modifica la FEN; `frostbolt`/`aegis` aggiungono **effetti persistenti** ai pezzi (vedi §7bis).
-- Bersagli: `enemy_piece`/`own_piece` richiedono **una casella** in `targets` (es. `["e7"]`).
+- `disintegrate`/`teleport` modificano la FEN; `frostbolt`/`aegis` aggiungono **effetti persistenti** (§7bis); `insight`/`channel` toccano solo mano/mana.
+- Bersagli: `enemy_piece`/`own_piece` = **una casella** in `targets` (es. `["e7"]`); `piece_move` = **due caselle** `[partenza, arrivo]` (es. `["b1","c3"]`, la destinazione dev'essere vuota); `none` = `targets` vuoto.
+- `channel` (costo 0, +2 mana) serve per combo: castalo e nello stesso turno gioca una magia costosa. `insight` pesca una carta che puoi rigiocare subito (ricevi `card_drawn` privato).
+- `teleport` è rifiutato (senza costo) se lascerebbe il tuo re sotto scacco.
 
 ---
 
@@ -233,6 +238,7 @@ Alcune magie applicano effetti che **durano nel tempo** e seguono il **pezzo** (
 5. **Magia destroy_piece**: con `disintegrate` in mano, casta su un pezzo nemico (es. `e7`) in `main1` → `spell_cast` con `piece_destroyed`, `game_state` con FEN aggiornata; poi una mossa legale successiva deve essere accettata sulla **nuova** posizione.
 6. **Rifiuti magia**: casella vuota / pezzo proprio / re / mana insufficiente / carta non in mano / fase sbagliata → `error`, nessun costo.
 6bis. **Freeze**: con `frostbolt` congela un pezzo nemico; al suo turno l'avversario non può muoverlo (errore). Dopo `remaining_turns` turni arriva `effect_expired` e il pezzo torna mobile.
+6quater. **Combo** (criteri Step 5): `channel` (+2 mana) seguito nello stesso turno da una magia costosa; `insight` (pesca) seguito dal cast immediato della carta pescata. `teleport` di un pezzo proprio su una casella vuota → `game_state` con FEN aggiornata; teleport che scoprirebbe il proprio re → `error`, nessun costo.
 6ter. **Shield**: con `aegis` proteggi un tuo pezzo; quando l'avversario lo cattura il pezzo sopravvive, arriva `effect_expired` (scudo consumato) e **il turno dell'avversario finisce** (ha sprecato la mossa). Al suo turno successivo la cattura va a segno.
 7. **Riconnessione**: chiudi e riapri il WS dello stesso utente a partita in corso → ricevi `game_state` (`reconnected: true`) + `hand` privata ripristinata; l'avversario riceve `opponent_reconnected`.
 8. **Disconnessione/timeout**: chiudi un client e non riconnetterti per 30s → l'altro vince per `abandonment`.

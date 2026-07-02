@@ -341,9 +341,11 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 
 	senderColor := match.Player(r.getColor(sender))
 	boardChanged := false
+	var drawnCards []match.DrawResult
 	apply := func(def spells.Spell, t []string) ([]interface{}, error) {
-		applied, changed, err := r.applySpellEffects(def, t, senderColor)
+		applied, changed, drawn, err := r.applySpellEffects(def, t, senderColor)
 		boardChanged = changed
+		drawnCards = drawn
 		return applied, err
 	}
 
@@ -383,6 +385,15 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 		"player": senderColor,
 		"size":   res.HandSize,
 	})
+	// Carte pescate dall'effetto draw_card: gli ID vanno SOLO a chi le pesca.
+	for _, d := range drawnCards {
+		if c := r.clientOf(senderColor); c != nil {
+			c.SendMessage(models.MsgCardDrawn, map[string]interface{}{
+				"card_id":   d.CardID,
+				"deck_size": d.DeckSize,
+			})
+		}
+	}
 	// Se un effetto ha modificato la scacchiera (es. destroy_piece), risincronizza
 	// lo stato (FEN aggiornata) con entrambi i client.
 	if boardChanged {
@@ -398,13 +409,11 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 // gli effetti applicati (arricchiti per il broadcast), se la board è cambiata, e
 // un eventuale errore (che annulla il cast senza spendere mana). Va invocata con
 // r.mu tenuto.
-func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster match.Player) ([]interface{}, bool, error) {
-	casterColor := effects.White
-	if caster == match.PlayerBlack {
-		casterColor = effects.Black
-	}
+func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster match.Player) ([]interface{}, bool, []match.DrawResult, error) {
+	casterColor := toEffectsColor(caster)
 
 	applied := make([]interface{}, 0, len(def.Effects))
+	var drawn []match.DrawResult
 	fen := r.Board.FEN
 	changed := false
 
@@ -415,11 +424,11 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 
 		case spells.EffectDestroyPiece:
 			if len(targets) == 0 {
-				return nil, false, fmt.Errorf("la magia %s richiede un bersaglio", def.Name)
+				return nil, false, nil, fmt.Errorf("la magia %s richiede un bersaglio", def.Name)
 			}
 			newFEN, destroyed, err := effects.DestroyPiece(fen, targets[0], casterColor)
 			if err != nil {
-				return nil, false, err
+				return nil, false, nil, err
 			}
 			fen = newFEN
 			changed = true
@@ -432,11 +441,11 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 
 		case spells.EffectFreezePiece:
 			if len(targets) == 0 {
-				return nil, false, fmt.Errorf("la magia %s richiede un bersaglio", def.Name)
+				return nil, false, nil, fmt.Errorf("la magia %s richiede un bersaglio", def.Name)
 			}
 			turns := paramInt(eff.Params, "turns", 1)
 			if err := effects.FreezePiece(r.Tracker, targets[0], casterColor, turns, def.ID); err != nil {
-				return nil, false, err
+				return nil, false, nil, err
 			}
 			applied = append(applied, map[string]interface{}{
 				"kind": eff.Kind, "target": targets[0], "remaining_turns": turns,
@@ -444,18 +453,54 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 
 		case spells.EffectShieldPiece:
 			if len(targets) == 0 {
-				return nil, false, fmt.Errorf("la magia %s richiede un bersaglio", def.Name)
+				return nil, false, nil, fmt.Errorf("la magia %s richiede un bersaglio", def.Name)
 			}
 			turns := paramInt(eff.Params, "turns", 1)
 			if err := effects.ShieldPiece(r.Tracker, targets[0], casterColor, turns, def.ID); err != nil {
-				return nil, false, err
+				return nil, false, nil, err
 			}
 			applied = append(applied, map[string]interface{}{
 				"kind": eff.Kind, "target": targets[0], "remaining_turns": turns,
 			})
 
+		case spells.EffectDrawCard:
+			count := paramInt(eff.Params, "count", 1)
+			for i := 0; i < count; i++ {
+				d := r.Match.DrawFor(caster)
+				if d.CardID != "" {
+					drawn = append(drawn, d)
+				}
+			}
+			applied = append(applied, map[string]interface{}{"kind": eff.Kind, "count": len(drawn)})
+
+		case spells.EffectGainMana:
+			amount := paramInt(eff.Params, "amount", 1)
+			m := r.Match.GainMana(caster, amount)
+			applied = append(applied, map[string]interface{}{
+				"kind": eff.Kind, "amount": amount, "mana": m.Current,
+			})
+
+		case spells.EffectMovePiece:
+			if len(targets) < 2 {
+				return nil, false, nil, fmt.Errorf("la magia %s richiede casella di partenza e arrivo", def.Name)
+			}
+			newFEN, err := effects.MovePieceFEN(fen, targets[0], targets[1], casterColor)
+			if err != nil {
+				return nil, false, nil, err
+			}
+			// La posizione risultante non deve lasciare il proprio re sotto scacco.
+			if engine.SF.IsInCheck(effects.WithSideToMove(newFEN, casterColor)) {
+				return nil, false, nil, fmt.Errorf("mossa illegale: lascerebbe il re sotto scacco")
+			}
+			fen = newFEN
+			changed = true
+			r.Tracker.MovePiece(targets[0], targets[1], 0)
+			applied = append(applied, map[string]interface{}{
+				"kind": eff.Kind, "from": targets[0], "to": targets[1],
+			})
+
 		default:
-			return nil, false, fmt.Errorf("effetto non supportato: %s", eff.Kind)
+			return nil, false, nil, fmt.Errorf("effetto non supportato: %s", eff.Kind)
 		}
 	}
 
@@ -463,7 +508,7 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 		// Una magia non passa il turno: il lato al tratto della FEN resta invariato.
 		r.Board.FEN = fen
 	}
-	return applied, changed, nil
+	return applied, changed, drawn, nil
 }
 
 // tickEffectsOnNewTurn, se nei risultati c'è un nuovo turno, decrementa gli

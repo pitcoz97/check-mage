@@ -20,8 +20,8 @@ func TestBuildDeck_Size(t *testing.T) {
 
 func TestCatalog_CostsInRange(t *testing.T) {
 	for id, sp := range Catalog {
-		if sp.ManaCost < 1 || sp.ManaCost > 8 {
-			t.Errorf("%s ha costo %d fuori range 1-8", id, sp.ManaCost)
+		if sp.ManaCost < 0 || sp.ManaCost > 8 {
+			t.Errorf("%s ha costo %d fuori range 0-8", id, sp.ManaCost)
 		}
 		if sp.ID != id {
 			t.Errorf("chiave catalogo %s != Spell.ID %s", id, sp.ID)

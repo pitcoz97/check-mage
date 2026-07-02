@@ -86,6 +86,54 @@ func TestDestroyPiece_ClearsCastling(t *testing.T) {
 	}
 }
 
+func TestMovePieceFEN(t *testing.T) {
+	// Il bianco teletrasporta il cavallo b1 su c3 (vuota).
+	newFEN, err := MovePieceFEN(startFEN, "b1", "c3", White)
+	if err != nil {
+		t.Fatalf("teleport valido fallito: %v", err)
+	}
+	if p, _ := PieceAt(newFEN, "c3"); p != 'N' {
+		t.Errorf("c3 dovrebbe avere il cavallo bianco, ha %c", p)
+	}
+	if p, _ := PieceAt(newFEN, "b1"); p != 0 {
+		t.Error("b1 dovrebbe essere vuota")
+	}
+	// La FEN non deve cambiare il lato al tratto (resta 'w').
+	if WithSideToMove(newFEN, White) != newFEN {
+		t.Error("il lato al tratto non deve cambiare dopo un teleport")
+	}
+
+	// Spostare un pezzo nemico → errore.
+	if _, err := MovePieceFEN(startFEN, "b8", "c6", White); err == nil {
+		t.Error("spostare un pezzo nemico dovrebbe fallire")
+	}
+	// Destinazione occupata → errore.
+	if _, err := MovePieceFEN(startFEN, "b1", "d2", White); err == nil {
+		t.Error("spostare su casella occupata dovrebbe fallire")
+	}
+	// Partenza vuota → errore.
+	if _, err := MovePieceFEN(startFEN, "e4", "e5", White); err == nil {
+		t.Error("spostare da casella vuota dovrebbe fallire")
+	}
+}
+
+func TestMovePieceFEN_KingClearsCastling(t *testing.T) {
+	fen := "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1"
+	newFEN, err := MovePieceFEN(fen, "e1", "e3", White) // sposta il re
+	if err != nil {
+		t.Fatalf("errore inatteso: %v", err)
+	}
+	if c := castlingField(newFEN); c != "kq" {
+		t.Errorf("arrocco = %s, atteso kq (persi i diritti del bianco)", c)
+	}
+}
+
+func TestWithSideToMove(t *testing.T) {
+	if got := WithSideToMove(startFEN, Black); got != "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1" {
+		t.Errorf("WithSideToMove(Black) errato: %s", got)
+	}
+}
+
 func TestPassTurn(t *testing.T) {
 	// Bianco al tratto → passa al Nero, halfmove +1, fullmove invariato,
 	// en passant azzerato.

@@ -206,6 +206,88 @@ func DestroyPiece(fen, square string, caster Color) (newFEN, destroyed string, e
 	return newFEN, destroyed, nil
 }
 
+// MovePieceFEN sposta un pezzo PROPRIO da `from` a una casella `to` VUOTA e
+// ritorna la nuova FEN. Non cambia il lato al tratto (una magia non passa il
+// turno). Il chiamante deve poi verificare che la posizione risultante sia
+// legale (re non sotto scacco). Rimuove i diritti d'arrocco se si muove un re o
+// una torre dalla casella d'arrocco.
+func MovePieceFEN(fen, from, to string, caster Color) (string, error) {
+	fRow, fCol, err := parseSquare(from)
+	if err != nil {
+		return "", err
+	}
+	tRow, tCol, err := parseSquare(to)
+	if err != nil {
+		return "", err
+	}
+	grid, err := parsePlacement(fen)
+	if err != nil {
+		return "", err
+	}
+	p := grid[fRow][fCol]
+	if p == 0 {
+		return "", fmt.Errorf("nessun pezzo da spostare in %s", from)
+	}
+	if pieceColor(p) != caster {
+		return "", fmt.Errorf("puoi spostare solo i tuoi pezzi (%s)", from)
+	}
+	if grid[tRow][tCol] != 0 {
+		return "", fmt.Errorf("la casella %s non è vuota", to)
+	}
+
+	grid[tRow][tCol] = p
+	grid[fRow][fCol] = 0
+	newFEN := replacePlacement(fen, encodePlacement(grid))
+	return clearCastlingForMovedPiece(newFEN, from, p), nil
+}
+
+// WithSideToMove restituisce la FEN col lato al tratto impostato al colore dato
+// (senza toccare i pezzi). Serve per interrogare Stockfish sul re di un colore
+// specifico anche quando non è il suo turno.
+func WithSideToMove(fen string, c Color) string {
+	fields := strings.Fields(fen)
+	if len(fields) < 2 {
+		return fen
+	}
+	if c == White {
+		fields[1] = "w"
+	} else {
+		fields[1] = "b"
+	}
+	return strings.Join(fields, " ")
+}
+
+// clearCastlingForMovedPiece revoca i diritti d'arrocco quando un re o una torre
+// lascia la propria casella.
+func clearCastlingForMovedPiece(fen, from string, piece byte) string {
+	switch piece {
+	case 'K':
+		return clearCastling(fen, "KQ")
+	case 'k':
+		return clearCastling(fen, "kq")
+	case 'R', 'r':
+		return clearCastlingForRook(fen, from, piece)
+	}
+	return fen
+}
+
+// clearCastling rimuove i caratteri dati dal campo arrocchi della FEN.
+func clearCastling(fen, rights string) string {
+	fields := strings.Fields(fen)
+	if len(fields) < 3 || fields[2] == "-" {
+		return fen
+	}
+	c := fields[2]
+	for _, r := range rights {
+		c = strings.ReplaceAll(c, string(r), "")
+	}
+	if c == "" {
+		c = "-"
+	}
+	fields[2] = c
+	return strings.Join(fields, " ")
+}
+
 // clearCastlingForRook rimuove dal campo arrocchi della FEN il diritto associato
 // a una torre distrutta sulla sua casella iniziale (a1/h1/a8/h8).
 func clearCastlingForRook(fen, square string, piece byte) string {
