@@ -86,6 +86,27 @@ func TestDestroyPiece_ClearsCastling(t *testing.T) {
 	}
 }
 
+func TestPassTurn(t *testing.T) {
+	// Bianco al tratto → passa al Nero, halfmove +1, fullmove invariato,
+	// en passant azzerato.
+	got := PassTurn("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 5 1")
+	want := "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 6 2"
+	if got != want {
+		t.Errorf("PassTurn (nero→bianco):\n got  %s\n want %s", got, want)
+	}
+
+	// Bianco al tratto → Nero: fullmove NON avanza.
+	got = PassTurn("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+	want = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 1 1"
+	if got != want {
+		t.Errorf("PassTurn (bianco→nero):\n got  %s\n want %s", got, want)
+	}
+	// La posizione (piece placement) non cambia.
+	if fenPlacement(got) != "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR" {
+		t.Error("PassTurn non deve modificare la posizione dei pezzi")
+	}
+}
+
 func castlingField(fen string) string {
 	n := 0
 	start := 0

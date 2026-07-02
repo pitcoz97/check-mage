@@ -6,6 +6,7 @@ package effects
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -129,6 +130,33 @@ func pieceName(p byte) string {
 		return "king"
 	}
 	return "unknown"
+}
+
+// PassTurn restituisce la FEN col solo lato al tratto invertito (una "null
+// move"): stessa posizione, en passant azzerato, contatori aggiornati. Serve
+// quando una mossa viene consumata senza spostare pezzi (es. uno scudo che
+// assorbe la cattura: l'attaccante perde comunque il turno).
+func PassTurn(fen string) string {
+	fields := strings.Fields(fen)
+	if len(fields) < 6 {
+		return fen
+	}
+	if fields[1] == "w" {
+		fields[1] = "b"
+	} else {
+		fields[1] = "w"
+	}
+	fields[3] = "-" // en passant non più disponibile dopo una null move
+	if hc, err := strconv.Atoi(fields[4]); err == nil {
+		fields[4] = strconv.Itoa(hc + 1) // nessuna cattura né spinta di pedone
+	}
+	// Il numero di mossa completa avanza dopo la mossa del Nero (ora tocca al Bianco).
+	if fields[1] == "w" {
+		if fm, err := strconv.Atoi(fields[5]); err == nil {
+			fields[5] = strconv.Itoa(fm + 1)
+		}
+	}
+	return strings.Join(fields, " ")
 }
 
 // PieceAt restituisce il carattere del pezzo nella casella (0 se vuota).

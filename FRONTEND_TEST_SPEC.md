@@ -147,7 +147,7 @@ Alcune magie applicano effetti che **durano nel tempo** e seguono il **pezzo** (
 - [ ] Aggiornarli quando arriva un `spell_cast` con `effects_applied` di tipo `freeze_piece`/`shield_piece` (`{kind, target, remaining_turns}`).
 - [ ] Rimuoverli quando arriva `effect_expired` (`{square, effect_kind}`).
 - [ ] **Freeze**: un pezzo congelato non può muoversi; se il giocatore prova a muoverlo il server risponde `error: "Il pezzo in X è congelato"`. Idealmente disabilita la selezione di quel pezzo.
-- [ ] **Shield**: protegge un pezzo proprio e **assorbe una cattura**. Quando l'avversario prova a catturare un pezzo scudato, il server **rifiuta la mossa** (`error`) e **consuma lo scudo** (ricevi `effect_expired` per quella casella). Lo scudo segue il pezzo se questo si muove.
+- [ ] **Shield**: protegge un pezzo proprio e **assorbe una cattura**. Quando l'avversario cattura un pezzo scudato, il pezzo **sopravvive** ma l'attaccante **consuma comunque la mossa**: nessun pezzo si sposta, lo scudo viene consumato (ricevi `effect_expired` con `reason: "shield_absorbed"`) e **il turno passa** (la FEN cambia solo il lato al tratto). Lo scudo segue il pezzo se questo si muove.
 - Durata: `remaining_turns` si riferisce ai **turni del proprietario** del pezzo (freeze 2 = il pezzo resta congelato per 2 turni di chi lo possiede). Il decremento avviene a fine turno; ricevi `effect_expired` quando arriva a 0.
 - Decisioni server (per i test): lo scudo protegge **solo dalle catture scacchistiche**, non da `disintegrate`; la cattura *en passant* di un pedone scudato non è bloccata (caso limite).
 
@@ -233,6 +233,6 @@ Alcune magie applicano effetti che **durano nel tempo** e seguono il **pezzo** (
 5. **Magia destroy_piece**: con `disintegrate` in mano, casta su un pezzo nemico (es. `e7`) in `main1` → `spell_cast` con `piece_destroyed`, `game_state` con FEN aggiornata; poi una mossa legale successiva deve essere accettata sulla **nuova** posizione.
 6. **Rifiuti magia**: casella vuota / pezzo proprio / re / mana insufficiente / carta non in mano / fase sbagliata → `error`, nessun costo.
 6bis. **Freeze**: con `frostbolt` congela un pezzo nemico; al suo turno l'avversario non può muoverlo (errore). Dopo `remaining_turns` turni arriva `effect_expired` e il pezzo torna mobile.
-6ter. **Shield**: con `aegis` proteggi un tuo pezzo; quando l'avversario tenta di catturarlo la mossa è rifiutata e arriva `effect_expired` (scudo consumato). Al tentativo successivo la cattura va a segno.
+6ter. **Shield**: con `aegis` proteggi un tuo pezzo; quando l'avversario lo cattura il pezzo sopravvive, arriva `effect_expired` (scudo consumato) e **il turno dell'avversario finisce** (ha sprecato la mossa). Al suo turno successivo la cattura va a segno.
 7. **Riconnessione**: chiudi e riapri il WS dello stesso utente a partita in corso → ricevi `game_state` (`reconnected: true`) + `hand` privata ripristinata; l'avversario riceve `opponent_reconnected`.
 8. **Disconnessione/timeout**: chiudi un client e non riconnetterti per 30s → l'altro vince per `abandonment`.

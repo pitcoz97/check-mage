@@ -192,18 +192,10 @@ func (r *Room) handleMove(sender *Client, move string) {
 		return
 	}
 
-	// Effetto shield: catturare un pezzo protetto è impedito; lo scudo assorbe
-	// il tentativo (viene consumato) e la mossa è rifiutata.
-	if r.Tracker.HasShield(to) {
-		r.Tracker.ConsumeShield(to)
-		r.mu.Unlock()
-		sender.sendError(fmt.Sprintf("Il pezzo in %s è protetto da uno scudo (assorbito)", to))
-		r.Broadcast(models.MsgEffectExpired, map[string]interface{}{
-			"square":      to,
-			"effect_kind": effects.KindShield,
-		})
-		return
-	}
+	// Effetto shield: se la mossa cattura un pezzo protetto, lo scudo assorbe il
+	// colpo — il pezzo sopravvive — ma la mossa dell'attaccante è comunque
+	// consumata (il turno passa). Nessun pezzo si sposta.
+	shieldAbsorbed := r.Tracker.HasShield(to)
 
 	// Calcola il tempo impiegato
 	elapsed := time.Since(r.lastMoveAt)
@@ -227,22 +219,32 @@ func (r *Room) handleMove(sender *Client, move string) {
 	}
 
 	r.lastMoveAt = time.Now()
-	r.Board.Moves = append(r.Board.Moves, move)
-	// La FEN è la fonte di verità (le magie possono editarla fuori dalle mosse).
-	r.Board.FEN = engine.SF.ApplyMove(r.Board.FEN, move)
-	r.Board.Turn = sideToMove(r.Board.FEN)
-	// Tieni allineata l'identità dei pezzi (gli effetti seguono il pezzo).
-	var promo byte
-	if len(move) >= 5 {
-		promo = move[4]
+
+	if shieldAbsorbed {
+		// Nessun pezzo si muove: consuma lo scudo e passa il turno (null move
+		// sulla FEN: cambia solo il lato al tratto).
+		r.Tracker.ConsumeShield(to)
+		r.Board.FEN = effects.PassTurn(r.Board.FEN)
+		r.Board.Turn = sideToMove(r.Board.FEN)
+	} else {
+		r.Board.Moves = append(r.Board.Moves, move)
+		// La FEN è la fonte di verità (le magie possono editarla fuori dalle mosse).
+		r.Board.FEN = engine.SF.ApplyMove(r.Board.FEN, move)
+		r.Board.Turn = sideToMove(r.Board.FEN)
+		// Tieni allineata l'identità dei pezzi (gli effetti seguono il pezzo).
+		var promo byte
+		if len(move) >= 5 {
+			promo = move[4]
+		}
+		r.Tracker.MovePiece(from, to, promo)
 	}
-	r.Tracker.MovePiece(from, to, promo)
 	r.recordPosition()
 
 	logger.L.Info("Mossa giocata",
 		zap.String("room", r.ID),
 		zap.String("player", sender.Username),
 		zap.String("move", move),
+		zap.Bool("shield_absorbed", shieldAbsorbed),
 		zap.Duration("white_time", r.WhiteTime.Round(time.Second)),
 		zap.Duration("black_time", r.BlackTime.Round(time.Second)),
 	)
@@ -281,6 +283,14 @@ func (r *Room) handleMove(sender *Client, move string) {
 		results := append([]match.AdvanceResult{r.Match.Advance()}, r.Match.AutoAdvance()...)
 		expired := r.tickEffectsOnNewTurn(results)
 		r.mu.Unlock()
+		if shieldAbsorbed {
+			// Lo scudo ha assorbito la cattura: notifica il consumo dello scudo.
+			r.Broadcast(models.MsgEffectExpired, map[string]interface{}{
+				"square":      to,
+				"effect_kind": effects.KindShield,
+				"reason":      "shield_absorbed",
+			})
+		}
 		r.broadcastState()
 		for _, res := range results {
 			r.applyAdvanceBroadcasts(res)
