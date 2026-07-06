@@ -31,7 +31,6 @@ type Room struct {
 	BlackTime         time.Duration       // tempo rimanente nero
 	Increment         time.Duration       // incremento per mossa (es. 5 secondi)
 	timerStop         chan struct{}       // canale per fermare il timer
-	lastMoveAt        time.Time           // quando è stata fatta l'ultima mossa
 	drawOfferer       *Client             // chi ha offerto la patta (nil se nessuna offerta)
 	disconnectedTimer map[int]*time.Timer // userID -> timer di disconnessione
 	posCounts         map[string]int      // FEN normalizzata -> occorrenze (tripla ripetizione)
@@ -64,7 +63,6 @@ func NewRoom(id string, white, black *Client, baseTime, increment time.Duration)
 		BlackTime:         baseTime,
 		Increment:         increment,
 		timerStop:         make(chan struct{}),
-		lastMoveAt:        time.Now(),
 		disconnectedTimer: make(map[int]*time.Timer),
 		posCounts:         make(map[string]int),
 	}
@@ -98,14 +96,13 @@ func NewRoom(id string, white, black *Client, baseTime, increment time.Duration)
 
 // ensureTimer avvia il timer della partita se non è già in esecuzione. Le room
 // ripristinate dal DB partono dormienti e avviano il timer al primo reconnect
-// (azzerando lastMoveAt, così il downtime non consuma tempo). Va chiamata con
-// r.mu tenuto (o in fase di init single-thread).
+// (il tempo scorre solo mentre il timer gira, quindi il downtime non consuma
+// tempo). Va chiamata con r.mu tenuto (o in fase di init single-thread).
 func (r *Room) ensureTimer() {
 	if r.timerStarted {
 		return
 	}
 	r.timerStarted = true
-	r.lastMoveAt = time.Now()
 	go r.runTimer()
 }
 
@@ -227,7 +224,6 @@ func roomFromSnapshot(snap roomSnapshot) *Room {
 		BlackTime:         time.Duration(snap.BlackTimeMs) * time.Millisecond,
 		Increment:         time.Duration(snap.IncrementMs) * time.Millisecond,
 		timerStop:         make(chan struct{}),
-		lastMoveAt:        time.Now(),
 		disconnectedTimer: make(map[int]*time.Timer),
 		posCounts:         snap.PosCounts,
 	}
@@ -349,28 +345,13 @@ func (r *Room) handleMove(sender *Client, move string) {
 	// consumata (il turno passa). Nessun pezzo si sposta.
 	shieldAbsorbed := r.Tracker.HasShield(to)
 
-	// Calcola il tempo impiegato
-	elapsed := time.Since(r.lastMoveAt)
-
+	// Il tempo scorre in tempo reale in runTimer (keyato su match.ActivePlayer);
+	// qui aggiungiamo solo l'incremento per la mossa completata.
 	if senderColor == "white" {
-		r.WhiteTime -= elapsed
 		r.WhiteTime += r.Increment
-		if r.WhiteTime < 0 {
-			r.mu.Unlock()
-			r.endGame(models.ResultBlackWins, "timeout")
-			return
-		}
 	} else {
-		r.BlackTime -= elapsed
 		r.BlackTime += r.Increment
-		if r.BlackTime < 0 {
-			r.mu.Unlock()
-			r.endGame(models.ResultWhiteWins, "timeout")
-			return
-		}
 	}
-
-	r.lastMoveAt = time.Now()
 
 	if shieldAbsorbed {
 		// Nessun pezzo si muove: consuma lo scudo e passa il turno (null move
@@ -472,7 +453,10 @@ func (r *Room) handlePassPhase(sender *Client) {
 	// Passa la fase, poi auto-avanza le fasi che non richiedono input.
 	results := append([]match.AdvanceResult{r.Match.Advance()}, r.Match.AutoAdvance()...)
 	expired := r.tickEffectsOnNewTurn(results)
-	r.persist()
+	endResult, endReason, ended := r.checkRolloverGameEnd(results)
+	if !ended {
+		r.persist()
+	}
 
 	logger.L.Info("Fase passata",
 		zap.String("room", r.ID),
@@ -486,6 +470,9 @@ func (r *Room) handlePassPhase(sender *Client) {
 		r.applyAdvanceBroadcasts(res)
 	}
 	r.broadcastExpired(expired)
+	if ended {
+		r.endGame(endResult, endReason)
+	}
 }
 
 // handleCastSpell gestisce il gioco di una magia. In Step 2 gli effetti sono
@@ -517,7 +504,12 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 	// fase main si auto-avanza di conseguenza.
 	autoResults := r.Match.AutoAdvance()
 	expired := r.tickEffectsOnNewTurn(autoResults)
-	r.persist()
+	// Una magia che edita la board (es. Disintegrate/Teleport) può dare scacco
+	// matto: se il cast chiude il turno, verifica la posizione dell'avversario.
+	endResult, endReason, ended := r.checkRolloverGameEnd(autoResults)
+	if !ended {
+		r.persist()
+	}
 
 	logger.L.Info("Magia giocata",
 		zap.String("room", r.ID),
@@ -569,6 +561,9 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 		r.applyAdvanceBroadcasts(ar)
 	}
 	r.broadcastExpired(expired)
+	if ended {
+		r.endGame(endResult, endReason)
+	}
 }
 
 // applySpellEffects esegue gli effetti di una magia sulla board (FEN). Ritorna
@@ -688,6 +683,42 @@ func (r *Room) tickEffectsOnNewTurn(results []match.AdvanceResult) []effects.Exp
 		}
 	}
 	return nil
+}
+
+// checkRolloverGameEnd, dopo un rollover di turno, verifica se il nuovo
+// giocatore attivo è sotto scacco matto/stallo (anche per effetto di una magia
+// del turno precedente, es. Disintegrate/Teleport). Al rollover la FEN ha il
+// lato al tratto del nuovo giocatore attivo, quindi GetGameStatus lo valuta
+// correttamente. Ritorna (result, reason, true) se la partita è finita. Va
+// invocata con r.mu tenuto; il chiamante chiama endGame dopo aver rilasciato il
+// lock e fatto i broadcast.
+func (r *Room) checkRolloverGameEnd(results []match.AdvanceResult) (string, string, bool) {
+	rolled := false
+	for _, res := range results {
+		if res.NewTurn {
+			rolled = true
+			break
+		}
+	}
+	if !rolled {
+		return "", "", false
+	}
+
+	switch engine.SF.GetGameStatus(r.Board.FEN) {
+	case engine.StatusCheckmate:
+		r.Board.Status = "checkmate"
+		if r.Match.ActivePlayer == match.PlayerWhite {
+			return models.ResultBlackWins, "checkmate", true // il Bianco è matto
+		}
+		return models.ResultWhiteWins, "checkmate", true
+	case engine.StatusStalemate:
+		r.Board.Status = "stalemate"
+		return models.ResultDraw, "stalemate", true
+	case engine.StatusDraw:
+		r.Board.Status = "draw"
+		return models.ResultDraw, "draw", true
+	}
+	return "", "", false
 }
 
 // broadcastExpired notifica entrambi i client degli effetti scaduti.
@@ -1003,16 +1034,13 @@ func (r *Room) endGame(result, reason string) {
 	)
 }
 
-// runTimer fa scorrere il tempo del giocatore di turno
-// e termina la partita se scade.
-//
-// NOTA: l'orologio segue Board.Turn (il lato che deve muovere negli scacchi),
-// che si ribalta alla mossa, non Match.ActivePlayer. In Step 1 è ininfluente
-// (i giocatori passano le fasi main istantaneamente); andrà rivisto quando le
-// magie daranno durata reale alle fasi main.
+// runTimer fa scorrere in tempo reale il tempo del giocatore ATTIVO
+// (match.ActivePlayer, non il lato al tratto degli scacchi) e termina la partita
+// se scade. È l'unica autorità sul tempo: il tempo del giocatore attivo scorre
+// per tutto il suo turno (tutte le fasi), non solo durante la mossa.
 func (r *Room) runTimer() {
-	tickGame := time.NewTicker(100 * time.Millisecond) // aggiorna ogni 100ms
-	tickBroadcast := time.NewTicker(1 * time.Second)   // aggiorna ogni 100ms
+	tickGame := time.NewTicker(100 * time.Millisecond)
+	tickBroadcast := time.NewTicker(1 * time.Second)
 	defer tickGame.Stop()
 	defer tickBroadcast.Stop()
 
@@ -1024,7 +1052,7 @@ func (r *Room) runTimer() {
 		case <-tickGame.C:
 			r.mu.Lock()
 
-			if r.Board.Turn == "white" {
+			if r.Match.ActivePlayer == match.PlayerWhite {
 				r.WhiteTime -= 100 * time.Millisecond
 				if r.WhiteTime <= 0 {
 					r.WhiteTime = 0
@@ -1050,12 +1078,16 @@ func (r *Room) runTimer() {
 	}
 }
 
-// broadcastTimers manda solo i tempi aggiornati ai client
+// broadcastTimers manda solo i tempi aggiornati ai client. "turn" è il giocatore
+// attivo (di chi sta scorrendo il tempo), non il lato al tratto degli scacchi.
 func (r *Room) broadcastTimers() {
+	r.mu.Lock()
+	white, black, active := r.WhiteTime.Milliseconds(), r.BlackTime.Milliseconds(), r.Match.ActivePlayer
+	r.mu.Unlock()
 	r.Broadcast("timer_update", map[string]interface{}{
-		"white_time": r.WhiteTime.Milliseconds(),
-		"black_time": r.BlackTime.Milliseconds(),
-		"turn":       r.Board.Turn,
+		"white_time": white,
+		"black_time": black,
+		"turn":       active,
 	})
 }
 

@@ -224,7 +224,8 @@ Alcune magie applicano effetti che **durano nel tempo** e seguono il **pezzo** (
 ### Limiti noti del server (da tenere a mente nei test)
 - ✅ **Persistenza DB dei match live**: le partite in corso sopravvivono a un riavvio del server (salvate su ogni azione + allo shutdown, ripristinate all'avvio). Dopo un riavvio la room resta dormiente finché un giocatore non si riconnette (il timer riparte al primo reconnect).
 - ⚠️ **Niente messaggio esplicito "tu sei bianco/nero"**: vedi §3. Sarebbe utile aggiungerlo lato server (TODO).
-- ⚠️ L'orologio segue il lato-al-tratto degli scacchi, non il "giocatore attivo" della FSM: durante `main2` di un giocatore l'orologio può già scorrere per l'avversario. Ininfluente se si passano le fasi main rapidamente.
+- ✅ L'orologio scorre per il **giocatore attivo** (`match.ActivePlayer`) per tutto il suo turno, non per il lato-al-tratto degli scacchi. In `timer_update` il campo `turn` è il giocatore attivo (di chi sta scorrendo il tempo): usalo per evidenziare l'orologio in movimento.
+- ✅ Un matto causato da una magia (es. Disintegrate/Teleport) termina la partita: al passaggio di turno il server valuta la posizione dell'avversario e invia `game_over` (`reason: "checkmate"`).
 - ⚠️ Distruggere una torre non azzera ancora i diritti d'arrocco nella FEN.
 
 ---

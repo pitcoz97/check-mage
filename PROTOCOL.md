@@ -61,7 +61,7 @@ mossa valida la fase avanza da sola (il client non manda `pass_phase`).
 | `type` | `payload` | Destinatario |
 |--------|-----------|--------------|
 | `game_state` | vedi sotto | entrambi (pubblico) |
-| `timer_update` | `{ white_time, black_time, turn }` | entrambi |
+| `timer_update` | `{ white_time, black_time, turn }` | entrambi (`turn` = giocatore attivo, di chi scorre il tempo) |
 | `phase_changed` | `{ phase, active_player, turn_number }` | entrambi |
 | `hand` | `{ hand:[id...], mana, max_mana, deck_size }` | **solo proprietario** |
 | `card_drawn` | `{ card_id, deck_size }` | **solo chi pesca** |
@@ -136,7 +136,5 @@ Mazzo: 40 carte (in Fase 1 condiviso/identico per i due giocatori).
   dormienti finché qualcuno non si riconnette).
 - Il server non comunica esplicitamente il colore del giocatore: il client lo
   deduce.
-- Il clock segue il lato al tratto degli scacchi, non il "giocatore attivo"
-  della FSM.
-- Un matto causato da una magia non è auto-rilevato (il game-over è verificato
-  solo dopo una mossa).
+- `move_piece` (Teleport) può lasciare il re avversario sotto scacco (legale);
+  garantisce solo che il re di chi lancia non resti sotto scacco.
