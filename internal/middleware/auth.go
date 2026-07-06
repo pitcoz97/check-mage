@@ -24,7 +24,14 @@ func Auth(next http.Handler) http.Handler {
 
 		// Il token arriva nell'header: "Authorization: Bearer <token>"
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		var tokenStr string
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			tokenStr = strings.TrimPrefix(authHeader, "Bearer ")
+		} else if t := r.URL.Query().Get("token"); t != "" {
+			// Fallback per WebSocket: il browser non può impostare header custom
+			// sulla connessione WS, quindi accettiamo il token come query param ?token=
+			tokenStr = t
+		} else {
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(models.APIResponse{
 				Success: false,
@@ -32,8 +39,6 @@ func Auth(next http.Handler) http.Handler {
 			})
 			return
 		}
-
-		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 
 		// Valida e decodifica il token
 		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
