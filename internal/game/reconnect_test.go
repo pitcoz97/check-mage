@@ -37,6 +37,8 @@ func TestReconnect_RestoresMagicState(t *testing.T) {
 		Tracker:           effects.NewTracker(startFEN),
 		White:             createMockClient(1, "white"),
 		Black:             createMockClient(2, "black"),
+		WhiteTime:         5 * time.Minute,
+		BlackTime:         5 * time.Minute,
 		disconnectedTimer: map[int]*time.Timer{},
 		posCounts:         map[string]int{},
 	}

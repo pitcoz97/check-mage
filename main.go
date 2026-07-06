@@ -36,6 +36,12 @@ func main() {
 	mw.InitLimiters()
 	db.Connect()
 
+	// Schema dei match live + ripristino delle partite in corso dopo un riavvio
+	if err := db.EnsureLiveMatchSchema(); err != nil {
+		logger.L.Error("Errore creazione schema live_matches", zap.Error(err))
+	}
+	game.GameManager.LoadPersisted()
+
 	// Monitora la salute del DB ogni 30 secondi
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)

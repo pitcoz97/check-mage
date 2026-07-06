@@ -131,8 +131,9 @@ Mazzo: 40 carte (in Fase 1 condiviso/identico per i due giocatori).
 
 ## Limiti noti
 
-- Nessuna persistenza DB dei match live: un riavvio del server perde le partite
-  in corso (la riconnessione funziona solo a server acceso).
+- Le partite in corso sono persistite in Postgres: un riavvio del server non le
+  perde e i giocatori possono riconnettersi (le room ripristinate restano
+  dormienti finché qualcuno non si riconnette).
 - Il server non comunica esplicitamente il colore del giocatore: il client lo
   deduce.
 - Il clock segue il lato al tratto degli scacchi, non il "giocatore attivo"

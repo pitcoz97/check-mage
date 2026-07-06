@@ -61,6 +61,44 @@ func New(seed int64) *State {
 	}
 }
 
+// Snapshot è lo stato serializzabile del match (per la persistenza DB). Le
+// PlayerState hanno campi esportati, quindi marshalla direttamente in JSON.
+type Snapshot struct {
+	CurrentPhase phase.Phase         `json:"current_phase"`
+	TurnNumber   int                 `json:"turn_number"`
+	ActivePlayer Player              `json:"active_player"`
+	Seed         int64               `json:"seed"`
+	White        *spells.PlayerState `json:"white"`
+	Black        *spells.PlayerState `json:"black"`
+}
+
+// Snapshot cattura lo stato corrente per la persistenza.
+func (s *State) Snapshot() Snapshot {
+	return Snapshot{
+		CurrentPhase: s.CurrentPhase,
+		TurnNumber:   s.TurnNumber,
+		ActivePlayer: s.ActivePlayer,
+		Seed:         s.Seed,
+		White:        s.White,
+		Black:        s.Black,
+	}
+}
+
+// FromSnapshot ricostruisce lo stato da uno Snapshot. L'RNG viene re-seedato dal
+// seed: non serve replicarne la posizione perché le pesche leggono dal mazzo già
+// persistito (l'RNG è usato solo per il mescolamento iniziale).
+func FromSnapshot(sn Snapshot) *State {
+	return &State{
+		CurrentPhase: sn.CurrentPhase,
+		TurnNumber:   sn.TurnNumber,
+		ActivePlayer: sn.ActivePlayer,
+		Seed:         sn.Seed,
+		White:        sn.White,
+		Black:        sn.Black,
+		rng:          rand.New(rand.NewSource(sn.Seed)),
+	}
+}
+
 // player restituisce le risorse del giocatore dato.
 func (s *State) player(p Player) *spells.PlayerState {
 	if p == PlayerWhite {

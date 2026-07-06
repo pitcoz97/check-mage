@@ -2,8 +2,9 @@ package game
 
 import (
 	"chess-server/internal/config"
+	"chess-server/internal/db"
 	"chess-server/internal/logger"
-	"chess-server/internal/models"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -115,21 +116,58 @@ func (m *Manager) RemoveRoom(id string, whiteID, blackID int) {
 	delete(m.userRooms, blackID)
 }
 
-// Shutdown termina tutte le partite attive e le salva
+// Shutdown salva le partite in corso (senza terminarle): al riavvio verranno
+// ripristinate da LoadPersisted e i giocatori potranno riconnettersi.
 func (m *Manager) Shutdown() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if len(m.rooms) == 0 {
-		logger.L.Info("Nessuna partita attiva da terminare")
+		logger.L.Info("Nessuna partita attiva da salvare")
 		return
 	}
 
-	logger.L.Info("Shutdown: terminazione partite in corso",
+	logger.L.Info("Shutdown: salvataggio partite in corso",
 		zap.Int("partite_attive", len(m.rooms)),
 	)
 
 	for _, room := range m.rooms {
-		room.endGame(models.ResultDraw, "server_shutdown")
+		room.stopTimer()
+		if err := room.persistSync(); err != nil {
+			logger.L.Warn("Errore salvataggio match live in shutdown",
+				zap.String("room", room.ID), zap.Error(err))
+		}
 	}
+}
+
+// LoadPersisted ricarica in memoria le partite in corso salvate nel DB (chiamata
+// all'avvio del server, dopo db.Connect). Le room sono dormienti finché un
+// giocatore non si riconnette.
+func (m *Manager) LoadPersisted() {
+	rows, err := db.LoadLiveMatches()
+	if err != nil {
+		logger.L.Warn("Caricamento match live fallito", zap.Error(err))
+		return
+	}
+	if len(rows) == 0 {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	restored := 0
+	for _, row := range rows {
+		var snap roomSnapshot
+		if err := json.Unmarshal(row.State, &snap); err != nil {
+			logger.L.Warn("Match live corrotto, saltato", zap.String("room", row.RoomID), zap.Error(err))
+			continue
+		}
+		room := roomFromSnapshot(snap)
+		m.rooms[room.ID] = room
+		m.userRooms[snap.WhiteID] = room.ID
+		m.userRooms[snap.BlackID] = room.ID
+		restored++
+	}
+	logger.L.Info("Partite in corso ripristinate dal DB", zap.Int("n", restored))
 }

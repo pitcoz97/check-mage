@@ -35,6 +35,7 @@ type Room struct {
 	drawOfferer       *Client             // chi ha offerto la patta (nil se nessuna offerta)
 	disconnectedTimer map[int]*time.Timer // userID -> timer di disconnessione
 	posCounts         map[string]int      // FEN normalizzata -> occorrenze (tripla ripetizione)
+	timerStarted      bool                // il timer è già in esecuzione? (room ripristinate partono dormienti)
 	mu                sync.Mutex          // protegge lo stato durante il timer
 }
 
@@ -87,8 +88,159 @@ func NewRoom(id string, white, black *Client, baseTime, increment time.Duration)
 	}
 
 	// Avvia il timer per il bianco (inizia sempre lui)
-	go room.runTimer()
+	room.ensureTimer()
 
+	// Salva subito lo stato iniziale (persistenza dei match live)
+	room.persist()
+
+	return room
+}
+
+// ensureTimer avvia il timer della partita se non è già in esecuzione. Le room
+// ripristinate dal DB partono dormienti e avviano il timer al primo reconnect
+// (azzerando lastMoveAt, così il downtime non consuma tempo). Va chiamata con
+// r.mu tenuto (o in fase di init single-thread).
+func (r *Room) ensureTimer() {
+	if r.timerStarted {
+		return
+	}
+	r.timerStarted = true
+	r.lastMoveAt = time.Now()
+	go r.runTimer()
+}
+
+// stopTimer ferma il timer della partita senza terminarla (usato allo shutdown,
+// prima di persistere).
+func (r *Room) stopTimer() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	select {
+	case <-r.timerStop: // già chiuso
+	default:
+		close(r.timerStop)
+	}
+}
+
+// roomSnapshot è lo stato serializzabile completo di una partita in corso, per
+// la persistenza in DB e il ripristino al riavvio del server.
+type roomSnapshot struct {
+	RoomID      string                    `json:"room_id"`
+	WhiteID     int                       `json:"white_id"`
+	BlackID     int                       `json:"black_id"`
+	WhiteName   string                    `json:"white_name"`
+	BlackName   string                    `json:"black_name"`
+	FEN         string                    `json:"fen"`
+	Moves       []string                  `json:"moves"`
+	Turn        string                    `json:"turn"`
+	Status      string                    `json:"status"`
+	WhiteTimeMs int64                     `json:"white_time_ms"`
+	BlackTimeMs int64                     `json:"black_time_ms"`
+	IncrementMs int64                     `json:"increment_ms"`
+	Match       match.Snapshot            `json:"match"`
+	Effects     []effects.PieceEffectInfo `json:"effects"`
+	PosCounts   map[string]int            `json:"pos_counts"`
+}
+
+// buildSnapshot cattura lo stato corrente. Va invocata con r.mu tenuto (o in
+// fase di init).
+func (r *Room) buildSnapshot() roomSnapshot {
+	return roomSnapshot{
+		RoomID:      r.ID,
+		WhiteID:     r.White.UserID,
+		BlackID:     r.Black.UserID,
+		WhiteName:   r.White.Username,
+		BlackName:   r.Black.Username,
+		FEN:         r.Board.FEN,
+		Moves:       r.Board.Moves,
+		Turn:        r.Board.Turn,
+		Status:      r.Board.Status,
+		WhiteTimeMs: r.WhiteTime.Milliseconds(),
+		BlackTimeMs: r.BlackTime.Milliseconds(),
+		IncrementMs: r.Increment.Milliseconds(),
+		Match:       r.Match.Snapshot(),
+		Effects:     r.Tracker.ActiveEffects(),
+		PosCounts:   r.posCounts,
+	}
+}
+
+// persist salva lo stato in modo asincrono (best-effort). Va invocata con r.mu
+// tenuto: costruisce lo snapshot sotto lock, poi scrive in DB in background.
+func (r *Room) persist() {
+	if db.DB == nil {
+		return // DB non configurato (es. nei test)
+	}
+	snap := r.buildSnapshot()
+	data, err := json.Marshal(snap)
+	if err != nil {
+		logger.L.Warn("Serializzazione match live fallita", zap.String("room", r.ID), zap.Error(err))
+		return
+	}
+	go func() {
+		if err := db.SaveLiveMatch(snap.RoomID, snap.WhiteID, snap.BlackID, data); err != nil {
+			logger.L.Warn("Salvataggio match live fallito", zap.String("room", snap.RoomID), zap.Error(err))
+		}
+	}()
+}
+
+// persistSync salva lo stato in modo sincrono (usato allo shutdown). Prende il
+// lock da sé.
+func (r *Room) persistSync() error {
+	if db.DB == nil {
+		return nil
+	}
+	r.mu.Lock()
+	snap := r.buildSnapshot()
+	r.mu.Unlock()
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return err
+	}
+	return db.SaveLiveMatch(snap.RoomID, snap.WhiteID, snap.BlackID, data)
+}
+
+// placeholderClient crea un client "segnaposto" (senza connessione) per una room
+// ripristinata dal DB: conserva UserID/Username finché il vero client non si
+// riconnette. Il buffer permette i broadcast senza bloccare (trySend scarta).
+func placeholderClient(userID int, username string) *Client {
+	return &Client{
+		UserID:   userID,
+		Username: username,
+		Send:     make(chan []byte, 256),
+	}
+}
+
+// roomFromSnapshot ricostruisce una room dormiente dallo stato persistito. Non
+// avvia il timer né fa broadcast: il timer parte al primo reconnect.
+func roomFromSnapshot(snap roomSnapshot) *Room {
+	room := &Room{
+		ID:    snap.RoomID,
+		White: placeholderClient(snap.WhiteID, snap.WhiteName),
+		Black: placeholderClient(snap.BlackID, snap.BlackName),
+		Board: &Board{
+			FEN:    snap.FEN,
+			Moves:  snap.Moves,
+			Turn:   snap.Turn,
+			Status: snap.Status,
+		},
+		Match:             match.FromSnapshot(snap.Match),
+		WhiteTime:         time.Duration(snap.WhiteTimeMs) * time.Millisecond,
+		BlackTime:         time.Duration(snap.BlackTimeMs) * time.Millisecond,
+		Increment:         time.Duration(snap.IncrementMs) * time.Millisecond,
+		timerStop:         make(chan struct{}),
+		lastMoveAt:        time.Now(),
+		disconnectedTimer: make(map[int]*time.Timer),
+		posCounts:         snap.PosCounts,
+	}
+	if room.posCounts == nil {
+		room.posCounts = make(map[string]int)
+	}
+	// Ricostruisci l'identità dei pezzi dalla FEN, poi riapplica gli effetti.
+	room.Tracker = effects.NewTracker(snap.FEN)
+	for _, e := range snap.Effects {
+		room.Tracker.RestoreEffect(e.Square, e.Effects)
+	}
+	room.White.Room = room
+	room.Black.Room = room
 	return room
 }
 
@@ -282,6 +434,7 @@ func (r *Room) handleMove(sender *Client, move string) {
 		// input). Snapshot dei passaggi sotto lock, broadcast dopo.
 		results := append([]match.AdvanceResult{r.Match.Advance()}, r.Match.AutoAdvance()...)
 		expired := r.tickEffectsOnNewTurn(results)
+		r.persist()
 		r.mu.Unlock()
 		if shieldAbsorbed {
 			// Lo scudo ha assorbito la cattura: notifica il consumo dello scudo.
@@ -319,6 +472,7 @@ func (r *Room) handlePassPhase(sender *Client) {
 	// Passa la fase, poi auto-avanza le fasi che non richiedono input.
 	results := append([]match.AdvanceResult{r.Match.Advance()}, r.Match.AutoAdvance()...)
 	expired := r.tickEffectsOnNewTurn(results)
+	r.persist()
 
 	logger.L.Info("Fase passata",
 		zap.String("room", r.ID),
@@ -363,6 +517,7 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 	// fase main si auto-avanza di conseguenza.
 	autoResults := r.Match.AutoAdvance()
 	expired := r.tickEffectsOnNewTurn(autoResults)
+	r.persist()
 
 	logger.L.Info("Magia giocata",
 		zap.String("room", r.ID),
@@ -721,6 +876,9 @@ func (r *Room) Reconnect(client *Client) {
 
 	client.Room = r
 
+	// Se la room è stata ripristinata dal DB (dormiente), avvia ora il timer.
+	r.ensureTimer()
+
 	// Avvia le goroutine per il nuovo client
 	go client.WritePump()
 	go client.ReadPump()
@@ -820,6 +978,10 @@ func (r *Room) endGame(result, reason string) {
 		} else {
 			logger.L.Info("Partita salvata nel DB",
 				zap.String("room", r.ID))
+		}
+		// La partita è finita: rimuovila dallo store dei match live.
+		if err := db.DeleteLiveMatch(r.ID); err != nil {
+			logger.L.Warn("Errore rimozione match live", zap.String("room", r.ID), zap.Error(err))
 		}
 		// Rimuovi la room dal manager dopo il salvataggio
 		GameManager.RemoveRoom(r.ID, r.White.UserID, r.Black.UserID)

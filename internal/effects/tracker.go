@@ -244,6 +244,17 @@ type PieceEffectInfo struct {
 	Effects []ActiveEffect `json:"effects"`
 }
 
+// RestoreEffect riattacca effetti persistiti al pezzo nella casella data (usato
+// in fase di ripristino: il Tracker è ricostruito dalla FEN, poi si riapplicano
+// gli effetti salvati per casella).
+func (t *Tracker) RestoreEffect(square string, effs []ActiveEffect) {
+	id, ok := t.bySquare[square]
+	if !ok {
+		return
+	}
+	t.pieces[id].Effects = append(t.pieces[id].Effects, effs...)
+}
+
 // ActiveEffects elenca gli effetti attivi su tutti i pezzi (per game_state).
 func (t *Tracker) ActiveEffects() []PieceEffectInfo {
 	out := make([]PieceEffectInfo, 0)

@@ -49,6 +49,9 @@ func Connect() {
 
 // SaveGame salva una partita nel database e aggiorna gli ELO
 func SaveGame(whiteID, blackID int, pgn, result, timeControl string) error {
+	if DB == nil {
+		return nil // DB non configurato (es. nei test)
+	}
 	tx, err := DB.Begin()
 	if err != nil {
 		return err

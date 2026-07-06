@@ -85,7 +85,17 @@ func (c *Client) sendError(errMsg string) {
 		Type:    models.MsgError,
 		Payload: payload,
 	})
-	c.Send <- msg
+	c.trySend(msg)
+}
+
+// trySend accoda un messaggio senza bloccare: se il buffer è pieno (client lento
+// o non connesso, es. placeholder di una room ripristinata) il messaggio è
+// scartato invece di bloccare l'intera room.
+func (c *Client) trySend(msg []byte) {
+	select {
+	case c.Send <- msg:
+	default:
+	}
 }
 
 // SendMessage manda un messaggio tipizzato al client
@@ -101,5 +111,5 @@ func (c *Client) SendMessage(msgType string, payload interface{}) {
 	if err != nil {
 		return
 	}
-	c.Send <- msg
+	c.trySend(msg)
 }

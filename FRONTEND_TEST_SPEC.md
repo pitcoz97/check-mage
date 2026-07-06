@@ -222,7 +222,7 @@ Alcune magie applicano effetti che **durano nel tempo** e seguono il **pezzo** (
 - [ ] Gli effetti delle magie li decide il server (`effects_applied`): il client li visualizza, non li simula
 
 ### Limiti noti del server (da tenere a mente nei test)
-- ⚠️ **Nessuna persistenza DB dei match live**: se riavvii il server, le partite in corso vanno perse (lo shutdown le chiude come patta). La riconnessione funziona solo a server **acceso**.
+- ✅ **Persistenza DB dei match live**: le partite in corso sopravvivono a un riavvio del server (salvate su ogni azione + allo shutdown, ripristinate all'avvio). Dopo un riavvio la room resta dormiente finché un giocatore non si riconnette (il timer riparte al primo reconnect).
 - ⚠️ **Niente messaggio esplicito "tu sei bianco/nero"**: vedi §3. Sarebbe utile aggiungerlo lato server (TODO).
 - ⚠️ L'orologio segue il lato-al-tratto degli scacchi, non il "giocatore attivo" della FSM: durante `main2` di un giocatore l'orologio può già scorrere per l'avversario. Ininfluente se si passano le fasi main rapidamente.
 - ⚠️ Distruggere una torre non azzera ancora i diritti d'arrocco nella FEN.

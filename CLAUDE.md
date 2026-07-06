@@ -28,7 +28,7 @@ Standard Go layout with `internal/` packages:
 - `main.go` - Entry point: wires config, logger, DB, Stockfish, and starts HTTP server
 - `internal/api/router.go` - Chi router with route groups and middleware chain
 - `internal/config/` - Environment-based config loader using godotenv
-- `internal/db/` - PostgreSQL connection and persistence (games, ELO updates)
+- `internal/db/` - PostgreSQL connection and persistence: finished games + ELO (`games`), and **live-match persistence** (`live_matches`, `livematch.go`: `SaveLiveMatch`/`DeleteLiveMatch`/`LoadLiveMatches`, state stored as a JSONB blob)
 - `internal/engine/stockfish.go` - Stockfish UCI interface, **FEN-based**: `IsMoveLegal(fen, move)`, `ApplyMove(fen, move) → newFEN`, `GetGameStatus(fen)`. The FEN is the source of truth (so board-editing spells are representable). `Room.Board.FEN` is updated after each move via `ApplyMove`; `Board.Moves` is kept only as history for PGN.
 - `internal/game/` - Core game logic: WebSocket client, room management, matchmaking
 - `internal/handlers/` - HTTP handlers for auth, stats, status, WebSocket upgrade
@@ -92,12 +92,11 @@ Packages:
 - Mana: starts at 1, +1 per the player's own turn (white turns 1/3/5 → 1/2/3), capped at 10, refilled at turn start. Opening hand = 4; active player draws 1 at turn start (white skips the turn-1 draw — Hearthstone style).
 - **Anti-cheat**: a player only ever receives their own hand (`hand`/`card_drawn`); opponents see only sizes/mana.
 - Determinism: each match stores a `seed`; same seed ⇒ same shuffle and draw order.
-- Reconnection re-sends the player's private hand + public state from the in-memory `Room`. **Still no DB persistence of live matches** — a restart loses active games; deferred to a dedicated step.
+- Reconnection re-sends the player's private hand + public state. **Live matches are persisted to Postgres** (`live_matches`): the full `Room` state (board FEN, moves, phase/turn, both players' mana/hand/deck/discard, active per-piece effects, `posCounts`) is serialized as a `roomSnapshot` JSON blob and saved (async) after every action and (sync) on graceful shutdown. On startup `Manager.LoadPersisted` rebuilds dormant rooms (placeholder clients, timer stopped); the first reconnect attaches the real client and starts the clock (`ensureTimer`, resetting `lastMoveAt` so downtime isn't charged). `endGame` deletes the row. All DB calls are nil-safe (no-op without a DB, e.g. in tests).
 - Draws: `engine.GetGameStatus` uses perft for checkmate/stalemate and `isInCheck` reads Stockfish's `Checkers:` line; `isDrawByRule` covers fifty-move + insufficient material (pure, no engine eval — the old `score cp 0` heuristic caused false draws). Threefold repetition is tracked in `Room.posCounts` (normalized FEN, counted after each board change).
 - Known limitation: clocks follow `Board.Turn` (chess side-to-move), not `match.ActivePlayer`.
 - Testing/logging (Step 6): `internal/match/integration_test.go` simulates a full magic game (mana growth, gain_mana combo, draw, freeze expiry, shield, deck depletion) with no Stockfish needed; `internal/game/reconnect_test.go` asserts reconnection re-sends the private hand + public state (incl. `active_effects`). Each cast, applied effect, and effect expiry is logged with structured zap fields. The WebSocket protocol is documented in `PROTOCOL.md`.
-- Known limitation: a board-editing spell that checkmates the opponent isn't auto-detected (game-over is only checked after a move); a `move_piece` only guards the *caster's* king.
-- Not yet implemented: DB persistence of live matches (schema for phase/mana/deck/hand/effects), so a server restart still loses active games.
+- Known limitations: a board-editing spell that checkmates the opponent isn't auto-detected (game-over is only checked after a move); a `move_piece` only guards the *caster's* king; the clock follows `Board.Turn`, not `match.ActivePlayer`.
 
 ### Dependencies
 

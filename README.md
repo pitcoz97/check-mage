@@ -18,7 +18,7 @@ A production-ready online chess backend built in **Go**, designed to power a ful
 - **Leaderboard** and per-user game history API endpoints
 - **Rate limiting** — per-IP, with stricter limits on auth endpoints to prevent brute force
 - **Structured logging** with [Uber Zap](https://github.com/uber-go/zap) — JSON in production, colored output in development
-- **Graceful shutdown** — active games are saved before the server exits
+- **Live-match persistence** — in-progress games are saved to Postgres (on each action + at graceful shutdown) and restored on startup, so a restart doesn't lose them and players can reconnect
 - **Environment-based configuration** via `.env` — no hardcoded credentials
 
 ---
@@ -167,6 +167,20 @@ CREATE TABLE games (
 CREATE INDEX idx_games_white ON games(white_id);
 CREATE INDEX idx_games_black ON games(black_id);
 CREATE INDEX idx_users_elo ON users(elo DESC);
+```
+
+The `live_matches` table (in-progress games, so a restart doesn't lose them) is
+created automatically at startup (`db.EnsureLiveMatchSchema`); you don't need to
+create it by hand:
+
+```sql
+CREATE TABLE live_matches (
+    room_id    TEXT PRIMARY KEY,
+    white_id   INTEGER NOT NULL,
+    black_id   INTEGER NOT NULL,
+    state      JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 ```
 
 ### 4. Run
