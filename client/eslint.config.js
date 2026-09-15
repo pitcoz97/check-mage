@@ -12,6 +12,11 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/ban-ts-comment': ['error', { 'ts-ignore': 'allow-with-description' }],
       'no-console': 'error',
+      // Il prefisso `_` marca un valore scartato di proposito (destructuring, firma degli error handler express).
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', destructuredArrayIgnorePattern: '^_' },
+      ],
     },
   },
   {
