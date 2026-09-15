@@ -128,8 +128,16 @@ Stati: `aperta` · `accettata` · `applicata` · `rifiutata`.
 
 ## P2-3 — Conferma delle regole di gioco non documentate
 - **Stato:** aperta
-- **Perché:** il mock implementa M1–M10 per essere severo; se il server fa diversamente, il mock va allineato.
-- **Richiesta:** confermare o correggere M1–M10, e lo spazio dei `kind` di stato dei pezzi (A18).
+- **Perché:** il mock implementa M1–M12 per essere severo; se il server fa diversamente, il mock va allineato.
+- **Richiesta:** confermare o correggere M1–M12, e lo spazio dei `kind` di stato dei pezzi (A18).
+
+## P2-5 — Numero e natura dei bersagli nel catalogo
+- **Stato:** aperta
+- **Perché:** `target_type` descrive un solo bersaglio, ma Teleport ne richiede due (A19). Il client non
+  deve dedurlo dall'id della magia.
+- **Contratto proposto:** in ogni effetto, un campo che dichiara i bersagli aggiuntivi, es.
+  `{ "kind": "move_piece", "params": {}, "extra_targets": ["legal_empty_square"] }`, oppure a livello di magia
+  `"targets": [{ "type": "own_piece" }, { "type": "legal_empty_square" }]`.
 
 ## P2-4 — Notifica del rifiuto di patta
 - **Stato:** aperta

@@ -177,6 +177,16 @@ Stati: `non verificata` · `verificata` · `smentita`.
 - **Motivo:** l'esempio del briefing usa `effect_kind: "freeze"` mentre il catalogo usa `freeze_piece`.
 - **Richiesta:** P2-3.
 
+### A19 — Numero di bersagli di una magia
+- **Stato:** non verificata
+- **Assunzione:** il catalogo dichiara solo `target_type` (un bersaglio), ma Teleport ne richiede due
+  (origine e destinazione, G3). Si assume che il secondo bersaglio sia una proprietà del **kind**
+  dell'effetto (`move_piece` richiede una destinazione), non della singola magia: il client la dichiarerà
+  nel registry degli effetti (Step 5), senza rami dedicati a `teleport`.
+- **Motivo:** §5.1.3 vieta di scrivere codice per una magia specifica; se manca un dato, va aggiunto al modello.
+- **Se falsa:** si aggiunge un campo al catalogo e lo si legge in `adapter.ts` §7.
+- **Richiesta:** P2-5.
+
 ---
 
 ## Regole del mock (M)
@@ -187,13 +197,14 @@ li replica mai. Da confermare col server (P2-3).
 | # | Regola |
 |---|---|
 | M1 | **Shield**: il pezzo non può essere bersaglio di magie avversarie **né catturato** con una mossa. Shield sul re non cambia le regole dello scacco. |
-| M2 | **Teleport**: destinazione = casella **vuota** raggiungibile con una mossa legale del pezzo nella posizione attuale. Niente catture. Non fa avanzare la fase. |
+| M2 | **Teleport**: destinazione = casella **vuota** raggiungibile con una mossa legale non speciale del pezzo (niente catture, en passant, arrocco né promozione), calcolata come se toccasse a chi lancia. Un pezzo congelato non si teletrasporta (`piece_frozen`). Non fa avanzare la fase. |
 | M3 | **Fireball** non può bersagliare il re. |
-| M4 | Una magia non può lasciare in scacco il re di chi la lancia (errore `invalid_target`). |
+| M4 | Dopo una magia che modifica la scacchiera la posizione resta legale: chi **non** ha il tratto secondo la FEN non può essere sotto scacco, e chi lancia non può mettersi da solo sotto scacco. Altrimenti `invalid_target`. |
 | M5 | Gli effetti con durata si decrementano nell'`end_turn` del **proprietario del pezzo**; a 0 scadono con `effect_expired`. |
 | M6 | Si pesca anche nel primo turno. Mana iniziale 1/1. All'inizio del k-esimo turno di un giocatore: `max = min(10, 1 + floor((k-1)/2))`, `current = max`. `gain_mana` può portare `current` oltre `max`, fino a 10. |
-| M7 | In fase `move`, se i filtri (pezzi congelati, Shield) lasciano zero mosse: scacco matto se il re è sotto scacco, altrimenti stallo. |
+| M7 | Matto, stallo, materiale insufficiente e regola delle 50 mosse si valutano con le regole standard **subito dopo ogni mossa** (le magie del turno successivo non possono salvare un matto). In più, all'ingresso in fase `move`, se i filtri (pezzi congelati, Shield) lasciano zero mosse: matto se il re è sotto scacco, altrimenti stallo. |
 | M8 | Corre l'orologio del giocatore attivo per tutto il suo turno, in ogni fase. |
 | M9 | `resign` è ammesso in qualunque momento da entrambi. `draw_offer` solo dal giocatore attivo. `draw_accepted`/`draw_declined` solo da chi ha ricevuto un'offerta pendente. |
 | M10 | Ordine dei messaggi dopo un cast: `spell_cast` → `mana_changed` → `effect_applied`*/`card_drawn`* → `hand_size_changed` → `game_state` (se la scacchiera è cambiata). |
 | M11 | Codici `error` del mock: `malformed_message`, `unknown_message_type`, `no_active_game`, `not_your_turn`, `wrong_phase`, `illegal_move`, `piece_frozen`, `target_shielded`, `insufficient_mana`, `card_not_in_hand`, `unknown_spell`, `invalid_target`, `no_draw_offer`. |
+| M12 | A fine turno, se c'erano effetti attivi, il mock rimanda un `game_state` con i `remaining_turns` aggiornati. Gli override `startingMaxMana` e `deckTop` esistono **solo** per gli scenari e i test, non sono regole di gioco. |

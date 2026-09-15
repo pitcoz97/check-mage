@@ -55,7 +55,7 @@ import type { AuthSession, HttpErrorInfo, UserProfile, UserSummary, WsTicket } f
 
 export type AssumptionId =
   | 'G1' | 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7' | 'G8' | 'G9' | 'G10'
-  | 'A11' | 'A12' | 'A13' | 'A14' | 'A15' | 'A16' | 'A17' | 'A18';
+  | 'A11' | 'A12' | 'A13' | 'A14' | 'A15' | 'A16' | 'A17' | 'A18' | 'A19';
 
 /** Ogni warning è legato all'assunzione che l'ha generato, così un log porta a ASSUMPTIONS.md. */
 const WARNING_ASSUMPTION = {
