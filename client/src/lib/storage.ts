@@ -32,6 +32,7 @@ export function createWebStorage(backend: () => Storage | undefined = () => glob
 /** Chiavi note, per evitare stringhe sparse. */
 export const STORAGE_KEYS = {
   language: 'language',
+  session: 'session',
 } as const;
 
 export const storage: KeyValueStorage = createWebStorage();
