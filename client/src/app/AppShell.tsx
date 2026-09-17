@@ -1,7 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink, Outlet } from 'react-router';
 
+import { Button } from '../design/components/Button';
 import { LanguageSwitch } from '../i18n/LanguageSwitch';
+import { useAuth } from '../store/AuthProvider';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   [
@@ -12,6 +14,7 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
 /** Shell delle schermate fuori partita: barra in alto silenziosa, contenuto al centro. */
 export function AppShell() {
   const { t } = useTranslation();
+  const logout = useAuth((s) => s.logout);
   return (
     <div className="safe-area flex min-h-full flex-col">
       <header className="border-b border-subtle bg-panel">
@@ -28,6 +31,9 @@ export function AppShell() {
             </NavLink>
           </nav>
           <LanguageSwitch />
+          <Button variant="secondary" onClick={() => void logout()}>
+            {t('nav.logout')}
+          </Button>
         </div>
       </header>
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">

@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, type RouteObject } from 'react-router';
+import { createBrowserRouter, type RouteObject } from 'react-router';
 
 import { Login } from '../screens/Auth/Login';
 import { Register } from '../screens/Auth/Register';
@@ -8,28 +8,40 @@ import { Profile } from '../screens/Profile/Profile';
 import { AppShell } from './AppShell';
 import { AuthLayout } from './AuthLayout';
 import { NotFound, RouteError } from './errors';
+import { GuestOnly, RequireAuth, RootRedirect, SessionGate } from './guards';
 
-/** Albero delle rotte. Le guardie d'accesso (sessione valida) arrivano allo Step 2. */
+/** Albero delle rotte: la sessione si valida in `SessionGate` prima di qualunque schermata. */
 export const routes: RouteObject[] = [
   {
+    element: <SessionGate />,
     errorElement: <RouteError />,
     children: [
-      { index: true, element: <Navigate to="/lobby" replace /> },
+      { index: true, element: <RootRedirect /> },
       {
-        element: <AuthLayout />,
+        element: <GuestOnly />,
         children: [
-          { path: 'login', element: <Login /> },
-          { path: 'register', element: <Register /> },
+          {
+            element: <AuthLayout />,
+            children: [
+              { path: 'login', element: <Login /> },
+              { path: 'register', element: <Register /> },
+            ],
+          },
         ],
       },
       {
-        element: <AppShell />,
+        element: <RequireAuth />,
         children: [
-          { path: 'lobby', element: <Lobby /> },
-          { path: 'profile', element: <Profile /> },
+          {
+            element: <AppShell />,
+            children: [
+              { path: 'lobby', element: <Lobby /> },
+              { path: 'profile', element: <Profile /> },
+            ],
+          },
+          { path: 'match', element: <Match /> },
         ],
       },
-      { path: 'match', element: <Match /> },
       { path: '*', element: <NotFound /> },
     ],
   },
