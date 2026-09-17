@@ -21,11 +21,17 @@ Serve sempre `npm run mock` in parallelo a `npm run dev`: senza, il client non h
 
 ## Stato del backend
 
-Il server Go **non è consultabile né raggiungibile** in questa fase. Non esiste nel repo,
-non puoi leggerne il codice, non puoi chiamarlo. Si sviluppa contro il mock in `mock-server/`.
+Il codice del server Go è **consultabile in sola lettura** in `C:\Projects\chess-server`
+(non modificarlo mai). Qui **non è eseguibile** (niente Go, Postgres, Stockfish): si sviluppa
+contro il mock in `mock-server/`, che è un porting fedele della logica Go.
 
-- Ogni assunzione presa al posto del server va scritta in `docs/ASSUMPTIONS.md` **prima**
-  di implementarla, con il motivo.
+Gerarchia delle fonti, dalla più autorevole: **codice Go** > `PROTOCOL.md` del server >
+`docs/SERVER_API.md` e `docs/FRONTEND_TEST_SPEC.md` (ignora le parti Unreal; alcuni punti sono
+superati dal codice, vedi `docs/ASSUMPTIONS.md`) > briefing §3.
+
+- Ogni affermazione sul comportamento del server va verificata sul codice e citata come
+  `file.go:riga`. Ciò che il codice non determina va in `docs/ASSUMPTIONS.md` **prima**
+  di implementarlo, con il motivo.
 - Ogni modifica che servirebbe al server va aggiunta a `docs/BACKEND-REQUESTS.md` con
   contratto proposto e priorità. Mai risolvere un limite del backend inventando un
   comportamento nel client.
@@ -36,7 +42,8 @@ non puoi leggerne il codice, non puoi chiamarlo. Si sviluppa contro il mock in `
 - **Il server è autoritativo.** Nessuna logica di gioco duplicata nel client: non validare
   mosse, non calcolare effetti di magie, non decidere fasi o turni. chess.js serve solo per
   evidenziare mosse legali, mai come autorità.
-- **Ottimismo solo sulla propria mossa scacchistica**, con rollback su `error`. Mai su
+- **Ottimismo solo sulla propria mossa scacchistica**, con rollback su `error` e
+  riallineamento al `game_state` successivo (uno scudo può assorbire la cattura). Mai su
   magie, mana, pesca o cambio di fase.
 - **Informazione nascosta:** non deve esistere una struttura dati client-side che contenga
   il mazzo completo o la mano dell'avversario.

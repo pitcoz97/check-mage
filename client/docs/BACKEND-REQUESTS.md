@@ -1,145 +1,179 @@
 # BACKEND-REQUESTS
 
-Registro vivo delle modifiche da chiedere al server Go. Si applica allo Step 7.
-Ogni voce indica cosa serve, perché, il contratto proposto, la priorità e lo stato.
-I riferimenti `G*`/`A*`/`M*` rimandano a `ASSUMPTIONS.md`.
+Registro vivo delle modifiche da chiedere al server Go (`C:\Projects\chess-server`, commit `7f817e5`).
+Riferimenti `file.go:riga` relativi a `internal/`. Il client **non** aggira nessuna di queste voci.
 
-Priorità: **P0** senza questa il client non funziona · **P1** senza questa la UX è degradata ·
-**P2** serve una conferma o un miglioramento.
-Stati: `aperta` · `accettata` · `applicata` · `rifiutata`.
+Priorità:
+- **P0**: senza, il client non funziona o i dati si corrompono;
+- **P1**: UX degradata o rischio di sicurezza;
+- **P2**: miglioramento o conferma.
+
+Stati: `aperta` · `accettata` · `applicata` · `rifiutata` · `risolta nel codice` · `non più necessaria`.
+
+Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug trovati leggendo il codice.
 
 ---
 
-## P0-1 — Ticket monouso per l'autenticazione WebSocket
+## Aperte
+
+### P0-5 — Identità dei giocatori nella partita
 - **Stato:** aperta
-- **Perché:** l'API WebSocket del browser non permette header custom; oggi `/ws` vuole
-  `Authorization: Bearer`, quindi il client web non si connette mai (briefing §3.5).
-- **Contratto proposto:**
+- **Perché:** il server non comunica mai al client il suo colore, né nome e id dell'avversario
+  (`game/manager.go:88-95` ha `game_start` commentato; `active_player` e `player` sono colori).
+  Senza questo dato il client non sa orientare la scacchiera né capire quando è il suo turno.
+- **Contratto proposto (preferito):** aggiungere a `publicState` (`game/room.go:1101`), così vale
+  sia all'avvio sia alla riconnessione:
   ```jsonc
-  // GET /ws/ticket   (Authorization: Bearer <jwt>)
-  200 { "ticket": "b5f1…", "expires_in": 45 }   // opaco, monouso, TTL 30–60s, in memoria
-  // GET /ws?ticket=b5f1…   → upgrade; ticket consumato; 401 se scaduto/usato/ignoto
+  "white_player": { "id": 42, "username": "mario" },
+  "black_player": { "id": 7,  "username": "luigi" }
   ```
-- **Nota:** il JWT non deve mai comparire in un URL.
+- **Alternativa:** scommentare `game_start {room_id, white, black, fen}`, inviarlo **prima** di
+  `broadcastState` in `NewRoom` e ripeterlo in `Reconnect`.
+- **Nel mock:** contratto `proposed` (opzione preferita).
 
-## P0-2 — CORS per sviluppo e Capacitor
-- **Stato:** aperta
-- **Perché:** senza queste origini la build web in dev e quella Android non riescono a chiamare le API.
-- **Contratto proposto:** `go-chi/cors` con `AllowedOrigins: ["http://localhost:5173",
-  "capacitor://localhost", "http://localhost"]`, `AllowedHeaders: ["Authorization", "Content-Type"]`,
-  metodi `GET, POST, OPTIONS`.
+### B1 — Dopo resign, timeout o abbandono la partita resta `active`
+- **Stato:** aperta · **Priorità:** P0 (corrompe i dati)
+- **Perché:** `handleResign` (`game/room.go:1122`), il timeout (`game/room.go:1060`) e l'abbandono
+  (`game/room.go:875`) chiamano `endGame` senza impostare `Board.Status`. Un giocatore che chiude il socket
+  dopo il `game_over`, come chiede la documentazione per rimettersi in coda, fa partire `Leave`
+  (`game/room.go:858` controlla solo `status == active`). Dopo 30s `endGame` gira **una seconda volta**:
+  secondo `game_over`, `SaveGame` duplicato ed **ELO aggiornato due volte**.
+- **Fix proposto:** impostare uno status terminale (es. `"resigned"`/`"timeout"`/`"abandoned"`, oppure un
+  flag `ended`) dentro `endGame`, e rendere `endGame` idempotente.
+- **Nel client:** ignora qualunque evento di partita dopo il primo `game_over` (Step 3).
 
-## P0-3 — `pieces[]` con `piece_id` in `game_state`
-- **Stato:** aperta
-- **Perché:** gli effetti viaggiano per `piece_id` ma la FEN non ha identificativi (G1).
-- **Contratto proposto:**
-  ```jsonc
-  { "type": "game_state", "payload": {
-      "board": { "fen": "…", "moves": ["e2e4"], "turn": "black", "status": "active" },
-      "white_time": 598000, "black_time": 600000,
-      "pieces": [ { "piece_id": "pc_12", "square": "e4", "type": "p", "color": "white",
-                    "effects": [ { "kind": "freeze", "remaining_turns": 2 } ] } ] } }
-  ```
+### B2 — Il socket vecchio che si chiude dopo `Reconnect` fa perdere per abbandono
+- **Stato:** aperta · **Priorità:** P1
+- **Perché:** se un utente si ricollega mentre la connessione precedente è ancora aperta (secondo tab, rete
+  che cambia), `Reconnect` sostituisce il client (`game/room.go:902-906`). Quando il vecchio `ReadPump`
+  termina, il suo defer chiama `Room.Leave(vecchioClient)` (`game/client.go:49-51`), che avvia il timer
+  d'abbandono per lo **stesso** `UserID`. Dopo 30s il giocatore, pur connesso, perde.
+- **Fix proposto:** in `Leave`, ignorare un client che non è più quello registrato nella room
+  (confronto per puntatore, non per `UserID`).
+- **Nel client:** chiudere del tutto il socket vecchio prima di aprirne uno nuovo (Step 3).
 
-## P0-4 — Id d'istanza per le carte in mano
-- **Stato:** aperta
-- **Perché:** più copie della stessa magia in mano; inoltre `card_drawn` oggi non dice quale magia è (G2).
-- **Contratto proposto:**
-  ```jsonc
-  { "type": "card_drawn", "payload": { "card_id": "c_31", "spell_id": "ice_age" } }
-  { "type": "cast_spell", "payload": { "spell_id": "ice_age", "card_id": "c_31", "targets": ["d7"] } }
-  ```
-  `card_id` nel cast è opzionale lato server finché il client non lo invia (oggi non lo invia).
+### B3 — Un refresh token viene accettato come access token
+- **Stato:** aperta · **Priorità:** P1 (sicurezza)
+- **Perché:** `middleware/auth.go:44-61` non controlla il claim `type`: un refresh token (30 giorni) apre `/me`,
+  `/users/{id}/games` e `/ws`.
+- **Fix proposto:** rifiutare i token con `type != "access"`.
 
-## P1-1 — `GET /spells`
-- **Stato:** aperta
-- **Perché:** il catalogo non va duplicato nel client (§5.1, G10).
-- **Contratto proposto:**
-  ```jsonc
-  // GET /spells  (pubblico o protetto)
-  200 [ { "id": "ice_age", "name": "Ice Age", "mana_cost": 3, "phases": ["main1","main2"],
-          "target_type": "enemy_piece",
-          "effects": [ { "kind": "freeze_piece", "params": { "turns": 2 } } ] } ]
-  ```
+### B4 — `HandleMessage` non verifica che la partita sia finita
+- **Stato:** aperta · **Priorità:** P1
+- **Perché:** `game/room.go:268` smista mosse e magie anche dopo `endGame`. Il client conserva `client.Room`
+  finché il socket resta aperto, e per resign/timeout/abbandono lo status resta `active` (B1).
+- **Fix proposto:** rifiutare le azioni di gioco quando la partita è conclusa.
 
-## P1-2 — Stato completo del layer magie in `game_start` e alla riconnessione
-- **Stato:** aperta
-- **Perché:** senza, la mano è vuota dopo un reconnect e la partita è ingiocabile (G4, G5).
-- **Contratto proposto:**
-  ```jsonc
-  { "type": "game_start", "payload": {
-      "room_id": "room-1-2", "white": "mario", "black": "luigi", "fen": "…", "moves": [],
-      "white_time": 600000, "black_time": 600000,
-      "time_control": { "initial_ms": 600000, "increment_ms": 0 },
-      "pieces": [ /* come P0-3 */ ],
-      "phase": "draw", "active_player": "mario", "turn_number": 1,
-      "hand": [ { "card_id": "c_1", "spell_id": "shield" } ],      // solo la mano del destinatario
-      "hand_sizes": { "mario": 4, "luigi": 4 },
-      "deck_sizes": { "mario": 36, "luigi": 36 },
-      "mana": { "mario": { "current": 1, "max": 1 }, "luigi": { "current": 1, "max": 1 } } } }
-  ```
-  Alla riconnessione entro `RECONNECT_TIMEOUT` va rimandato lo stesso messaggio.
+### B5 — Teleport può creare posizioni illegali
+- **Stato:** aperta · **Priorità:** P1
+- **Perché:** `move_piece` controlla solo il re di chi lancia (`game/room.go:652`). Se in `main1` Teleport dà
+  scacco all'avversario, quando chi ha lanciato arriva in fase `move` ha il tratto con il re avversario
+  sotto attacco: la posizione è illegale e il comportamento di `IsMoveLegal`/perft di Stockfish non è definito
+  (potrebbe permettere di catturare il re).
+- **Fix proposto:** rifiutare il Teleport se lascia **uno qualsiasi** dei due re sotto scacco mentre il tratto
+  è di chi lancia, oppure dichiararlo un'azione che dà scacco e gestirla esplicitamente.
 
-## P1-3 — `error` strutturato con codice macchina-leggibile
-- **Stato:** aperta
-- **Perché:** servono toast specifici e il rollback dell'azione giusta (G6, G7).
-- **Contratto proposto:**
-  ```jsonc
-  { "type": "error", "payload": { "code": "insufficient_mana", "message": "…",
-                                  "rejected": "cast_spell" } }   // "rejected": type del messaggio rifiutato
-  ```
-  Codici suggeriti: quelli di M11 in `ASSUMPTIONS.md`.
+### B13 — Teleport del re su g1/c1/g8/c8 sposta la torre nel Tracker
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** `game/room.go:658` usa `Tracker.MovePiece`, che interpreta un re arrivato su una casella
+  d'arrocco come arrocco (`effects/tracker.go:92-94`) e sposta l'identità della torre. La FEN però non cambia:
+  gli effetti della torre finiscono sulla casella sbagliata.
+- **Fix proposto:** un `Tracker.Relocate(from, to)` senza semantica scacchistica per `move_piece`.
 
-## P1-4 — Contratto auth documentato + password policy esposta
-- **Stato:** aperta
-- **Perché:** body e risposte di `/auth/*` non sono documentati, e i requisiti password vanno mostrati
-  prima del submit senza hardcodarli nel client (A11, A12).
-- **Contratto proposto:**
-  ```jsonc
-  // GET /auth/password-policy
-  200 { "username": { "min": 3, "max": 20, "pattern": "^[A-Za-z0-9_]+$" },
-        "password": { "min": 8, "max": 72 } }
-  // POST /auth/login → 200 { "token": "…", "user": { "id": 1, "username": "mario", "elo": 1200 } }
-  // errori: { "error": "<codice>" }
-  ```
+### B14 — Teleport diagonale di un pedone cancella l'identità di un altro pezzo
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** lo stesso `MovePiece` tratta un pedone mosso in diagonale su una casella vuota come en passant
+  (`effects/tracker.go:77-81`) e rimuove l'identità del pezzo in `to[0]+from[1]`. Gli effetti successivi su quel
+  pezzo falliscono con "nessun pezzo da … in X", perché la FEN ha il pezzo ma il Tracker no.
+- **Fix proposto:** come B13.
 
-## P1-5 — Aggiornamento della dimensione dei mazzi
-- **Stato:** aperta
-- **Perché:** §2 chiede di mostrare la dimensione dei mazzi, ma nessun messaggio la aggiorna (A14).
-- **Contratto proposto:** `{ "type": "hand_size_changed", "payload": { "player": "luigi", "size": 5, "deck_size": 31 } }`.
+### B6 — `time_control` salvato fisso
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** `game/room.go:1003` salva sempre `"10+0"`, ma la partita è 10' + 5" (`config/config.go:61-62`).
 
-## P1-6 — Notifica di riconnessione dell'avversario
-- **Stato:** aperta
-- **Perché:** dopo `opponent_disconnected` il client non sa quando togliere il banner (A16).
-- **Contratto proposto:**
-  `{ "type": "opponent_reconnected", "payload": {} }`; `opponent_disconnected` con
-  `{ "reconnect_deadline_ms": 30000 }` per mostrare il tempo residuo (§8).
+### B7 — PGN non standard e incompleto
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** `Room.PGN` (`game/room.go:963`) numera mosse UCI, non SAN. Le catture assorbite dallo scudo
+  cambiano il tratto senza essere registrate in `Board.Moves` (`game/room.go:356-362`), quindi la numerazione si sfasa.
+- **Fix proposto:** registrare una mossa nulla (`--` o `0000`) e, se serve un PGN vero, convertire in SAN.
 
-## P2-1 — Scelta del time control e annullamento della coda
-- **Stato:** aperta
-- **Perché:** oggi `/ws` mette in coda e basta (G9).
-- **Contratto proposto:** `{ "type": "queue_join", "payload": { "time_control": "10+0" } }`,
-  `{ "type": "queue_leave", "payload": {} }`, server → `{ "type": "queue_status", "payload": { "state": "searching" } }`.
+### B8 — Liste vuote serializzate come `null`
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** `handlers/stats.go:37,97` dichiarano slice nil: senza risultati `data` è `null`, non `[]`.
+- **Nel client:** l'adapter tratta `null` come lista vuota.
 
-## P2-2 — Conferme su Fireball e Teleport
-- **Stato:** aperta
-- **Perché:** §3.4. Fireball non deve poter bersagliare il re; Teleport non deve far avanzare la fase.
-- **Richiesta:** confermare entrambi i comportamenti lato Go. Se non valgono, sono bug del server.
+### B9 — CORS non ammette `capacitor://localhost`
+- **Stato:** aperta · **Priorità:** P2 (blocca solo iOS)
+- **Perché:** `api/router.go:20` ammette `http://*` e `https://*`. Android con `androidScheme: 'https'` va bene;
+  iOS usa `capacitor://localhost`.
+- **Fix proposto:** aggiungere `capacitor://localhost`.
 
-## P2-3 — Conferma delle regole di gioco non documentate
-- **Stato:** aperta
-- **Perché:** il mock implementa M1–M12 per essere severo; se il server fa diversamente, il mock va allineato.
-- **Richiesta:** confermare o correggere M1–M12, e lo spazio dei `kind` di stato dei pezzi (A18).
+### B10 — Stesso utente in coda da due connessioni
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** la seconda connessione riceve "Sei già in coda" ma resta aperta e inutile (`game/manager.go:59-62`).
+  Quando si chiude, `LeaveQueue` confronta per `UserID` e rimuove dalla coda **la prima** (`game/manager.go:103`).
+- **Fix proposto:** chiudere la connessione duplicata, oppure sostituire quella in coda.
 
-## P2-5 — Numero e natura dei bersagli nel catalogo
-- **Stato:** aperta
-- **Perché:** `target_type` descrive un solo bersaglio, ma Teleport ne richiede due (A19). Il client non
-  deve dedurlo dall'id della magia.
-- **Contratto proposto:** in ogni effetto, un campo che dichiara i bersagli aggiuntivi, es.
-  `{ "kind": "move_piece", "params": {}, "extra_targets": ["legal_empty_square"] }`, oppure a livello di magia
-  `"targets": [{ "type": "own_piece" }, { "type": "legal_empty_square" }]`.
+### B11 — Lo scudo non blocca la cattura en passant
+- **Stato:** aperta · **Priorità:** P2 (conferma di design)
+- **Perché:** `game/room.go:346` controlla lo scudo solo sulla casella d'arrivo. Documentato come limite noto.
 
-## P2-4 — Notifica del rifiuto di patta
+### B12 — Incoerenze minori di rate limit e 404
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** le rotte inesistenti rispondono `404 page not found` in testo semplice invece dell'inviluppo JSON
+  (`api/router.go`). `POST /auth/refresh` non ha il limiter delle rotte auth (`api/router.go:42`).
+
+### P0-1 → P1-8 — Ticket monouso per il WebSocket
+- **Stato:** aperta · **Priorità:** P1 (declassata: oggi `?token=` funziona, `middleware/auth.go:30`)
+- **Perché:** con `?token=` il JWT finisce nei log di accesso (`api/router.go:16`, `middleware.Logger`) e nella
+  cronologia. Un ticket opaco monouso lo evita.
+- **Contratto proposto:** `GET /ws/ticket` → `{ticket, expires_in}`; `GET /ws?ticket=…`.
+  Nel client cambierebbe solo `src/ws/connection.ts`.
+
+### P1-1 — `GET /spells`
 - **Stato:** aperta
-- **Perché:** chi offre patta non sa se l'offerta è stata rifiutata (A17).
-- **Contratto proposto:** server → offerente `{ "type": "draw_declined", "payload": { "by": "luigi" } }`.
+- **Perché:** il catalogo (`spells/spells.go:83-95`) è duplicato in `src/spells/fallback.json` e andrà
+  ribilanciato spesso.
+- **Contratto proposto:** `GET /spells` → `{success:true, data:[Spell…]}`, con `Spell` serializzato dai tag JSON
+  già presenti (`id, name, mana_cost, phases, target_type, effects[{kind, params?}]`).
+
+### P1-3 — Codici d'errore macchina-leggibili
+- **Stato:** aperta
+- **Perché:** `error` è solo `{message}` in italiano (`game/client.go:82`), e la REST risponde `{error: "testo"}`.
+  Il client deve riconoscere i testi, che è fragile (ASSUMPTIONS C4).
+- **Contratto proposto:** `{ "message": "…", "code": "insufficient_mana", "details": { "needed": 3, "available": 1 } }`.
+  Codici: quelli di `src/api/adapter.ts` §3b.
+
+### P2-1 — Scelta del time control
+- **Stato:** aperta
+- **Perché:** coda unica con time control fisso (`game/manager.go:73`). L'annullamento della coda esiste già:
+  basta chiudere il socket (`game/manager.go:99`).
+
+### P2-9 — `time_control` in `game_state`
+- **Stato:** aperta
+- **Perché:** l'incremento non è visibile al client (`game/room.go:1101`).
+- **Contratto proposto:** `"time_control": { "base_ms": 600000, "increment_ms": 5000 }`.
+
+### P2-10 — Password policy esposta
+- **Stato:** aperta (era P1-4)
+- **Perché:** il client replica `validation/validation.go` per mostrare i requisiti prima del submit.
+  Se cambiano sul server, il client va aggiornato a mano.
+- **Contratto proposto:** `GET /auth/password-policy`.
+
+---
+
+## Chiuse
+
+| Id | Voce | Stato | Rif. |
+|---|---|---|---|
+| P0-2 | CORS per lo sviluppo | risolta nel codice (resta B9 per iOS) | `api/router.go:20` |
+| P0-3 | `pieces[]` con `piece_id` | non più necessaria: `active_effects` per casella basta | `game/room.go:1117` |
+| P0-4 | Id d'istanza delle carte | non più necessaria: basta lo `spell_id` per il cast | `match/match.go:318` |
+| P1-2 | Stato completo alla riconnessione | risolta nel codice (`game_state` + `hand`) | `game/room.go:922-928` |
+| P1-5 | Dimensione dei mazzi | risolta nel codice (`*_deck_size`) | `game/room.go:1115-1116` |
+| P1-6 | Notifica di rientro dell'avversario | risolta nel codice | `game/room.go:933` |
+| P2-2 | Fireball/Teleport | risolta: Disintegrate non colpisce il re, Teleport non cambia il tratto | `effects/effects.go:196`, `game/room.go:669` |
+| P2-3 | Regole non documentate | risolta: regole lette dal codice (ASSUMPTIONS §5) | — |
+| P2-4 | Notifica del rifiuto di patta | risolta nel codice | `game/room.go:1206` |
+| P2-5 | Numero di bersagli | risolta: `piece_move` = 2 | `spells/spells.go:37` |
+| P1-7 | Orologio sul tratto scacchistico (dalla doc) | risolta nel codice | `game/room.go:1055` |
