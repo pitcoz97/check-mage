@@ -1,7 +1,4 @@
 {
-  "extends": "./tsconfig.base.json",
-  "compilerOptions": {
-    "types": ["node"]
-  },
-  "include": ["src", "scripts", "tests", "vitest.config.ts"]
+  "files": [],
+  "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }, { "path": "./mock-server/tsconfig.json" }]
 }

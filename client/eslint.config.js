@@ -1,4 +1,6 @@
 import js from '@eslint/js';
+import i18next from 'eslint-plugin-i18next';
+import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
@@ -22,10 +24,30 @@ export default tseslint.config(
   {
     // Il client non deve mai dipendere dal mock (CLAUDE.md, briefing §12).
     files: ['src/**/*.{ts,tsx}'],
+    languageOptions: { globals: { ...globals.browser } },
     rules: {
       'no-restricted-imports': [
         'error',
         { patterns: [{ group: ['**/mock-server/**', '**/mock-server'], message: 'src/ non importa da mock-server/.' }] },
+      ],
+    },
+  },
+  {
+    files: ['src/**/*.tsx'],
+    ...reactHooks.configs.flat.recommended,
+  },
+  {
+    // Nessuna stringa UI hardcoded (CLAUDE.md): testo JSX e attributi leggibili passano da i18n.
+    files: ['src/**/*.tsx'],
+    ignores: ['src/**/*.test.tsx'],
+    plugins: { i18next },
+    rules: {
+      'i18next/no-literal-string': [
+        'error',
+        {
+          mode: 'jsx-only',
+          'jsx-attributes': { include: ['aria-label', 'title', 'alt', 'placeholder'], exclude: ['.*'] },
+        },
       ],
     },
   },
