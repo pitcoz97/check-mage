@@ -1,1 +1,6 @@
 .env
+
+# binari di build
+/main
+/chess-server
+*.exe
