@@ -1,203 +1,231 @@
-import { randomBytes } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
-import type { TicketStore } from '../auth/tickets';
 import { isScenarioName, type MockConfig } from '../config';
-import { Room, type GameOverSummary, type PlayerConnection } from '../game/room';
-import { createRateLimiter } from '../rest/rateLimit';
+import { Room, type GameClient, type GameResult } from '../game/room';
+import { clientKey, createRateLimiter } from '../rest/rateLimit';
+import type { RequestGate } from '../rest/app';
 import { Bot } from '../scenarios/bot';
+import { hostileSender } from '../scenarios/hostile';
 import { setupScenario } from '../scenarios/index';
 import type { ScenarioName } from '../scenarios/names';
-import type { User, UserStore } from '../store/users';
+import { WS, type ServerText } from '../serverTexts';
+import type { UserStore } from '../store/users';
 import { createRng, type Logger } from '../util';
-import { CLIENT_MESSAGE_TYPES, errorMessage, type WireClientType, type WireColor } from '../wire';
+import type { WireServerMessage } from '../wire';
+
+/**
+ * Porting di `handlers/ws.go`, `game/client.go` e `game/manager.go`: upgrade, pump dei messaggi, coda e
+ * riconnessione. Gli scenari con bot sono un'aggiunta del mock.
+ */
 
 export interface GatewayDeps {
   config: MockConfig;
   users: UserStore;
-  tickets: TicketStore;
+  gate: RequestGate;
   log: Logger;
 }
 
-const BOT_USERNAME = 'mock_bot';
-
-interface Seat {
-  room: Room;
-  color: WireColor;
-  /** Decorazione della connessione decisa dallo scenario della partita (es. ostile), riapplicata al rientro. */
-  wrap: (conn: PlayerConnection) => PlayerConnection;
+/** Il `Client` di Go con la sua connessione. */
+interface Connection extends GameClient {
+  room: Room | null;
+  ws: WebSocket;
+  /** Chiuso dalla simulazione di riavvio: il processo "muore", quindi nessun `Leave`. */
+  killed: boolean;
 }
 
-const identity = (conn: PlayerConnection): PlayerConnection => conn;
+const BOT = { username: 'mock_bot', email: 'bot@mock.local' };
 
-function rejectUpgrade(socket: Duplex, status: number, reason: string, error: string): void {
-  const body = JSON.stringify({ error });
+function rejectUpgrade(socket: Duplex, status: number, reason: string, body: string, type = 'application/json'): void {
   socket.write(
-    `HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+    `HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Type: ${type}\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
   );
   socket.destroy();
 }
 
-function wsConnection(ws: WebSocket): PlayerConnection {
-  const sendText = (text: string) => {
-    if (ws.readyState === ws.OPEN) ws.send(text);
-  };
-  return {
-    send: (message) => sendText(JSON.stringify(message)),
-    sendRaw: sendText,
-    close: () => ws.close(4000, 'replaced'),
-  };
-}
-
-function isClientType(value: unknown): value is WireClientType {
-  return typeof value === 'string' && (CLIENT_MESSAGE_TYPES as readonly string[]).includes(value);
-}
-
-export function createGateway({ config, users, tickets, log }: GatewayDeps) {
+export function createGateway({ config, users, gate, log }: GatewayDeps) {
   const wss = new WebSocketServer({ noServer: true });
-  const wsLimiter = config.rateLimits === false ? null : createRateLimiter(config.rateLimits.ws);
-  const rooms = new Set<Room>();
-  const seatOf = new Map<number, Seat>();
+  const rooms = new Map<string, Room>();
+  const userRooms = new Map<number, string>();
   const bots = new Set<Bot>();
-  let queue: { user: User; conn: PlayerConnection } | null = null;
+  let waiting: Connection | null = null;
   let roomCounter = 0;
 
-  function botUser(): User {
-    return users.findByUsername(BOT_USERNAME) ?? users.create(BOT_USERNAME, randomBytes(16).toString('hex'));
+  const errorMessage = (text: ServerText): WireServerMessage => ({
+    type: 'error',
+    payload: config.contract === 'proposed' ? { message: text.message, code: text.code } : { message: text.message },
+  });
+
+  /** Goroutine di `endGame` (`game/room.go:997-1019`): salvataggio, ELO, rimozione dal manager. */
+  function onEnded(room: Room, result: GameResult, reason: string): void {
+    log.info(`${room.id} finita: ${result} (${reason})`);
+    users.saveGame(room.white.userId, room.black.userId, room.pgn(), result, '10+0'); // B6
+    // `RemoveRoom` (`game/manager.go:111-117`): i client tengono comunque il riferimento alla room (B4).
+    rooms.delete(room.id);
+    userRooms.delete(room.white.userId);
+    userRooms.delete(room.black.userId);
   }
 
-  function onGameOver(summary: GameOverSummary): void {
-    log.info(`${summary.roomId} finita: ${summary.result} (${summary.reason})`);
-    users.recordGame({
-      room_id: summary.roomId,
-      white: summary.white.username,
-      black: summary.black.username,
-      whiteId: summary.white.userId,
-      blackId: summary.black.userId,
-      result: summary.result,
-      reason: summary.reason,
-    });
-    for (const [userId, seat] of seatOf) if (seat.room.roomId === summary.roomId) seatOf.delete(userId);
-  }
-
-  function createRoom(white: User, black: User, scenario: ScenarioName): Room {
-    roomCounter += 1;
+  function newRoom(white: GameClient, black: GameClient, scenario: ScenarioName): Room {
+    roomCounter++;
     const setup = setupScenario(scenario, config);
     const room = new Room({
-      roomId: `room-${white.id}-${black.id}-${roomCounter}`,
-      white: { userId: white.id, username: white.username },
-      black: { userId: black.id, username: black.username },
+      id: `room-${white.userId}-${black.userId}`,
+      white,
+      black,
       rng: createRng(config.seed + roomCounter),
-      clockMs: config.clockMs,
+      contract: config.contract,
+      baseTimeMs: setup.baseTimeMs ?? config.baseTimeMs,
+      incrementMs: config.incrementMs,
       reconnectTimeoutMs: config.reconnectTimeoutMs,
-      ...setup.room,
-      onGameOver,
+      ...(setup.overrides === undefined ? {} : { overrides: setup.overrides }),
+      onEnded,
     });
-    rooms.add(room);
+    rooms.set(room.id, room);
+    userRooms.set(white.userId, room.id);
+    userRooms.set(black.userId, room.id);
     return room;
   }
 
-  /** Restituisce la connessione effettivamente agganciata al room (eventualmente decorata). */
-  function startWithBot(user: User, conn: PlayerConnection, scenario: ScenarioName): PlayerConnection {
-    const setup = setupScenario(scenario, config);
-    const room = createRoom(user, botUser(), scenario);
-    const bot = new Bot(room, 'black', setup.bot ?? {}, createRng(config.seed + 7), config.botDelayMs);
-    bots.add(bot);
-    const wrap = setup.wrapHuman ?? identity;
-    const attached = wrap(conn);
-    room.attach('white', attached);
-    room.attach('black', bot.connection);
-    seatOf.set(user.id, { room, color: 'white', wrap });
-    log.info(`${room.roomId} scenario "${scenario}": ${user.username} vs bot`);
-    room.start();
-    return attached;
-  }
-
-  function joinQueue(user: User, conn: PlayerConnection): void {
-    if (queue !== null && queue.user.id !== user.id) {
-      const opponent = queue;
-      queue = null;
-      const room = createRoom(opponent.user, user, 'pvp');
-      room.attach('white', opponent.conn);
-      room.attach('black', conn);
-      seatOf.set(opponent.user.id, { room, color: 'white', wrap: identity });
-      seatOf.set(user.id, { room, color: 'black', wrap: identity });
-      log.info(`${room.roomId} pvp: ${opponent.user.username} vs ${user.username}`);
-      room.start();
-      return;
+  /** Simulazione del riavvio del server: socket chiusi senza `Leave`, room dormiente. */
+  function restart(room: Room): void {
+    log.info(`${room.id}: riavvio simulato`);
+    const clients = [room.white, room.black];
+    room.suspendForRestart();
+    for (const c of clients) {
+      const conn = c as Partial<Connection>;
+      if (conn.ws !== undefined) {
+        conn.killed = true;
+        conn.ws.terminate();
+      }
     }
-    if (queue !== null) queue.conn.close();
-    queue = { user, conn };
-    log.info(`${user.username} in coda`);
   }
 
-  function onFrame(user: User, conn: PlayerConnection, data: RawData): void {
+  function botUserId(): number {
+    const existing = users.findByEmail(BOT.email);
+    return (existing ?? users.insert(BOT.username, BOT.email, 'MockBot123'))?.id ?? 0;
+  }
+
+  /** `game/manager.go:30-96`. Restituisce `true` se è una riconnessione. */
+  function joinQueue(client: Connection, scenario: ScenarioName): boolean {
+    const roomId = userRooms.get(client.userId);
+    if (roomId !== undefined) {
+      const room = rooms.get(roomId);
+      if (room !== undefined && room.isActive()) {
+        log.info(`${client.username} rientra in ${roomId}`);
+        client.room = room;
+        room.reconnect(client);
+        return true;
+      }
+      userRooms.delete(client.userId);
+    }
+
+    if (scenario !== 'pvp') {
+      startWithBot(client, scenario);
+      return false;
+    }
+
+    if (waiting === null) {
+      waiting = client;
+      log.info(`${client.username} in coda`);
+      return false;
+    }
+    if (waiting.userId === client.userId) {
+      client.send(errorMessage(WS.alreadyQueued)); // la connessione resta aperta e inutile (B10)
+      return false;
+    }
+    const opponent = waiting;
+    waiting = null;
+    const room = newRoom(opponent, client, 'pvp');
+    opponent.room = room;
+    client.room = room;
+    log.info(`${room.id} creata: ${opponent.username} (bianco) vs ${client.username} (nero)`);
+    room.start();
+    return false;
+  }
+
+  function startWithBot(client: Connection, scenario: ScenarioName): void {
+    const setup = setupScenario(scenario, config);
+    const bot = new Bot(botUserId(), BOT.username, 'black', setup.bot ?? {}, config.botDelayMs, { restart });
+    bots.add(bot);
+    const room = newRoom(client, bot.gameClient, scenario);
+    bot.attach(room);
+    client.room = room;
+    log.info(`${room.id} scenario "${scenario}": ${client.username} vs bot`);
+    room.start();
+  }
+
+  /** `game/client.go:41-79`. */
+  function onFrame(client: Connection, limiter: ReturnType<typeof createRateLimiter> | null, data: RawData): void {
+    if (limiter !== null && !limiter.allow('conn')) return client.send(errorMessage(WS.rateLimited));
     let parsed: unknown;
     try {
       parsed = JSON.parse(data.toString());
     } catch {
-      return conn.send(errorMessage('malformed_message'));
+      return client.send(errorMessage(WS.malformedEnvelope));
     }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return conn.send(errorMessage('malformed_message'));
-    const { type, payload } = parsed as { type?: unknown; payload?: unknown };
-    if (typeof type !== 'string') return conn.send(errorMessage('malformed_message'));
-    if (!isClientType(type)) return conn.send(errorMessage('unknown_message_type'));
-    if (payload !== undefined && (typeof payload !== 'object' || payload === null || Array.isArray(payload))) {
-      return conn.send(errorMessage('malformed_message'));
-    }
-    const seat = seatOf.get(user.id);
-    if (seat === undefined || seat.room.isOver) return conn.send(errorMessage('no_active_game'));
-    seat.room.handle(seat.color, { type, payload: (payload ?? {}) as Record<string, unknown> });
+    // `json.Unmarshal` in `WSMessage`: `null` è valido (type vuoto), un non-oggetto o un type non stringa no.
+    if (parsed !== null && (typeof parsed !== 'object' || Array.isArray(parsed))) return client.send(errorMessage(WS.malformedEnvelope));
+    const record = (parsed ?? {}) as Record<string, unknown>;
+    const type = record['type'];
+    if (type !== undefined && type !== null && typeof type !== 'string') return client.send(errorMessage(WS.malformedEnvelope));
+    client.room?.handleMessage(client, typeof type === 'string' ? type : '', record['payload']);
   }
 
-  function onConnection(ws: WebSocket, user: User, scenario: ScenarioName): void {
-    const conn = wsConnection(ws);
-    let roomConn: PlayerConnection = conn;
-    const seat = seatOf.get(user.id);
+  function onConnection(ws: WebSocket, userId: number, username: string, scenario: ScenarioName): void {
+    const sendRaw = (text: string) => {
+      if (ws.readyState === ws.OPEN) ws.send(text);
+    };
+    const plainSend = (message: WireServerMessage) => sendRaw(JSON.stringify(message));
+    const setup = setupScenario(scenario, config);
+    const client: Connection = {
+      userId,
+      username,
+      room: null,
+      ws,
+      killed: false,
+      send: setup.hostile === true ? hostileSender(sendRaw) : plainSend,
+    };
+    const limits = config.rateLimits;
+    const limiter = limits === false ? null : createRateLimiter(limits.wsMessages);
 
-    if (seat !== undefined && !seat.room.isOver) {
-      // Riconnessione a partita in corso (G5): vale lo scenario della partita, non quello del nuovo URL.
-      roomConn = seat.wrap(conn);
-      log.info(`${user.username} rientra in ${seat.room.roomId}`);
-      seat.room.reconnect(seat.color, roomConn);
-    } else if (scenario === 'pvp') {
-      joinQueue(user, conn);
-    } else {
-      roomConn = startWithBot(user, conn, scenario);
-    }
-
-    ws.on('message', (data) => onFrame(user, conn, data));
+    ws.on('message', (data) => onFrame(client, limiter, data));
     ws.on('close', () => {
-      if (queue?.conn === conn) queue = null;
-      const current = seatOf.get(user.id);
-      if (current !== undefined) current.room.disconnect(current.color, roomConn);
+      if (client.killed) return;
+      // `game/client.go:45-53`
+      if (waiting?.userId === client.userId) waiting = null; // B10: per UserID
+      client.room?.leave(client);
     });
+    joinQueue(client, scenario);
   }
 
   return {
+    /** Catena di `/ws`: limiter generale → Auth → limiter ws → upgrade (`api/router.go:27,46,51`). */
     handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
       const url = new URL(req.url ?? '/', 'http://localhost');
-      if (url.pathname !== '/ws') return rejectUpgrade(socket, 404, 'Not Found', 'not_found');
-      if (wsLimiter !== null && !wsLimiter.take(req.socket.remoteAddress ?? 'unknown')) {
-        return rejectUpgrade(socket, 429, 'Too Many Requests', 'rate_limited');
-      }
-      const ticket = url.searchParams.get('ticket');
-      const userId = ticket === null ? null : tickets.consume(ticket);
-      const user = userId === null ? undefined : users.findById(Number(userId));
-      if (user === undefined) return rejectUpgrade(socket, 401, 'Unauthorized', 'unauthorized');
+      if (url.pathname !== '/ws') return rejectUpgrade(socket, 404, 'Not Found', '404 page not found\n', 'text/plain');
+      const key = clientKey(req.headers, req.socket.remoteAddress, req.socket.remotePort);
+      const tooMany = JSON.stringify({ success: false, error: 'Troppe richieste, rallenta!' });
+      if (!gate.allow('general', key)) return rejectUpgrade(socket, 429, 'Too Many Requests', tooMany);
+
+      const auth = gate.authenticate(req.headers.authorization, url.searchParams.get('token'));
+      if ('message' in auth) return rejectUpgrade(socket, 401, 'Unauthorized', JSON.stringify({ success: false, error: auth.message }));
+      if (!gate.allow('ws', key)) return rejectUpgrade(socket, 429, 'Too Many Requests', tooMany);
+      // Un refresh token non ha `username`: in Go la type assertion va in panic → 500 (B3).
+      if (auth.username === undefined) return rejectUpgrade(socket, 500, 'Internal Server Error', '', 'text/plain');
 
       const requested = url.searchParams.get('scenario') ?? config.scenario;
-      if (!isScenarioName(requested)) return rejectUpgrade(socket, 400, 'Bad Request', 'unknown_scenario');
+      if (!isScenarioName(requested)) return rejectUpgrade(socket, 400, 'Bad Request', `scenario sconosciuto: ${requested}\n`, 'text/plain');
 
-      wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, user, requested));
+      const { user_id: userId, username } = auth;
+      wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, userId, username, requested));
     },
 
     close(): void {
       for (const bot of bots) bot.dispose();
-      for (const room of rooms) room.shutdown();
+      for (const room of rooms.values()) room.dispose();
       for (const client of wss.clients) client.terminate();
       wss.close();
     },

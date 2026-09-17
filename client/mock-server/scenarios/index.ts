@@ -1,46 +1,45 @@
 import type { MockConfig } from '../config';
-import type { PlayerConnection, RoomOptions } from '../game/room';
+import type { MatchOverrides } from '../game/match';
 import type { BotBehavior } from './bot';
-import { wrapHostile } from './hostile';
 import type { ScenarioName } from './names';
 
 export interface ScenarioSetup {
-  /** `null` = nessun bot: il client entra in matchmaking con altri client reali. */
+  /** `null` = nessun bot: il client entra in coda con altri client reali. */
   bot: BotBehavior | null;
-  room: Pick<Partial<RoomOptions>, 'clockMs' | 'reconnectTimeoutMs' | 'variant' | 'deckTop' | 'startingMaxMana'>;
-  wrapHuman?: (conn: PlayerConnection) => PlayerConnection;
+  /** Solo scenari: preparazione di mani e mazzi, mana minimo. Il server reale non li ha. */
+  overrides?: MatchOverrides;
+  baseTimeMs?: number;
+  hostile?: boolean;
 }
 
-/** Il client (umano) è sempre il bianco negli scenari con bot, così le sequenze sono prevedibili. */
+/** Negli scenari con bot il client è sempre il bianco (primo in coda, `game/manager.go:49-66`). */
 export function setupScenario(name: ScenarioName, config: MockConfig): ScenarioSetup {
+  const comeBack = Math.min(3000, Math.floor(config.reconnectTimeoutMs / 2));
   switch (name) {
     case 'pvp':
-      return { bot: null, room: {} };
+      return { bot: null };
     case 'checkmate':
-      // Matto del barbiere: il client gioca e2e4, d1h5, f1c4, h5f7.
-      return { bot: { script: ['e7e5', 'b8c6', 'g8f6'] }, room: {} };
+      return { bot: { script: ['e7e5', 'b8c6', 'g8f6'] } };
     case 'abandon':
-      return { bot: { disconnectAfterMoves: 1, reconnectAfterMs: null }, room: {} };
+      return { bot: { afterMoves: { count: 1, action: 'disconnect', returnAfterMs: null } } };
     case 'reconnect':
-      return {
-        bot: { disconnectAfterMoves: 1, reconnectAfterMs: Math.min(3000, Math.floor(config.reconnectTimeoutMs / 2)) },
-        room: {},
-      };
+      return { bot: { afterMoves: { count: 1, action: 'disconnect', returnAfterMs: comeBack } } };
+    case 'restart':
+      return { bot: { afterMoves: { count: 1, action: 'restart', returnAfterMs: comeBack } } };
     case 'timeout':
-      return { bot: { stall: true }, room: { clockMs: Math.min(config.clockMs, 15_000) } };
+      return { bot: { stall: true }, baseTimeMs: Math.min(config.baseTimeMs, 15_000) };
     case 'draw':
-      return { bot: { offerDrawOnFirstTurn: true, acceptDraws: true }, room: {} };
+      return { bot: { offerDrawOnFirstTurn: true, declineDrawsBeforeAccepting: 1 } };
     case 'spells':
       return {
         bot: { castSpells: true },
-        room: {
-          startingMaxMana: 10,
-          deckTop: { black: ['recover', 'shield', 'ice_age', 'greed', 'teleport', 'fireball'] },
+        overrides: {
+          hand: { black: ['channel', 'insight', 'frostbolt', 'aegis'] },
+          deckTop: { black: ['disintegrate', 'teleport', 'spark'] },
+          manaFloor: { black: 10 },
         },
       };
     case 'hostile':
-      return { bot: {}, room: {}, wrapHuman: wrapHostile };
-    case 'contract-minimal':
-      return { bot: {}, room: { variant: 'minimal' } };
+      return { bot: {}, hostile: true };
   }
 }
