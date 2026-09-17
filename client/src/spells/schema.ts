@@ -6,7 +6,8 @@ import { z } from 'zod';
  * I tipi derivano dallo schema, non viceversa (briefing §5.1.2).
  */
 
-export const KNOWN_TARGET_TYPES = ['none', 'square', 'piece', 'own_piece', 'enemy_piece'] as const;
+// Stessi valori di chess-server `internal/spells/spells.go:27-34`.
+export const KNOWN_TARGET_TYPES = ['none', 'square', 'piece', 'own_piece', 'enemy_piece', 'piece_move'] as const;
 export type KnownTargetType = (typeof KNOWN_TARGET_TYPES)[number];
 
 // `kind` e `targetType` sono stringhe aperte: un valore sconosciuto non deve rompere il catalogo (§5.1.6).

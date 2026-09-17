@@ -1,50 +1,13 @@
 [
-  {
-    "id": "fireball",
-    "name": "Fireball",
-    "mana_cost": 6,
-    "phases": ["main1", "main2"],
-    "target_type": "enemy_piece",
-    "effects": [{ "kind": "destroy_piece", "params": {} }]
-  },
-  {
-    "id": "teleport",
-    "name": "Teleport",
-    "mana_cost": 5,
-    "phases": ["main1", "main2"],
-    "target_type": "own_piece",
-    "effects": [{ "kind": "move_piece", "params": {} }]
-  },
-  {
-    "id": "ice_age",
-    "name": "Ice Age",
-    "mana_cost": 3,
-    "phases": ["main1", "main2"],
-    "target_type": "enemy_piece",
-    "effects": [{ "kind": "freeze_piece", "params": { "turns": 2 } }]
-  },
-  {
-    "id": "greed",
-    "name": "Greed",
-    "mana_cost": 3,
-    "phases": ["main1", "main2"],
-    "target_type": "none",
-    "effects": [{ "kind": "draw_card", "params": { "amount": 2 } }]
-  },
-  {
-    "id": "shield",
-    "name": "Shield",
-    "mana_cost": 2,
-    "phases": ["main1", "main2"],
-    "target_type": "own_piece",
-    "effects": [{ "kind": "shield_piece", "params": { "turns": 3 } }]
-  },
-  {
-    "id": "recover",
-    "name": "Recover",
-    "mana_cost": 1,
-    "phases": ["main1", "main2"],
-    "target_type": "none",
-    "effects": [{ "kind": "gain_mana", "params": { "amount": 3 } }]
-  }
+  { "id": "spark", "name": "Spark", "mana_cost": 1, "phases": ["main1", "main2"], "target_type": "none", "effects": [{ "kind": "noop" }] },
+  { "id": "jolt", "name": "Jolt", "mana_cost": 2, "phases": ["main1", "main2"], "target_type": "none", "effects": [{ "kind": "noop" }] },
+  { "id": "pulse", "name": "Pulse", "mana_cost": 2, "phases": ["main1", "main2"], "target_type": "none", "effects": [{ "kind": "noop" }] },
+  { "id": "surge", "name": "Surge", "mana_cost": 3, "phases": ["main1", "main2"], "target_type": "none", "effects": [{ "kind": "noop" }] },
+  { "id": "nova", "name": "Nova", "mana_cost": 5, "phases": ["main1", "main2"], "target_type": "none", "effects": [{ "kind": "noop" }] },
+  { "id": "disintegrate", "name": "Disintegrate", "mana_cost": 4, "phases": ["main1", "main2"], "target_type": "enemy_piece", "effects": [{ "kind": "destroy_piece" }] },
+  { "id": "frostbolt", "name": "Frost Bolt", "mana_cost": 2, "phases": ["main1", "main2"], "target_type": "enemy_piece", "effects": [{ "kind": "freeze_piece", "params": { "turns": 2 } }] },
+  { "id": "aegis", "name": "Aegis", "mana_cost": 3, "phases": ["main1", "main2"], "target_type": "own_piece", "effects": [{ "kind": "shield_piece", "params": { "turns": 2 } }] },
+  { "id": "insight", "name": "Insight", "mana_cost": 1, "phases": ["main1", "main2"], "target_type": "none", "effects": [{ "kind": "draw_card", "params": { "count": 1 } }] },
+  { "id": "channel", "name": "Channel", "mana_cost": 0, "phases": ["main1", "main2"], "target_type": "none", "effects": [{ "kind": "gain_mana", "params": { "amount": 2 } }] },
+  { "id": "teleport", "name": "Teleport", "mana_cost": 3, "phases": ["main1", "main2"], "target_type": "piece_move", "effects": [{ "kind": "move_piece" }] }
 ]
