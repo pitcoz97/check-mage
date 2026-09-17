@@ -90,6 +90,11 @@ export const HTTP_ERROR_CODES = [
   'internal_error',
   'not_found',
   'service_unavailable',
+  // Codici generati dal client, non dal server:
+  /** Server irraggiungibile (fetch fallita, timeout, offline). */
+  'network_error',
+  /** Risposta 2xx con un corpo che l'adapter non riesce a normalizzare. */
+  'invalid_response',
 ] as const;
 export type HttpErrorCode = (typeof HTTP_ERROR_CODES)[number];
 
