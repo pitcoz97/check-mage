@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"chess-server/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -91,6 +92,10 @@ func TestRateLimiter_Middleware_Block(t *testing.T) {
 }
 
 func TestGetIP(t *testing.T) {
+	prev := config.C
+	config.C = &config.Config{TrustedProxies: []string{"192.168.1.1", "10.10.0.0/16"}}
+	t.Cleanup(func() { config.C = prev })
+
 	tests := []struct {
 		name       string
 		headers    map[string]string
@@ -98,31 +103,49 @@ func TestGetIP(t *testing.T) {
 		want       string
 	}{
 		{
-			name:       "X-Forwarded-For header",
+			name:       "X-Forwarded-For da proxy fidato",
 			headers:    map[string]string{"X-Forwarded-For": "10.0.0.1"},
 			remoteAddr: "192.168.1.1:1234",
 			want:       "10.0.0.1",
 		},
 		{
-			name:       "X-Real-IP header",
+			name:       "X-Real-IP da proxy fidato",
 			headers:    map[string]string{"X-Real-IP": "10.0.0.2"},
 			remoteAddr: "192.168.1.1:1234",
 			want:       "10.0.0.2",
 		},
 		{
-			name:       "RemoteAddr fallback",
+			name:       "RemoteAddr senza porta",
 			headers:    map[string]string{},
 			remoteAddr: "192.168.1.1:1234",
-			want:       "192.168.1.1:1234",
+			want:       "192.168.1.1",
 		},
 		{
-			name: "X-Forwarded-For takes precedence over X-Real-IP",
+			name: "X-Forwarded-For ha la precedenza su X-Real-IP",
 			headers: map[string]string{
 				"X-Forwarded-For": "10.0.0.1",
 				"X-Real-IP":       "10.0.0.2",
 			},
 			remoteAddr: "192.168.1.1:1234",
 			want:       "10.0.0.1",
+		},
+		{
+			name:       "header ignorati da un client non fidato",
+			headers:    map[string]string{"X-Forwarded-For": "1.2.3.4", "X-Real-IP": "5.6.7.8"},
+			remoteAddr: "203.0.113.9:5555",
+			want:       "203.0.113.9",
+		},
+		{
+			name:       "catena di proxy: ultimo indirizzo non fidato",
+			headers:    map[string]string{"X-Forwarded-For": "6.6.6.6, 198.51.100.7, 10.10.3.4"},
+			remoteAddr: "192.168.1.1:1234",
+			want:       "198.51.100.7",
+		},
+		{
+			name:       "porte diverse, stessa chiave",
+			headers:    map[string]string{},
+			remoteAddr: "203.0.113.9:6000",
+			want:       "203.0.113.9",
 		},
 	}
 
