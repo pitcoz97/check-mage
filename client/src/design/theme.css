@@ -1,0 +1,48 @@
+/*
+ * Collega Tailwind ai token. La palette e la scala tipografica di default sono azzerate:
+ * una classe come `bg-red-500` non esiste, l'unico modo di colorare passa da tokens.css.
+ */
+@import 'tailwindcss';
+@import './tokens.css';
+
+@theme inline {
+  --color-*: initial;
+  --color-app: var(--bg-app);
+  --color-panel: var(--bg-panel);
+  --color-elevated: var(--bg-elevated);
+  --color-subtle: var(--border-subtle);
+
+  --color-board-light: var(--board-light);
+  --color-board-dark: var(--board-dark);
+  --color-board-hint: var(--board-hint);
+  --color-board-last: var(--board-last);
+  --color-board-check: var(--board-check);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-primary: var(--text-primary);
+  --color-muted: var(--text-muted);
+  --color-danger: var(--danger);
+
+  --color-mana-full: var(--mana-full);
+  --color-mana-empty: var(--mana-empty);
+  --color-spell-frame: var(--spell-frame);
+  --color-effect-freeze: var(--effect-freeze);
+  --color-effect-shield: var(--effect-shield);
+  --color-effect-doom: var(--effect-doom);
+
+  --font-*: initial;
+  --font-sans: var(--font-ui);
+  --font-spell: var(--font-spell-name);
+
+  --text-*: initial;
+  --text-xs: var(--text-12);
+  --text-sm: var(--text-14);
+  --text-base: var(--text-16);
+  --text-lg: var(--text-20);
+  --text-xl: var(--text-28);
+  --text-2xl: var(--text-40);
+
+  --radius-sm: var(--radius-chip);
+  --radius-md: var(--radius-control);
+}

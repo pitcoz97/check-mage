@@ -1,0 +1,52 @@
+/*
+ * Token di design (briefing §6). È l'UNICO file del client che contiene valori di colore:
+ * tutto il resto li usa tramite queste variabili o le utility Tailwind collegate in theme.css.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* --- Chrome dell'interfaccia (linguaggio visivo chess.com) --- */
+  --bg-app: #302e2b;
+  --bg-panel: #262421;
+  --bg-elevated: #3a3835;
+  --border-subtle: #4a4844;
+
+  --board-light: #eeeed2;
+  --board-dark: #769656;
+  --board-hint: rgba(20, 85, 30, 0.5);
+  --board-last: rgba(255, 255, 51, 0.5);
+  --board-check: #e02b2b;
+
+  --accent: #81b64c;
+  --accent-hover: #a3d160;
+  --text-primary: #ffffff;
+  --text-muted: #b8b8b8;
+  --danger: #ca3431;
+
+  /* --- Layer magie: palette separata, usata solo lì --- */
+  --mana-full: #3aa0e8;
+  --mana-empty: #1e3a52;
+  --spell-frame: #c9a227;
+  --effect-freeze: #7fd8f7;
+  --effect-shield: #f0d264;
+  --effect-doom: #b5479b;
+
+  /* --- Tipografia: Montserrat per la chrome, Cinzel solo per il nome della magia --- */
+  --font-ui: 'Montserrat', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-spell-name: 'Cinzel', Georgia, serif;
+  --text-12: 0.75rem;
+  --text-14: 0.875rem;
+  --text-16: 1rem;
+  --text-20: 1.25rem;
+  --text-28: 1.75rem;
+  --text-40: 2.5rem;
+
+  /* --- Interazione e forma --- */
+  --focus-ring: var(--accent-hover);
+  --hit-target: 44px;
+  --radius-chip: 4px;
+  --radius-control: 8px;
+  --side-column: 320px;
+  --header-height: 56px;
+}
