@@ -1,29 +1,32 @@
-import { Chess } from 'chess.js';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { Contract } from '../config';
 import { createRng } from '../util';
-import type { WireClientMessage, WireColor, WireServerMessage } from '../wire';
-import { PieceRegistry } from './pieces';
-import { Room, type PlayerConnection, type RoomOptions } from './room';
+import type { WireServerMessage, WireServerType } from '../wire';
+import type { MatchOverrides } from './match';
+import { Room, type GameClient } from './room';
 
-class FakeConn implements PlayerConnection {
+/**
+ * Porting dei casi di `game/room_test.go` e `game/reconnect_test.go`, più i flussi e i bug replicati.
+ */
+
+class FakeClient implements GameClient {
   readonly messages: WireServerMessage[] = [];
-  readonly raw: string[] = [];
-  closed = false;
+  constructor(
+    readonly userId: number,
+    readonly username: string,
+  ) {}
   send(message: WireServerMessage): void {
     this.messages.push(message);
   }
-  sendRaw(text: string): void {
-    this.raw.push(text);
+  types(): WireServerType[] {
+    return this.messages.map((m) => m.type);
   }
-  close(): void {
-    this.closed = true;
+  all(type: WireServerType): Record<string, unknown>[] {
+    return this.messages.filter((m) => m.type === type).map((m) => m.payload);
   }
-  ofType<T extends WireServerMessage['type']>(type: T): Extract<WireServerMessage, { type: T }>[] {
-    return this.messages.filter((m): m is Extract<WireServerMessage, { type: T }> => m.type === type);
-  }
-  last<T extends WireServerMessage['type']>(type: T): Extract<WireServerMessage, { type: T }> | undefined {
-    return this.ofType(type).at(-1);
+  last(type: WireServerType): Record<string, unknown> | undefined {
+    return this.all(type).at(-1);
   }
   clear(): void {
     this.messages.length = 0;
@@ -31,369 +34,284 @@ class FakeConn implements PlayerConnection {
 }
 
 const rooms: Room[] = [];
+beforeEach(() => {
+  vi.useFakeTimers();
+});
 afterEach(() => {
-  rooms.forEach((room) => room.shutdown());
+  rooms.forEach((r) => r.dispose());
   rooms.length = 0;
   vi.useRealTimers();
 });
 
-function setup(overrides: Partial<RoomOptions> = {}) {
-  const white = new FakeConn();
-  const black = new FakeConn();
+const NOTHING_CASTABLE: MatchOverrides = { hand: { white: ['nova', 'nova', 'nova', 'nova'], black: ['nova', 'nova', 'nova', 'nova'] } };
+
+function setup(opts: { overrides?: MatchOverrides; fen?: string; contract?: Contract; baseTimeMs?: number } = {}) {
+  const white = new FakeClient(1, 'mario');
+  const black = new FakeClient(2, 'luigi');
+  const ended: string[] = [];
   const room = new Room({
-    roomId: 'room-1-2',
-    white: { userId: 1, username: 'mario' },
-    black: { userId: 2, username: 'luigi' },
+    id: 'room-1-2',
+    white,
+    black,
     rng: createRng(7),
-    clockMs: 600_000,
+    contract: opts.contract ?? 'current',
+    baseTimeMs: opts.baseTimeMs ?? 600_000,
+    incrementMs: 5_000,
     reconnectTimeoutMs: 30_000,
-    tickMs: 3_600_000,
-    ...overrides,
+    overrides: opts.overrides ?? NOTHING_CASTABLE,
+    ...(opts.fen === undefined ? {} : { initialFen: opts.fen }),
+    onEnded: (_r, result, reason) => ended.push(`${result} ${reason}`),
   });
   rooms.push(room);
-  room.attach('white', white);
-  room.attach('black', black);
   room.start();
-  const conns: Record<WireColor, FakeConn> = { white, black };
-  const send = (color: WireColor, type: WireClientMessage['type'], payload: Record<string, unknown> = {}) =>
-    room.handle(color, { type, payload });
-  const lastError = (color: WireColor) => conns[color].last('error')?.payload.code;
-  /** Porta il giocatore attivo da `draw` a `main1`. */
-  const toMain1 = (color: WireColor) => send(color, 'pass_phase');
-  /** Turno completo senza magie: draw → main1 → move → main2 → fine turno. */
-  const playTurn = (color: WireColor, move: string) => {
-    send(color, 'pass_phase');
-    send(color, 'pass_phase');
-    send(color, 'move', { move });
-    send(color, 'pass_phase');
-  };
-  return { room, conns, send, lastError, toMain1, playTurn };
+  // Senza payload come un client che non lo invia: `json.Unmarshal(nil)` fallisce per move e cast.
+  const send = (client: GameClient, type: string, payload?: unknown) => room.handleMessage(client, type, payload);
+  const lastError = (c: FakeClient) => c.last('error')?.['message'];
+  return { room, white, black, send, lastError, ended };
 }
 
-describe('avvio partita', () => {
-  it('snapshot completo con mano privata e mazzo da 40 carte', () => {
-    const { conns } = setup();
-    const w = conns.white.last('game_start')?.payload;
-    const b = conns.black.last('game_start')?.payload;
-    expect(w).toMatchObject({ room_id: 'room-1-2', white: 'mario', black: 'luigi', phase: 'draw', active_player: 'mario', turn_number: 1 });
-    expect(w?.hand).toHaveLength(5); // 4 iniziali + pesca del primo turno (M6)
-    expect(b?.hand).toHaveLength(4);
-    expect(w?.hand_sizes).toEqual({ mario: 5, luigi: 4 });
-    expect(w?.deck_sizes).toEqual({ mario: 35, luigi: 36 });
-    expect(w?.mana).toEqual({ mario: { current: 1, max: 1 }, luigi: { current: 0, max: 0 } });
-    expect(w?.pieces).toHaveLength(32);
-    // La mano avversaria non viaggia mai.
-    const whiteIds = new Set(w?.hand?.map((c) => c.card_id));
-    expect(b?.hand?.some((c) => whiteIds.has(c.card_id))).toBe(false);
-  });
-});
-
-describe('fasi e turni', () => {
-  it('rifiuta azioni fuori turno e fuori fase', () => {
-    const { send, lastError } = setup();
-    send('black', 'pass_phase');
-    expect(lastError('black')).toBe('not_your_turn');
-    send('white', 'move', { move: 'e2e4' });
-    expect(lastError('white')).toBe('wrong_phase');
-    send('white', 'pass_phase');
-    send('white', 'pass_phase');
-    send('white', 'pass_phase'); // in `move` la mossa è obbligatoria
-    expect(lastError('white')).toBe('wrong_phase');
+describe('avvio (room.go:49-95)', () => {
+  it('game_state (draw) → hand privata → phase_changed dell’auto-avanzamento', () => {
+    const { white, black } = setup();
+    expect(white.types()).toEqual(['game_state', 'hand', 'phase_changed', 'phase_changed']);
+    expect(white.messages[0]?.payload).toMatchObject({ phase: 'draw', active_player: 'white', turn_number: 1, white_hand_size: 4 });
+    expect(white.all('phase_changed').map((p) => p['phase'])).toEqual(['main1', 'move']);
+    expect(white.last('hand')).toEqual({ hand: ['nova', 'nova', 'nova', 'nova'], mana: 1, max_mana: 1, deck_size: 36 });
+    expect(black.types()).toEqual(['game_state', 'hand', 'phase_changed', 'phase_changed']);
+    expect(white.messages[0]?.payload).not.toHaveProperty('white_player');
   });
 
-  it('dopo la mossa avanza da solo a main2; fine turno passa al nero con pesca privata', () => {
-    const { send, conns } = setup();
-    send('white', 'pass_phase');
-    send('white', 'pass_phase');
-    conns.white.clear();
-    conns.black.clear();
-    send('white', 'move', { move: 'e2e4' });
-    expect(conns.black.last('game_state')?.payload.board).toMatchObject({ moves: ['e2e4'], turn: 'black' });
-    expect(conns.black.last('phase_changed')?.payload).toEqual({ phase: 'main2', active_player: 'mario', turn_number: 1 });
-
-    send('white', 'pass_phase');
-    expect(conns.black.ofType('phase_changed').map((m) => m.payload.phase)).toEqual(['main2', 'end_turn', 'draw']);
-    expect(conns.black.last('phase_changed')?.payload).toMatchObject({ active_player: 'luigi', turn_number: 2 });
-    expect(conns.black.ofType('card_drawn')).toHaveLength(1);
-    expect(conns.white.ofType('card_drawn')).toHaveLength(0);
-    expect(conns.white.last('hand_size_changed')?.payload).toEqual({ player: 'luigi', size: 5, deck_size: 35 });
-  });
-
-  it('mossa illegale e mossa di pezzo altrui', () => {
-    const { send, lastError } = setup();
-    send('white', 'pass_phase');
-    send('white', 'pass_phase');
-    send('white', 'move', { move: 'e2e5' });
-    expect(lastError('white')).toBe('illegal_move');
-    send('white', 'move', { move: 'e7e5' });
-    expect(lastError('white')).toBe('illegal_move');
-    send('white', 'move', { move: 42 });
-    expect(lastError('white')).toBe('illegal_move');
-  });
-
-  it('M6: mana +1 ogni 2 turni propri, ricarica al massimo', () => {
-    const { playTurn, conns } = setup();
-    const moves = [['g1f3', 'g8f6'], ['f3g1', 'f6g8'], ['g1f3', 'g8f6'], ['f3g1', 'f6g8']] as const;
-    for (const [w, b] of moves) {
-      playTurn('white', w);
-      playTurn('black', b);
-    }
-    const whiteMana = conns.white
-      .ofType('mana_changed')
-      .filter((m) => m.payload.player === 'mario')
-      .map((m) => [m.payload.current, m.payload.max]);
-    // Turni propri 2, 3, 4, 5 (il turno 1 è nello snapshot, 1/1).
-    expect(whiteMana).toEqual([[1, 1], [2, 2], [2, 2], [3, 3]]);
-  });
-});
-
-describe('magie', () => {
-  it('mana insufficiente, carta non in mano, fase sbagliata', () => {
-    const { send, toMain1, lastError } = setup({ deckTop: { white: ['shield', 'shield', 'shield', 'shield', 'shield'] } });
-    send('white', 'cast_spell', { spell_id: 'shield', targets: ['e2'] });
-    expect(lastError('white')).toBe('wrong_phase'); // in `draw`
-    toMain1('white');
-    send('white', 'cast_spell', { spell_id: 'shield', targets: ['e2'] });
-    expect(lastError('white')).toBe('insufficient_mana');
-    send('white', 'cast_spell', { spell_id: 'fireball', targets: ['e7'] });
-    expect(lastError('white')).toBe('card_not_in_hand');
-    send('white', 'cast_spell', { spell_id: 'no_such_spell', targets: [] });
-    expect(lastError('white')).toBe('unknown_spell');
-  });
-
-  it('Recover: il mana può superare il massimo (M6) e l’ordine dei messaggi segue M10', () => {
-    const { send, toMain1, conns } = setup({ deckTop: { white: ['recover'] } });
-    toMain1('white');
-    conns.black.clear();
-    send('white', 'cast_spell', { spell_id: 'recover', targets: [] });
-    expect(conns.black.messages.map((m) => m.type)).toEqual(['spell_cast', 'mana_changed', 'hand_size_changed']);
-    expect(conns.black.last('mana_changed')?.payload).toEqual({ player: 'mario', current: 3, max: 1 });
-    expect(conns.black.last('spell_cast')?.payload.effects_applied).toEqual([{ kind: 'gain_mana', params: { amount: 3 } }]);
-  });
-
-  it('target none con bersagli, o bersaglio mancante → invalid_target', () => {
-    const { send, toMain1, lastError } = setup({ startingMaxMana: 10, deckTop: { white: ['recover', 'ice_age'] } });
-    toMain1('white');
-    send('white', 'cast_spell', { spell_id: 'recover', targets: ['e4'] });
-    expect(lastError('white')).toBe('invalid_target');
-    send('white', 'cast_spell', { spell_id: 'ice_age', targets: [] });
-    expect(lastError('white')).toBe('invalid_target');
-    send('white', 'cast_spell', { spell_id: 'ice_age', targets: ['e2'] }); // pezzo proprio
-    expect(lastError('white')).toBe('invalid_target');
-  });
-
-  it('M3: Fireball non può colpire il re', () => {
-    const { send, toMain1, lastError, conns } = setup({ startingMaxMana: 10, deckTop: { white: ['fireball'] } });
-    toMain1('white');
-    send('white', 'cast_spell', { spell_id: 'fireball', targets: ['e8'] });
-    expect(lastError('white')).toBe('invalid_target');
-    send('white', 'cast_spell', { spell_id: 'fireball', targets: ['b8'] });
-    const state = conns.black.last('game_state')?.payload;
-    expect(state?.board.fen.startsWith('r1bqkbnr')).toBe(true);
-    expect(state?.pieces?.some((p) => p.square === 'b8')).toBe(false);
-  });
-
-  it('Ice Age: il pezzo congelato non muove, e lo stato scade dopo 2 turni del proprietario (M5)', () => {
-    const { send, toMain1, lastError, playTurn, conns } = setup({ startingMaxMana: 10, deckTop: { white: ['ice_age'] } });
-    toMain1('white');
-    send('white', 'cast_spell', { spell_id: 'ice_age', targets: ['e7'] });
-    const applied = conns.black.last('effect_applied')?.payload;
-    expect(applied).toMatchObject({ effect_kind: 'freeze', remaining_turns: 2 });
-    send('white', 'pass_phase');
-    send('white', 'move', { move: 'g1f3' });
-    send('white', 'pass_phase');
-
-    send('black', 'pass_phase');
-    send('black', 'pass_phase');
-    send('black', 'move', { move: 'e7e5' });
-    expect(lastError('black')).toBe('piece_frozen');
-    send('black', 'move', { move: 'g8f6' });
-    send('black', 'pass_phase');
-    expect(conns.white.ofType('effect_expired')).toHaveLength(0);
-
-    playTurn('white', 'f3g1');
-    playTurn('black', 'f6g8');
-    expect(conns.white.last('effect_expired')?.payload).toEqual({ piece_id: applied?.piece_id, effect_kind: 'freeze' });
-  });
-
-  it('M7: se i congelamenti lasciano zero mosse e non c’è scacco → stallo', () => {
-    // Nero: solo re in h8 e pedone in a7; il bianco congela il pedone e toglie le case al re.
-    const { send, toMain1, conns } = setup({
-      fen: '7k/p7/5Q2/8/8/8/8/K7 w - - 0 1',
-      startingMaxMana: 10,
-      deckTop: { white: ['ice_age'] },
+  it('con una carta castabile si ferma in main1; contratto proposed espone i giocatori', () => {
+    const { white } = setup({ overrides: { hand: { white: ['spark'] } }, contract: 'proposed' });
+    expect(white.all('phase_changed').map((p) => p['phase'])).toEqual(['main1']);
+    expect(white.messages[0]?.payload).toMatchObject({
+      white_player: { id: 1, username: 'mario' },
+      black_player: { id: 2, username: 'luigi' },
     });
-    toMain1('white');
-    send('white', 'cast_spell', { spell_id: 'ice_age', targets: ['a7'] });
-    send('white', 'pass_phase');
-    send('white', 'move', { move: 'f6f7' }); // re nero in h8: g8 e g7 controllate, h7 controllata
-    send('white', 'pass_phase');
-    send('black', 'pass_phase');
-    send('black', 'pass_phase');
-    expect(conns.black.last('game_over')?.payload).toEqual({ result: '1/2-1/2', reason: 'stalemate', winner: null });
+  });
+});
+
+describe('mosse (room.go:312-434)', () => {
+  it('rifiuti: turno, fase, legalità, pezzo congelato; codice solo nel contratto proposed', () => {
+    const { room, white, black, send, lastError } = setup({ contract: 'proposed' });
+    send(black, 'move', { move: 'e7e5' });
+    expect(black.last('error')).toEqual({ message: 'Non è il tuo turno', code: 'not_your_turn' });
+    send(white, 'move', { move: 'e2e5' });
+    expect(lastError(white)).toBe('Mossa illegale: e2e5');
+    send(white, 'move');
+    expect(lastError(white)).toBe('Formato mossa non valido');
+    room.tracker.freeze('e2', 'black', 2, 'frostbolt');
+    send(white, 'move', { move: 'e2e4' });
+    expect(lastError(white)).toBe('Il pezzo in e2 è congelato');
+    send(white, 'pass_phase');
+    expect(lastError(white)).toBe('Non puoi passare nella fase move');
   });
 
-  it('Shield: il pezzo non è catturabile né bersagliabile dalle magie avversarie (M1)', () => {
-    const { send, toMain1, lastError } = setup({
-      fen: '4k3/8/8/3p4/4P3/8/8/4K3 b - - 0 1',
-      startingMaxMana: 10,
-      deckTop: { black: ['shield'], white: ['fireball'] },
+  it('mossa → game_state → main2 → rollover al nero con mana e pesca privata; incremento', () => {
+    const { room, white, black, send } = setup();
+    white.clear();
+    black.clear();
+    send(white, 'move', { move: 'e2e4' });
+    expect(black.types()).toEqual([
+      'game_state',
+      'phase_changed', // main2
+      'phase_changed', // draw (nero)
+      'mana_changed',
+      'card_drawn',
+      'hand_size_changed',
+      'phase_changed', // main1
+      'phase_changed', // move
+    ]);
+    expect(white.types()).not.toContain('card_drawn');
+    expect(black.last('card_drawn')).toMatchObject({ deck_size: 35 });
+    expect(black.all('phase_changed').map((p) => [p['phase'], p['active_player'], p['turn_number']])).toEqual([
+      ['main2', 'white', 1],
+      ['draw', 'black', 2],
+      ['main1', 'black', 2],
+      ['move', 'black', 2],
+    ]);
+    expect(room.whiteTime).toBe(605_000);
+  });
+
+  it('scudo che assorbe la cattura: nessun pezzo si muove, mossa non registrata (B7), il turno passa', () => {
+    const fen = '4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1';
+    const { room, white, black, send } = setup({ fen });
+    room.tracker.shield('d5', 'black', 2, 'aegis');
+    black.clear();
+    send(white, 'move', { move: 'e4d5' });
+    expect(black.types().slice(0, 2)).toEqual(['effect_expired', 'game_state']);
+    expect(black.messages[0]?.payload).toEqual({ square: 'd5', effect_kind: 'shield', reason: 'shield_absorbed' });
+    expect(black.last('game_state')).toMatchObject({
+      board: { fen: '4k3/8/8/3p4/4P3/8/8/4K3 b - - 1 1', moves: [], turn: 'black' },
+      active_effects: [],
     });
-    toMain1('black');
-    send('black', 'cast_spell', { spell_id: 'shield', targets: ['d5'] });
-    send('black', 'pass_phase');
-    send('black', 'move', { move: 'e8e7' });
-    send('black', 'pass_phase');
-
-    toMain1('white');
-    send('white', 'cast_spell', { spell_id: 'fireball', targets: ['d5'] });
-    expect(lastError('white')).toBe('target_shielded');
-    send('white', 'pass_phase');
-    send('white', 'move', { move: 'e4d5' });
-    expect(lastError('white')).toBe('target_shielded');
   });
 
-  it('Teleport: sposta il pezzo con il suo id, non fa avanzare la fase, niente catture (M2)', () => {
-    const { send, toMain1, lastError, conns } = setup({ startingMaxMana: 10, deckTop: { white: ['teleport'] } });
-    toMain1('white');
-    const before = conns.white.last('game_start')?.payload.pieces?.find((p) => p.square === 'g1');
-    send('white', 'cast_spell', { spell_id: 'teleport', targets: ['g1', 'g2'] }); // occupata
-    expect(lastError('white')).toBe('invalid_target');
-    send('white', 'cast_spell', { spell_id: 'teleport', targets: ['g1', 'g5'] }); // non raggiungibile
-    expect(lastError('white')).toBe('invalid_target');
-    conns.white.clear();
-    send('white', 'cast_spell', { spell_id: 'teleport', targets: ['g1', 'f3'] });
-    const state = conns.white.last('game_state')?.payload;
-    expect(state?.pieces?.find((p) => p.square === 'f3')?.piece_id).toBe(before?.piece_id);
-    expect(conns.white.ofType('phase_changed')).toHaveLength(0);
-    send('white', 'pass_phase');
-    expect(conns.white.last('phase_changed')?.payload.phase).toBe('move');
+  it('effetti scaduti al rollover del proprietario, con piece_id', () => {
+    const { room, white, black, send } = setup();
+    room.tracker.freeze('e7', 'white', 1, 'frostbolt');
+    send(white, 'move', { move: 'e2e4' });
+    black.clear();
+    send(black, 'move', { move: 'd7d5' });
+    expect(black.last('effect_expired')).toEqual({ square: 'e7', effect_kind: 'freeze', piece_id: expect.any(Number) });
   });
+});
 
-  it('M4: Teleport non può dare scacco al re avversario quando ha ancora il tratto chi lancia', () => {
-    const { send, toMain1, lastError } = setup({
-      fen: '4k3/8/8/8/8/8/8/R3K3 w - - 0 1',
-      startingMaxMana: 10,
-      deckTop: { white: ['teleport'] },
+describe('magie (room.go:480-673)', () => {
+  it('ordine dei broadcast, cast senza cambio di fase, Channel e Insight', () => {
+    const { white, black, send } = setup({ overrides: { hand: { white: ['channel', 'insight', 'spark', 'nova'] } } });
+    black.clear();
+    white.clear();
+    send(white, 'cast_spell', { spell_id: 'channel', targets: [] });
+    expect(black.types()).toEqual(['spell_cast', 'mana_changed', 'hand_size_changed']);
+    expect(black.messages[0]?.payload).toEqual({
+      player: 'white',
+      spell_id: 'channel',
+      targets: [],
+      effects_applied: [{ kind: 'gain_mana', amount: 2, mana: 3 }],
     });
-    toMain1('white');
-    send('white', 'cast_spell', { spell_id: 'teleport', targets: ['a1', 'a8'] });
-    expect(lastError('white')).toBe('invalid_target');
+    expect(black.last('mana_changed')).toEqual({ player: 'white', current: 3, max: 1 });
+    send(white, 'cast_spell', { spell_id: 'insight', targets: [] });
+    expect(white.types().slice(-4)).toEqual(['spell_cast', 'mana_changed', 'hand_size_changed', 'card_drawn']);
+    expect(black.types()).not.toContain('card_drawn');
+    expect(white.all('spell_cast')[1]?.['effects_applied']).toEqual([{ kind: 'draw_card', count: 1 }]);
   });
 
-  it('Greed: due carte solo a chi lancia', () => {
-    const { send, toMain1, conns } = setup({ startingMaxMana: 10, deckTop: { white: ['greed'] } });
-    toMain1('white');
-    conns.white.clear();
-    conns.black.clear();
-    send('white', 'cast_spell', { spell_id: 'greed', targets: [] });
-    expect(conns.white.ofType('card_drawn')).toHaveLength(2);
-    expect(conns.black.ofType('card_drawn')).toHaveLength(0);
-    expect(conns.black.last('hand_size_changed')?.payload).toEqual({ player: 'mario', size: 6, deck_size: 33 });
-  });
-});
-
-describe('patta, resa, riconnessione, tempo', () => {
-  it('offerta di patta solo dal giocatore attivo; accettazione → agreement', () => {
-    const { send, lastError, conns } = setup();
-    send('black', 'draw_offer');
-    expect(lastError('black')).toBe('not_your_turn');
-    send('black', 'draw_accepted');
-    expect(lastError('black')).toBe('no_draw_offer');
-    send('white', 'draw_offer');
-    expect(conns.black.last('draw_offer')?.payload).toEqual({ from: 'mario' });
-    send('black', 'draw_accepted');
-    expect(conns.white.last('game_over')?.payload).toEqual({ result: '1/2-1/2', reason: 'agreement', winner: null });
+  it('dopo l’ultimo cast possibile la fase avanza da sola', () => {
+    const { white, send } = setup({ overrides: { hand: { white: ['spark', 'nova', 'nova', 'nova'] } } });
+    white.clear();
+    send(white, 'cast_spell', { spell_id: 'spark', targets: [] });
+    expect(white.all('phase_changed').map((p) => p['phase'])).toEqual(['move']);
   });
 
-  it('resa in qualunque momento', () => {
-    const { send, conns, room } = setup();
-    send('black', 'resign');
-    expect(conns.white.last('game_over')?.payload).toEqual({ result: '1-0', reason: 'resign', winner: 'mario' });
-    send('white', 'pass_phase');
-    expect(conns.white.last('error')?.payload.code).toBe('no_active_game');
-    expect(room.isOver).toBe(true);
+  it('rifiuti degli effetti a costo zero e testi esatti', () => {
+    const { white, send, lastError, room } = setup({
+      overrides: { hand: { white: ['disintegrate', 'frostbolt', 'aegis', 'teleport'] }, manaFloor: { white: 10 } },
+    });
+    send(white, 'cast_spell', { spell_id: 'disintegrate', targets: ['e8'] });
+    expect(lastError(white)).toBe('il re non può essere distrutto');
+    send(white, 'cast_spell', { spell_id: 'frostbolt', targets: ['e2'] });
+    expect(lastError(white)).toBe('non puoi congelare un tuo pezzo (e2)');
+    send(white, 'cast_spell', { spell_id: 'aegis', targets: ['e4'] });
+    expect(lastError(white)).toBe('nessun pezzo da proteggere in e4');
+    send(white, 'cast_spell', { spell_id: 'teleport', targets: ['b1', 'd2'] });
+    expect(lastError(white)).toBe('la casella d2 non è vuota');
+    send(white, 'cast_spell', { spell_id: 'teleport', targets: 'b1' });
+    expect(lastError(white)).toBe('Formato cast_spell non valido');
+    expect(room.match.white.mana).toBe(10);
   });
 
-  it('matto scacchistico immediato', () => {
-    const { playTurn, send, conns } = setup();
-    playTurn('white', 'f2f3');
-    playTurn('black', 'e7e5');
-    playTurn('white', 'g2g4');
-    send('black', 'pass_phase');
-    send('black', 'pass_phase');
-    send('black', 'move', { move: 'd8h4' });
-    expect(conns.white.last('game_over')?.payload).toEqual({ result: '0-1', reason: 'checkmate', winner: 'luigi' });
+  it('Disintegrate cambia la FEN (game_state); Teleport che scopre il proprio re è rifiutato', () => {
+    const { white, send, lastError } = setup({
+      fen: '4k3/8/8/8/8/8/4R3/4K2q w - - 0 1',
+      overrides: { hand: { white: ['teleport', 'disintegrate', 'nova', 'nova'] }, manaFloor: { white: 10 } },
+    });
+    // Il re bianco in e1 è sotto scacco dalla donna in h1 (f1 e g1 vuote). Spostare la torre in e3 non para
+    // lo scacco: il server rifiuta perché il re di chi lancia resterebbe sotto scacco (room.go:652-655).
+    send(white, 'cast_spell', { spell_id: 'teleport', targets: ['e2', 'e3'] });
+    expect(lastError(white)).toBe('mossa illegale: lascerebbe il re sotto scacco');
+    send(white, 'cast_spell', { spell_id: 'disintegrate', targets: ['h1'] });
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([{ kind: 'destroy_piece', target: 'h1', piece_destroyed: 'queen' }]);
+    expect(white.last('game_state')).toMatchObject({ board: { fen: '4k3/8/8/8/8/8/4R3/4K3 w - - 0 1' } });
   });
 
-  it('G5: disconnessione, snapshot al rientro; abbandono se non torna', () => {
-    vi.useFakeTimers();
-    const { room, conns } = setup({ reconnectTimeoutMs: 1000 });
-    room.disconnect('black', conns.black);
-    expect(conns.white.last('opponent_disconnected')).toBeDefined();
-    const back = new FakeConn();
-    vi.advanceTimersByTime(500);
-    room.reconnect('black', back);
-    expect(back.last('game_start')?.payload.hand).toHaveLength(4);
-    vi.advanceTimersByTime(2000);
-    expect(room.isOver).toBe(false);
-
-    room.disconnect('black', back);
-    vi.advanceTimersByTime(1000);
-    expect(conns.white.last('game_over')?.payload).toEqual({ result: '1-0', reason: 'abandonment', winner: 'mario' });
-  });
-
-  it('timeout: finisce il tempo del giocatore attivo', () => {
-    vi.useFakeTimers();
-    let now = 0;
-    const { conns } = setup({ clockMs: 3000, tickMs: 1000, now: () => now });
-    for (let i = 0; i < 4; i++) {
-      now += 1000;
-      vi.advanceTimersByTime(1000);
-    }
-    expect(conns.black.ofType('timer_update')[0]?.payload).toEqual({ white_time: 2000, black_time: 3000, turn: 'white' });
-    expect(conns.black.last('game_over')?.payload).toEqual({ result: '0-1', reason: 'timeout', winner: 'luigi' });
+  it('matto da magia rilevato al rollover (room.go:695-722)', () => {
+    const { white, black, send, ended } = setup({
+      fen: 'R5rk/6pp/8/8/8/8/8/6K1 w - - 0 1',
+      overrides: { hand: { white: ['disintegrate', 'nova', 'nova', 'nova'] }, manaFloor: { white: 4 } },
+    });
+    send(white, 'pass_phase');
+    send(white, 'move', { move: 'g1f1' });
+    send(white, 'cast_spell', { spell_id: 'disintegrate', targets: ['g8'] });
+    expect(black.last('game_over')).toEqual({ result: '1-0', reason: 'checkmate', winner: 'mario' });
+    vi.runAllTicks();
+    expect(ended).toEqual([]); // onEnded è asincrono (setImmediate)
   });
 });
 
-describe('contratto minimale', () => {
-  it('niente estensioni assunte sul filo', () => {
-    const { conns, send } = setup({ variant: 'minimal' });
-    expect(Object.keys(conns.white.last('game_start')?.payload ?? {}).sort()).toEqual(['black', 'fen', 'room_id', 'white']);
-    expect(conns.white.last('game_state')?.payload.pieces).toBeUndefined();
-    const drawn = conns.white.ofType('card_drawn');
-    expect(drawn).toHaveLength(5);
-    expect(drawn.every((m) => m.payload.spell_id === undefined)).toBe(true);
-    send('black', 'pass_phase');
-    expect(conns.black.last('error')?.payload).toEqual({ message: 'Non è il tuo turno' });
+describe('patta (room.go:1143-1210)', () => {
+  it('offerta, doppia offerta, risposta propria, rifiuto, accettazione', () => {
+    const { white, black, send, lastError } = setup();
+    send(black, 'draw_offer'); // nessun controllo di turno
+    expect(black.last('draw_offer_sent')).toEqual({ message: 'Offerta di patta inviata' });
+    expect(white.last('draw_offer')).toEqual({ from: 'luigi' });
+    send(white, 'draw_offer');
+    expect(lastError(white)).toBe("C'è già un'offerta di patta in corso");
+    send(black, 'draw_accepted');
+    expect(lastError(black)).toBe('Non puoi rispondere alla tua stessa offerta');
+    send(white, 'draw_declined');
+    expect(black.last('draw_declined')).toEqual({ message: 'mario ha rifiutato la patta' });
+    send(white, 'draw_accepted');
+    expect(lastError(white)).toBe('Nessuna offerta di patta in corso');
+    send(white, 'draw_offer');
+    send(black, 'draw_accepted');
+    expect(white.last('game_over')).toEqual({ result: '1/2-1/2', reason: 'agreement' });
   });
 });
 
-describe('PieceRegistry', () => {
-  function play(fen: string, moves: string[]) {
-    const chess = new Chess(fen);
-    const registry = PieceRegistry.fromChess(chess, createRng(1));
-    const ids = new Map(registry.toWire().map((p) => [p.square, p.piece_id]));
-    for (const m of moves) registry.applyMove(chess.move(m));
-    return { registry, ids };
-  }
-
-  it('arrocco sposta anche la torre', () => {
-    const { registry, ids } = play('r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1', ['e1g1', 'e8c8']);
-    expect(registry.at('g1')?.id).toBe(ids.get('e1'));
-    expect(registry.at('f1')?.id).toBe(ids.get('h1'));
-    expect(registry.at('c8')?.id).toBe(ids.get('e8'));
-    expect(registry.at('d8')?.id).toBe(ids.get('a8'));
+describe('connessioni, orologio e bug replicati', () => {
+  it('Leave → opponent_disconnected; Reconnect → game_state{reconnected} + hand + opponent_reconnected', () => {
+    const { room, white, black } = setup();
+    room.leave(black);
+    expect(white.last('opponent_disconnected')).toBeDefined();
+    const back = new FakeClient(2, 'luigi');
+    room.reconnect(back);
+    expect(back.types()).toEqual(['game_state', 'hand']);
+    expect(back.messages[0]?.payload).toMatchObject({ reconnected: true });
+    expect(white.last('opponent_reconnected')).toEqual({ message: 'luigi si è riconnesso!' });
+    vi.advanceTimersByTime(31_000);
+    expect(white.all('game_over')).toEqual([]);
   });
 
-  it('en passant rimuove il pedone catturato', () => {
-    const ep = play('4k3/3p4/8/4P3/8/8/8/4K3 b - - 0 1', ['d7d5', 'e5d6']);
-    expect(ep.registry.at('d5')).toBeUndefined();
-    expect(ep.registry.at('d6')?.id).toBe(ep.ids.get('e5'));
+  it('abbandono dopo il timeout di riconnessione', () => {
+    const { room, white, black } = setup();
+    room.leave(black);
+    vi.advanceTimersByTime(30_000);
+    expect(white.last('game_over')).toEqual({ result: '1-0', reason: 'abandonment', winner: 'mario' });
   });
 
-  it('la promozione conserva l’id e cambia il tipo', () => {
-    const { registry, ids } = play('4k3/P7/8/8/8/8/8/4K3 w - - 0 1', ['a7a8q']);
-    expect(registry.at('a8')).toMatchObject({ id: ids.get('a7'), type: 'q' });
+  it('orologio del giocatore attivo, timer_update ogni secondo, timeout', () => {
+    const { white } = setup({ baseTimeMs: 2_000 });
+    vi.advanceTimersByTime(1_000);
+    // Come in Go, l'ordine tra il ticker da 100 ms e quello da 1 s nello stesso istante non è garantito.
+    const update = white.last('timer_update');
+    expect(update).toMatchObject({ black_time: 2_000, turn: 'white' });
+    expect([1_000, 1_100]).toContain(update?.['white_time']);
+    vi.advanceTimersByTime(1_000);
+    expect(white.last('game_over')).toEqual({ result: '0-1', reason: 'timeout', winner: 'luigi' });
+  });
+
+  it('B1: dopo la resa una disconnessione produce un secondo game_over', () => {
+    const { room, white, black, send } = setup();
+    send(white, 'resign');
+    expect(black.all('game_over')).toEqual([{ result: '0-1', reason: 'resign', winner: 'luigi' }]);
+    room.leave(white);
+    vi.advanceTimersByTime(30_000);
+    expect(black.all('game_over')).toHaveLength(2);
+  });
+
+  it('B2: il socket vecchio che si chiude dopo il rientro fa perdere per abbandono', () => {
+    const { room, white, black } = setup();
+    const newBlack = new FakeClient(2, 'luigi');
+    room.reconnect(newBlack);
+    room.leave(black); // chiusura tardiva della connessione precedente
+    vi.advanceTimersByTime(30_000);
+    expect(newBlack.last('game_over')).toEqual({ result: '1-0', reason: 'abandonment', winner: 'mario' });
+    expect(white.last('game_over')).toBeDefined();
+  });
+
+  it('B4: i messaggi vengono ancora gestiti dopo la fine della partita', () => {
+    const { white, black, send } = setup();
+    send(white, 'resign');
+    send(white, 'move', { move: 'e2e4' });
+    expect(black.last('game_state')).toMatchObject({ board: { moves: ['e2e4'] } });
+  });
+
+  it('PGN numerato in UCI', () => {
+    const { room, white, black, send } = setup();
+    send(white, 'move', { move: 'e2e4' });
+    send(black, 'move', { move: 'e7e5' });
+    send(white, 'move', { move: 'g1f3' });
+    expect(room.pgn()).toBe('1. e2e4 e7e5 2. g1f3');
   });
 });
