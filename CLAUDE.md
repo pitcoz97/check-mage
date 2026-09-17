@@ -32,7 +32,8 @@ Standard Go layout with `internal/` packages:
 - `internal/engine/stockfish.go` - Stockfish UCI interface, **FEN-based**: `IsMoveLegal(fen, move)`, `ApplyMove(fen, move) → newFEN`, `GetGameStatus(fen)`. The FEN is the source of truth (so board-editing spells are representable). `Room.Board.FEN` is updated after each move via `ApplyMove`; `Board.Moves` is kept only as history for PGN.
 - `internal/game/` - Core game logic: WebSocket client, room management, matchmaking
 - `internal/handlers/` - HTTP handlers for auth, stats, status, WebSocket upgrade
-- `internal/middleware/` - JWT auth and per-IP rate limiting
+- `internal/middleware/` - JWT auth (`ParseAccessToken`: HS256 + `type == "access"`), one-time WebSocket tickets (`wsticket.go`, `WSAuth`), and per-IP rate limiting (`getIP` trusts `X-Forwarded-For` only from `TRUSTED_PROXIES`)
+- `internal/gameerr/` - Game errors with a machine-readable `Code` + `Details`; sent to clients as `error {message, code, details?}`. `match` and `effects` return these; `Client.sendErr` serializes them
 - `internal/logger/` - Zap logger initialization
 - `internal/models/` - Shared data structures
 - `internal/validation/` - Input validation for registration (username/email/password rules)
@@ -58,7 +59,7 @@ The codebase uses global singletons for shared state (common pattern in Go serve
 
 ### WebSocket Protocol
 
-Clients connect to `/ws` with a JWT. The `Auth` middleware (`internal/middleware/auth.go`) accepts the token either in the `Authorization: Bearer <token>` header or, as a fallback for browser WebSocket connections (which cannot set custom headers), as a `?token=<token>` query parameter. Messages are JSON:
+Clients connect to `/ws` via `WSAuth`: preferably with a one-time ticket (`GET /ws/ticket` → `/ws?ticket=…`, 30s TTL), otherwise with an access token in the `Authorization: Bearer <token>` header or `?token=<token>`. The server pings every ~54s and drops connections silent for 60s. A second connection of the same user replaces the first (close code 4001). Messages are JSON:
 
 Client → Server: `{"type": "move", "payload": {"move": "e2e4"}}`
 Server → Client: `{"type": "game_state", "payload": {...}}`
@@ -72,8 +73,8 @@ The server-side message dispatch lives in `Room.HandleMessage` (`internal/game/r
 1. Player joins queue via WebSocket (`Manager.JoinQueue`)
 2. When two players are waiting, a `Room` is created with timers
 3. Moves are validated by Stockfish before application
-4. Game ends on checkmate, timeout, resignation, or draw agreement
-5. Result is saved to DB and ELO ratings updated
+4. Game ends on checkmate, stalemate, rule draw, agreement, resignation, timeout or abandonment. `Room.finishLocked` (under `r.mu`) marks the room `ended` exactly once and sets the terminal `Board.Status` (`checkmate`, `stalemate`, `draw`, `resigned`, `timeout`, `abandoned`); after unlocking, `announceEnd` broadcasts `game_over`. Any later action gets `error {code: "game_over"}`.
+5. Result is saved to DB and ELO ratings updated (once); the `live_matches` row is removed and no later snapshot can re-create it (`writeSnapshot` is ordered by `persistSeq` and disabled by `removeLiveMatch`)
 
 ### "Magic Chess" Feature (in progress)
 
@@ -87,17 +88,17 @@ Packages:
 
 **Status — Step 5 done (full base effect set: draw / mana / teleport):**
 - `game.Room` holds a `*match.State` and an `*effects.Tracker` (both built in `NewRoom`). `HandleMessage` dispatches `pass_phase` and `cast_spell`; `handleMove` gates on the `move` phase. After a move/pass/cast the Room runs `match.AutoAdvance()`, broadcasts each step, and on a turn rollover ticks the finishing player's effects (`effect_expired` broadcast). `Room.applySpellEffects` is the `ApplyEffects` callback: it dispatches each `spells.Effect` — `destroy_piece` edits `Board.FEN` (and removes the piece from the `Tracker`), `freeze_piece`/`shield_piece` attach a persistent effect via the `Tracker`.
-- Spells (11): `noop` placeholders + **Disintegrate** (4, `destroy_piece`), **Frost Bolt** (2, `freeze_piece` 2), **Aegis** (3, `shield_piece` 2), **Insight** (1, `draw_card` 1), **Channel** (0, `gain_mana` +2 this turn), **Teleport** (3, `move_piece`, target = `[from, to]`). `move_piece` moves an own piece to an empty square and is rejected (at zero cost) if it would leave the caster's king in check (validated via `engine.IsInCheck` on the FEN with the caster's side to move). `draw_card` sends `card_drawn` privately to the caster; `gain_mana` bumps current mana (temporary, capped at 10). A spell never changes the FEN side-to-move, so the next move is still validated on the updated FEN. Destroying/teleporting a rook or king clears the matching castling rights.
-- Persistent effects (Tracker, parallel to the FEN since FEN has no piece identity): a **frozen** piece can't move (move rejected); **shield** absorbs one capture — the shielded piece survives but the attacker's move is still spent: `handleMove` applies `effects.PassTurn` (a null move: flip the FEN side-to-move, no piece moves), consumes the shield, and lets the turn advance (`effect_expired` with `reason: "shield_absorbed"`). The Tracker follows pieces by `PieceID` across captures/castling/en-passant/promotion, so effects stick to the piece, not the square. Decisions: shield protects against chess captures only (not magic `destroy_piece`); en-passant capture of a shielded pawn isn't blocked (edge case).
+- Spells (11): `noop` placeholders + **Disintegrate** (4, `destroy_piece`), **Frost Bolt** (2, `freeze_piece` 2), **Aegis** (3, `shield_piece` 2), **Insight** (1, `draw_card` 1), **Channel** (0, `gain_mana` +2 this turn), **Teleport** (3, `move_piece`, target = `[from, to]`). `move_piece` moves an own piece to an empty square and is rejected (at zero cost) if it would leave the caster's king in check. Every board-editing spell is also rejected with `illegal_position` if the king of the side NOT to move ends up attacked (`validateBoardEdit`, pure `effects.IsKingAttacked`): in main1 a spell can't give check, in main2 it can. Teleport uses `Tracker.Relocate` (no castling/en-passant semantics). `draw_card` sends `card_drawn` privately to the caster; `gain_mana` bumps current mana (temporary, capped at 10). A spell never changes the FEN side-to-move, so the next move is still validated on the updated FEN. Destroying/teleporting a rook or king clears the matching castling rights.
+- Persistent effects (Tracker, parallel to the FEN since FEN has no piece identity): a **frozen** piece can't move (move rejected); **shield** absorbs one capture — the shielded piece survives but the attacker's move is still spent: `handleMove` applies `effects.PassTurn` (a null move: flip the FEN side-to-move, no piece moves), consumes the shield, and lets the turn advance (`effect_expired` with `reason: "shield_absorbed"`). The Tracker follows pieces by `PieceID` across captures/castling/en-passant/promotion, so effects stick to the piece, not the square. Decisions: shield protects against chess captures only (not magic `destroy_piece`), including en passant; if the null move would leave the attacker in check (the capture was the only way out), the shield breaks and the capture happens. An absorbed move is recorded as `0000` in `Board.Moves` (`--` in the PGN).
 - Mana: starts at 1, +1 per the player's own turn (white turns 1/3/5 → 1/2/3), capped at 10, refilled at turn start. Opening hand = 4; active player draws 1 at turn start (white skips the turn-1 draw — Hearthstone style).
 - **Anti-cheat**: a player only ever receives their own hand (`hand`/`card_drawn`); opponents see only sizes/mana.
 - Determinism: each match stores a `seed`; same seed ⇒ same shuffle and draw order.
 - Reconnection re-sends the player's private hand + public state. **Live matches are persisted to Postgres** (`live_matches`): the full `Room` state (board FEN, moves, phase/turn, both players' mana/hand/deck/discard, active per-piece effects, `posCounts`) is serialized as a `roomSnapshot` JSON blob and saved (async) after every action and (sync) on graceful shutdown. On startup `Manager.LoadPersisted` rebuilds dormant rooms (placeholder clients, timer stopped); the first reconnect attaches the real client and starts the clock (`ensureTimer`) — the clock only runs while the timer is active, so downtime isn't charged. `endGame` deletes the row. All DB calls are nil-safe (no-op without a DB, e.g. in tests).
 - Draws: `engine.GetGameStatus` uses perft for checkmate/stalemate and `isInCheck` reads Stockfish's `Checkers:` line; `isDrawByRule` covers fifty-move + insufficient material (pure, no engine eval — the old `score cp 0` heuristic caused false draws). Threefold repetition is tracked in `Room.posCounts` (normalized FEN, counted after each board change).
-- Known limitation: clocks follow `Board.Turn` (chess side-to-move), not `match.ActivePlayer`.
 - Testing/logging (Step 6): `internal/match/integration_test.go` simulates a full magic game (mana growth, gain_mana combo, draw, freeze expiry, shield, deck depletion) with no Stockfish needed; `internal/game/reconnect_test.go` asserts reconnection re-sends the private hand + public state (incl. `active_effects`). Each cast, applied effect, and effect expiry is logged with structured zap fields. The WebSocket protocol is documented in `PROTOCOL.md`.
 - Clocks: `runTimer` is the single authority and charges `match.ActivePlayer` in real time for their whole turn (all phases); a move only adds the increment. `timer_update.turn` is the active player, not the chess side-to-move. Spell-induced checkmate/stalemate is detected at the turn rollover (`checkRolloverGameEnd` runs `GetGameStatus` on the opponent's position when a turn ends), so a Disintegrate/Teleport that mates ends the game.
-- Known limitations: a `move_piece` only guards the *caster's* king (leaving the opponent in check is legal, as in chess); en-passant capture of a shielded pawn isn't blocked (edge case).
+- Known limitations: checkmate/stalemate detection counts moves of frozen pieces as legal; the PGN uses UCI moves and doesn't record spells; 5 catalog spells are still `noop` placeholders.
+- Client-facing changes (backend-requests round, Sept 2026) are listed in `docs/SERVER-CHANGES.md`; the client's request registry is `docs/BACKEND-REQUESTS.md`.
 
 ### Dependencies
 
