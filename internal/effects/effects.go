@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"chess-server/internal/gameerr"
 )
 
 // Color è il colore di un pezzo / di chi lancia la magia.
@@ -22,11 +24,11 @@ const (
 // grid[0] è la traversa 8 e grid[7] la traversa 1.
 func parseSquare(square string) (row, col int, err error) {
 	if len(square) != 2 {
-		return 0, 0, fmt.Errorf("casella non valida: %q", square)
+		return 0, 0, gameerr.Newf(gameerr.InvalidTarget, "casella non valida: %q", square)
 	}
 	file, rank := square[0], square[1]
 	if file < 'a' || file > 'h' || rank < '1' || rank > '8' {
-		return 0, 0, fmt.Errorf("casella fuori scacchiera: %q", square)
+		return 0, 0, gameerr.Newf(gameerr.InvalidTarget, "casella fuori scacchiera: %q", square)
 	}
 	col = int(file - 'a')
 	row = int('8' - rank) // traversa 8 -> riga 0
@@ -188,13 +190,13 @@ func DestroyPiece(fen, square string, caster Color) (newFEN, destroyed string, e
 
 	p := grid[row][col]
 	if p == 0 {
-		return "", "", fmt.Errorf("nessun pezzo da distruggere in %s", square)
+		return "", "", gameerr.Newf(gameerr.InvalidTarget, "nessun pezzo da distruggere in %s", square)
 	}
 	if pieceColor(p) == caster {
-		return "", "", fmt.Errorf("non puoi distruggere un tuo pezzo (%s)", square)
+		return "", "", gameerr.Newf(gameerr.InvalidTarget, "non puoi distruggere un tuo pezzo (%s)", square)
 	}
 	if p == 'k' || p == 'K' {
-		return "", "", fmt.Errorf("il re non può essere distrutto")
+		return "", "", gameerr.Newf(gameerr.InvalidTarget, "il re non può essere distrutto")
 	}
 
 	destroyed = pieceName(p)
@@ -226,13 +228,13 @@ func MovePieceFEN(fen, from, to string, caster Color) (string, error) {
 	}
 	p := grid[fRow][fCol]
 	if p == 0 {
-		return "", fmt.Errorf("nessun pezzo da spostare in %s", from)
+		return "", gameerr.Newf(gameerr.InvalidTarget, "nessun pezzo da spostare in %s", from)
 	}
 	if pieceColor(p) != caster {
-		return "", fmt.Errorf("puoi spostare solo i tuoi pezzi (%s)", from)
+		return "", gameerr.Newf(gameerr.InvalidTarget, "puoi spostare solo i tuoi pezzi (%s)", from)
 	}
 	if grid[tRow][tCol] != 0 {
-		return "", fmt.Errorf("la casella %s non è vuota", to)
+		return "", gameerr.Newf(gameerr.InvalidTarget, "la casella %s non è vuota", to)
 	}
 
 	grid[tRow][tCol] = p

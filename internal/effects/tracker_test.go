@@ -161,3 +161,27 @@ func TestActiveEffects(t *testing.T) {
 		t.Errorf("effetti attivi = %d, attesi 2", len(eff))
 	}
 }
+
+// Relocate (spostamento magico) non deve applicare la semantica degli scacchi:
+// un re che arriva su g1 non trascina la torre (B13) e un pedone spostato in
+// diagonale non cattura en passant (B14).
+func TestTracker_RelocateNoChessSemantics(t *testing.T) {
+	const fen = "4k3/8/8/3pP3/8/8/8/4K2R w K - 0 1"
+	tr := NewTracker(fen)
+	if err := ShieldPiece(tr, "h1", White, 2, "aegis"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	tr.Relocate("e1", "g1")
+	if !tr.HasShield("h1") {
+		t.Error("la torre in h1 non deve spostarsi quando il re viene teletrasportato su g1")
+	}
+
+	tr.Relocate("e5", "d6")
+	if _, ok := tr.colorAt("d5"); !ok {
+		t.Error("il pedone in d5 non deve essere rimosso da uno spostamento magico in diagonale")
+	}
+	if _, ok := tr.colorAt("d6"); !ok {
+		t.Error("il pedone spostato deve trovarsi in d6")
+	}
+}

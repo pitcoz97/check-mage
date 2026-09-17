@@ -1,6 +1,10 @@
 package effects
 
-import "fmt"
+import (
+	"sort"
+
+	"chess-server/internal/gameerr"
+)
 
 // Effetti persistenti gestiti dal Tracker.
 const (
@@ -94,6 +98,23 @@ func (t *Tracker) MovePiece(from, to string, promo byte) {
 	}
 }
 
+// Relocate sposta l'identità (e gli effetti) del pezzo da `from` a `to` senza
+// alcuna semantica scacchistica: niente cattura en passant, arrocco o
+// promozione. Da usare per gli spostamenti magici (move_piece), dove un re che
+// arriva su g1 o un pedone mosso in diagonale non sono mosse di scacchi.
+func (t *Tracker) Relocate(from, to string) {
+	id, ok := t.bySquare[from]
+	if !ok {
+		return
+	}
+	if _, occupied := t.bySquare[to]; occupied {
+		t.RemoveAt(to) // non dovrebbe accadere: move_piece richiede una casella vuota
+	}
+	delete(t.bySquare, from)
+	t.bySquare[to] = id
+	t.pieces[id].Square = to
+}
+
 func (t *Tracker) moveCastlingRook(kingTo string) {
 	var from, to string
 	switch kingTo {
@@ -135,7 +156,7 @@ func (t *Tracker) colorAt(square string) (Color, bool) {
 func (t *Tracker) addEffect(square, kind string, turns int, source string) error {
 	id, ok := t.bySquare[square]
 	if !ok {
-		return fmt.Errorf("nessun pezzo in %s", square)
+		return gameerr.Newf(gameerr.InvalidTarget, "nessun pezzo in %s", square)
 	}
 	ps := t.pieces[id]
 	for i := range ps.Effects {
@@ -153,10 +174,10 @@ func (t *Tracker) addEffect(square, kind string, turns int, source string) error
 func FreezePiece(t *Tracker, square string, caster Color, turns int, source string) error {
 	col, ok := t.colorAt(square)
 	if !ok {
-		return fmt.Errorf("nessun pezzo da congelare in %s", square)
+		return gameerr.Newf(gameerr.InvalidTarget, "nessun pezzo da congelare in %s", square)
 	}
 	if col == caster {
-		return fmt.Errorf("non puoi congelare un tuo pezzo (%s)", square)
+		return gameerr.Newf(gameerr.InvalidTarget, "non puoi congelare un tuo pezzo (%s)", square)
 	}
 	return t.addEffect(square, KindFreeze, turns, source)
 }
@@ -165,10 +186,10 @@ func FreezePiece(t *Tracker, square string, caster Color, turns int, source stri
 func ShieldPiece(t *Tracker, square string, caster Color, turns int, source string) error {
 	col, ok := t.colorAt(square)
 	if !ok {
-		return fmt.Errorf("nessun pezzo da proteggere in %s", square)
+		return gameerr.Newf(gameerr.InvalidTarget, "nessun pezzo da proteggere in %s", square)
 	}
 	if col != caster {
-		return fmt.Errorf("puoi proteggere solo i tuoi pezzi (%s)", square)
+		return gameerr.Newf(gameerr.InvalidTarget, "puoi proteggere solo i tuoi pezzi (%s)", square)
 	}
 	return t.addEffect(square, KindShield, turns, source)
 }
@@ -256,13 +277,17 @@ func (t *Tracker) RestoreEffect(square string, effs []ActiveEffect) {
 }
 
 // ActiveEffects elenca gli effetti attivi su tutti i pezzi (per game_state).
+// Gli effetti sono copiati (il chiamante può serializzarli fuori dal lock) e
+// ordinati per casella, così l'output è deterministico.
 func (t *Tracker) ActiveEffects() []PieceEffectInfo {
 	out := make([]PieceEffectInfo, 0)
 	for _, ps := range t.pieces {
 		if len(ps.Effects) > 0 {
-			out = append(out, PieceEffectInfo{Square: ps.Square, Effects: ps.Effects})
+			effs := append([]ActiveEffect(nil), ps.Effects...)
+			out = append(out, PieceEffectInfo{Square: ps.Square, Effects: effs})
 		}
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Square < out[j].Square })
 	return out
 }
 

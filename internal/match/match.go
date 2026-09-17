@@ -6,10 +6,9 @@
 package match
 
 import (
-	"errors"
-	"fmt"
 	"math/rand"
 
+	"chess-server/internal/gameerr"
 	"chess-server/internal/phase"
 	"chess-server/internal/spells"
 )
@@ -300,31 +299,35 @@ type ApplyEffects func(def spells.Spell, targets []string) ([]interface{}, error
 // alla callback apply. Solo se tutto riesce scala il mana e scarta la carta.
 func (s *State) CastSpell(p Player, spellID string, targets []string, apply ApplyEffects) (CastResult, error) {
 	if !s.IsActive(p) {
-		return CastResult{}, errors.New("non è il tuo turno")
+		return CastResult{}, gameerr.New(gameerr.NotYourTurn, "non è il tuo turno")
 	}
 	if !s.Allows(phase.ActionCastSpell) {
-		return CastResult{}, fmt.Errorf("non puoi castare magie nella fase %s", s.CurrentPhase)
+		return CastResult{}, gameerr.Newf(gameerr.WrongPhase, "non puoi castare magie nella fase %s", s.CurrentPhase).
+			With("phase", s.CurrentPhase)
 	}
 
 	def, ok := spells.Catalog[spellID]
 	if !ok {
-		return CastResult{}, fmt.Errorf("magia sconosciuta: %s", spellID)
+		return CastResult{}, gameerr.Newf(gameerr.UnknownSpell, "magia sconosciuta: %s", spellID).With("spell_id", spellID)
 	}
 	if !phaseAllowsSpell(def, s.CurrentPhase) {
-		return CastResult{}, fmt.Errorf("%s non è giocabile nella fase %s", def.Name, s.CurrentPhase)
+		return CastResult{}, gameerr.Newf(gameerr.WrongPhase, "%s non è giocabile nella fase %s", def.Name, s.CurrentPhase).
+			With("phase", s.CurrentPhase)
 	}
 
 	ps := s.player(p)
 	idx := ps.HandIndex(spellID)
 	if idx < 0 {
-		return CastResult{}, errors.New("carta non in mano")
+		return CastResult{}, gameerr.New(gameerr.CardNotInHand, "carta non in mano").With("spell_id", spellID)
 	}
 	if ps.Mana < def.ManaCost {
-		return CastResult{}, fmt.Errorf("mana insufficiente: servono %d, hai %d", def.ManaCost, ps.Mana)
+		return CastResult{}, gameerr.Newf(gameerr.InsufficientMana, "mana insufficiente: servono %d, hai %d", def.ManaCost, ps.Mana).
+			With("needed", def.ManaCost).With("available", ps.Mana)
 	}
 	if len(targets) != def.TargetType.TargetCount() {
-		return CastResult{}, fmt.Errorf("la magia %s richiede %d bersagli, ricevuti %d",
-			def.Name, def.TargetType.TargetCount(), len(targets))
+		return CastResult{}, gameerr.Newf(gameerr.InvalidTargetCount, "la magia %s richiede %d bersagli, ricevuti %d",
+			def.Name, def.TargetType.TargetCount(), len(targets)).
+			With("expected", def.TargetType.TargetCount()).With("received", len(targets))
 	}
 
 	// Esegue gli effetti sulla board PRIMA di spendere mana: se falliscono
