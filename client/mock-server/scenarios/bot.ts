@@ -165,8 +165,8 @@ export class Bot {
       case 'none':
         return [];
       case 'enemy_piece': {
-        const effectKind = spell.effects[0]?.kind;
-        const candidate = pawnsFirst(enemy).find((p) => effectKind !== 'freeze_piece' || !room.tracker.isFrozen(p.square));
+        // Bersaglio senza effetti, così una Disintegrate non cancella il congelamento appena lanciato.
+        const candidate = pawnsFirst(enemy).find((p) => !room.tracker.isFrozen(p.square) && !room.tracker.hasShield(p.square));
         return candidate === undefined ? null : [candidate.square];
       }
       case 'own_piece': {

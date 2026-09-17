@@ -1,161 +1,192 @@
+import { Chess } from 'chess.js';
 import { WebSocket } from 'ws';
 
 import {
   decodeServerMessage,
   encodeClientIntent,
-  encodeCredentials,
-  normalizeHttpError,
-  normalizeLoginResponse,
+  encodeLogin,
+  encodeRefresh,
+  encodeRegister,
+  interpretHttpResponse,
+  normalizeAccount,
+  normalizeGameHistory,
+  normalizeLogin,
+  normalizePublicProfile,
+  normalizeRegistration,
   normalizeSpellCatalog,
-  normalizeUserProfile,
-  normalizeWsTicket,
+  normalizeTokenPair,
   type AdapterWarning,
+  type Normalized,
 } from '../../src/api/adapter';
-import type { UserProfile } from '../../src/api/types';
-import type { HandCard, ManaState, Phase, Username } from '../../src/game/model';
+import type { GameHistoryEntry, PublicProfile, TokenPair, UserAccount } from '../../src/api/types';
+import type { Color, HandCard, Phase, PublicGameState, Square } from '../../src/game/model';
+import fallbackCatalog from '../../src/spells/fallback.json';
 import type { Spell } from '../../src/spells/schema';
+import { buildSocketUrl } from '../../src/ws/connection';
 import type { ClientIntent, DecodeFailure, ServerEvent } from '../../src/ws/protocol';
 
 /**
- * Client di prova per lo script e2e. Parla col mock SOLO attraverso `src/api/adapter.ts`: se il mock e
- * l'adapter divergono, qui emergono decode failure o warning inattesi.
+ * Client di prova per lo script e2e. Parla col mock SOLO attraverso `src/api/adapter.ts` e
+ * `src/ws/connection.ts`: se il mock (porting di chess-server) e l'adapter divergono, qui emergono
+ * decode failure o warning inattesi.
  *
  * Tiene un mini-stato derivato dagli eventi solo per pilotare la partita: non è il reducer del client.
  */
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Rispetta i rate limit del server (auth 3/s, ws 1/s) invece di farsi rifiutare. */
+/** Rispetta il rate limit auth (3/s, burst 5) invece di farsi rifiutare. */
 export function createPacer() {
-  let lastAuth = 0;
-  let lastWs = 0;
-  const wait = async (last: number, gap: number) => {
-    const delta = Date.now() - last;
-    if (delta < gap) await sleep(gap - delta);
-    return Date.now();
-  };
+  let last = 0;
   return {
     auth: async () => {
-      lastAuth = await wait(lastAuth, 400);
-    },
-    ws: async () => {
-      lastWs = await wait(lastWs, 1100);
+      const delta = Date.now() - last;
+      if (delta < 400) await sleep(400 - delta);
+      last = Date.now();
     },
   };
 }
 export type Pacer = ReturnType<typeof createPacer>;
 
 export class E2EClient {
-  token = '';
-  profile: UserProfile | null = null;
+  tokens: TokenPair | null = null;
+  account: UserAccount | null = null;
+  /** Colore: da P0-5 nel contratto `proposed`; nel contratto `current` lo imposta lo script, non il client. */
+  color: Color | null = null;
   readonly events: ServerEvent[] = [];
   readonly failures: DecodeFailure[] = [];
   readonly warnings: AdapterWarning[] = [];
   readonly problems: string[] = [];
 
+  state: PublicGameState | null = null;
   hand: HandCard[] = [];
   phase: Phase | 'unknown' | null = null;
-  activePlayer: Username | null = null;
-  fen = '';
-  mana: Record<Username, ManaState> = {};
+  activePlayer: Color | 'unknown' | null = null;
   gameOver: Extract<ServerEvent, { type: 'game_over' }> | null = null;
+  connected = false;
 
   private ws: WebSocket | null = null;
-  private listeners = new Set<() => void>();
+  private readonly listeners = new Set<() => void>();
 
   constructor(
     readonly httpUrl: string,
     readonly wsUrl: string,
     readonly username: string,
+    readonly email: string,
     private readonly pacer: Pacer,
   ) {}
 
-  private async request(method: 'GET' | 'POST', path: string, body?: string): Promise<{ status: number; json: unknown }> {
+  private async request(method: 'GET' | 'POST', path: string, body?: string) {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (this.token !== '') headers['Authorization'] = `Bearer ${this.token}`;
-    const init: RequestInit = body === undefined ? { method, headers } : { method, headers, body };
-    const res = await fetch(`${this.httpUrl}${path}`, init);
-    const text = await res.text();
-    let json: unknown;
-    try {
-      json = text === '' ? null : JSON.parse(text);
-    } catch {
-      json = text;
-    }
-    return { status: res.status, json };
+    if (this.tokens !== null) headers['Authorization'] = `Bearer ${this.tokens.accessToken}`;
+    const res = await fetch(`${this.httpUrl}${path}`, body === undefined ? { method, headers } : { method, headers, body });
+    const outcome = interpretHttpResponse(res.status, await res.text());
+    this.warnings.push(...outcome.warnings);
+    return outcome;
+  }
+
+  private unwrap<T>(label: string, normalized: Normalized<T>): T {
+    if (!normalized.ok) throw new Error(`${label}: ${normalized.issues.join('; ')}`);
+    this.warnings.push(...normalized.warnings);
+    return normalized.value;
   }
 
   async register(password: string): Promise<void> {
     await this.pacer.auth();
-    const res = await this.request('POST', '/auth/register', encodeCredentials(this.username, password));
-    if (res.status !== 201 && normalizeHttpError(res.status, res.json).code !== 'username_taken') {
-      throw new Error(`register ${this.username}: ${res.status} ${JSON.stringify(res.json)}`);
-    }
+    const res = await this.request('POST', '/auth/register', encodeRegister(this.username, this.email, password));
+    if (res.ok) this.unwrap('register', normalizeRegistration(res.data));
+    else if (res.error.code !== 'username_or_email_taken') throw new Error(`register: ${JSON.stringify(res.error)}`);
   }
 
   async login(password: string): Promise<void> {
     await this.pacer.auth();
-    const res = await this.request('POST', '/auth/login', encodeCredentials(this.username, password));
-    const session = normalizeLoginResponse(res.json);
-    if (res.status !== 200 || !session.ok) throw new Error(`login ${this.username}: ${res.status}`);
-    this.token = session.value.token;
-    await this.refreshProfile();
+    const res = await this.request('POST', '/auth/login', encodeLogin(this.email, password));
+    if (!res.ok) throw new Error(`login: ${JSON.stringify(res.error)}`);
+    const session = this.unwrap('login', normalizeLogin(res.data));
+    this.tokens = session.tokens;
+    this.account = session.user;
   }
 
-  async refreshProfile(): Promise<UserProfile> {
+  async refresh(): Promise<void> {
+    if (this.tokens === null) throw new Error('refresh senza sessione');
+    const res = await this.request('POST', '/auth/refresh', encodeRefresh(this.tokens.refreshToken));
+    if (!res.ok) throw new Error(`refresh: ${JSON.stringify(res.error)}`);
+    this.tokens = this.unwrap('refresh', normalizeTokenPair(res.data));
+  }
+
+  async me(): Promise<UserAccount> {
     const res = await this.request('GET', '/me');
-    const profile = normalizeUserProfile(res.json);
-    if (!profile.ok) throw new Error(`/me: ${profile.issues.join('; ')}`);
-    this.warnings.push(...profile.warnings);
-    this.profile = profile.value;
-    return profile.value;
+    if (!res.ok) throw new Error(`/me: ${JSON.stringify(res.error)}`);
+    return this.unwrap('/me', normalizeAccount(res.data));
   }
 
-  async get(path: string) {
-    return this.request('GET', path);
+  async profile(id: string): Promise<PublicProfile> {
+    const res = await this.request('GET', `/users/${id}`);
+    if (!res.ok) throw new Error(`/users: ${JSON.stringify(res.error)}`);
+    return this.unwrap('/users', normalizePublicProfile(res.data));
   }
 
-  async catalog(): Promise<readonly Spell[]> {
+  async games(id: string): Promise<readonly GameHistoryEntry[]> {
+    const res = await this.request('GET', `/users/${id}/games`);
+    if (!res.ok) throw new Error(`/games: ${JSON.stringify(res.error)}`);
+    return this.unwrap('/games', normalizeGameHistory(res.data));
+  }
+
+  /** `/spells` se esiste (contratto `proposed`), altrimenti il fallback (ASSUMPTIONS G10). */
+  async catalog(): Promise<{ spells: readonly Spell[]; source: 'server' | 'fallback' }> {
     const res = await this.request('GET', '/spells');
-    const catalog = normalizeSpellCatalog(res.json);
-    this.warnings.push(...catalog.warnings);
-    return catalog.spells;
+    const normalized = normalizeSpellCatalog(res.ok ? res.data : fallbackCatalog);
+    this.warnings.push(...normalized.warnings);
+    return { spells: normalized.spells, source: res.ok ? 'server' : 'fallback' };
   }
 
   async connect(scenario?: string): Promise<void> {
-    const res = await this.request('GET', '/ws/ticket');
-    const ticket = normalizeWsTicket(res.json);
-    if (!ticket.ok) throw new Error(`/ws/ticket: ${res.status}`);
-    await this.pacer.ws();
-    const url = new URL(this.wsUrl);
-    url.searchParams.set('ticket', ticket.value.ticket);
+    if (this.tokens === null) throw new Error('connect senza sessione');
+    const url = new URL(buildSocketUrl(this.wsUrl, this.tokens.accessToken));
     if (scenario !== undefined) url.searchParams.set('scenario', scenario);
-
     const ws = new WebSocket(url);
     this.ws = ws;
     ws.on('message', (data) => this.onFrame(data.toString()));
+    ws.on('close', () => {
+      this.connected = false;
+      this.notify();
+    });
     await new Promise<void>((resolve, reject) => {
       ws.once('open', () => resolve());
       ws.once('error', reject);
       ws.once('unexpected-response', (_req, response) => reject(new Error(`upgrade rifiutato: ${response.statusCode}`)));
     });
+    this.connected = true;
   }
 
+  /** Chiude del tutto il socket prima di restituire (necessario per non incappare in B2). */
   async disconnect(): Promise<void> {
     const ws = this.ws;
-    if (ws === null) return;
     this.ws = null;
+    if (ws === null || ws.readyState === ws.CLOSED) return;
     await new Promise<void>((resolve) => {
       ws.once('close', () => resolve());
       ws.close();
     });
   }
 
+  /**
+   * Invia rispettando il limite del server di 5 messaggi/s (`handlers/ws.go:36`): oltre, il messaggio viene
+   * scartato con un `error`. Restituisce l'indice da cui attendere la risposta.
+   */
   send(intent: ClientIntent): number {
     if (this.ws === null) throw new Error('socket non connesso');
-    this.ws.send(encodeClientIntent(intent));
+    const ws = this.ws;
+    const now = Date.now();
+    const at = Math.max(now, this.nextSendAt);
+    this.nextSendAt = at + 220;
+    const frame = encodeClientIntent(intent);
+    if (at === now) ws.send(frame);
+    else setTimeout(() => ws.readyState === ws.OPEN && ws.send(frame), at - now);
     return this.events.length;
   }
+
+  private nextSendAt = 0;
 
   private onFrame(raw: string): void {
     let result;
@@ -172,39 +203,43 @@ export class E2EClient {
       this.apply(result.event);
       this.events.push(result.event);
     }
+    this.notify();
+  }
+
+  private notify(): void {
     for (const listener of [...this.listeners]) listener();
   }
 
   private apply(event: ServerEvent): void {
+    // Dopo il primo game_over gli eventi di partita si ignorano (B1, B4).
+    if (this.gameOver !== null && event.type !== 'game_over') return;
     switch (event.type) {
-      case 'game_start':
-        this.hand = [...(event.snapshot.hand ?? [])];
-        this.phase = event.snapshot.phase;
-        this.activePlayer = event.snapshot.activePlayer;
-        this.fen = event.snapshot.fen;
-        this.mana = { ...(event.snapshot.mana ?? {}) };
-        break;
       case 'game_state':
-        this.fen = event.fen;
+        this.state = event.state;
+        this.phase = event.state.phase;
+        this.activePlayer = event.state.activePlayer;
+        if (event.state.players !== null && this.account !== null) {
+          this.color = event.state.players.white.username === this.account.username ? 'white' : 'black';
+        }
+        break;
+      case 'hand':
+        this.hand = [...event.hand.cards];
+        break;
+      case 'card_drawn':
+        this.hand.push(event.card);
         break;
       case 'phase_changed':
         this.phase = event.phase;
         this.activePlayer = event.activePlayer;
         break;
-      case 'card_drawn':
-        this.hand.push(event.card);
-        break;
       case 'spell_cast':
-        if (event.player === this.username) {
+        if (event.player === this.color) {
           const index = this.hand.findIndex((c) => c.spellId === event.spellId);
           if (index >= 0) this.hand.splice(index, 1);
         }
         break;
-      case 'mana_changed':
-        this.mana[event.player] = event.mana;
-        break;
       case 'game_over':
-        this.gameOver = event;
+        this.gameOver ??= event;
         break;
       default:
         break;
@@ -212,22 +247,60 @@ export class E2EClient {
   }
 
   get isMyTurn(): boolean {
-    return this.activePlayer === this.username;
+    return this.color !== null && this.activePlayer === this.color;
   }
 
-  get myMana(): ManaState {
-    return this.mana[this.username] ?? { current: 0, max: 0 };
+  /** Mana attuale del giocatore, dall'ultimo `mana_changed` o `game_state`. */
+  get myMana(): number {
+    for (let i = this.events.length - 1; i >= 0; i--) {
+      const e = this.events[i];
+      if (e?.type === 'mana_changed' && e.player === this.color) return e.mana.current;
+      if (e?.type === 'game_state' && this.color !== null) return e.state.mana[this.color].current;
+    }
+    return 0;
   }
 
-  /** Attende che il predicato sullo stato diventi vero (o la fine partita, se `orGameOver`). */
+  /** Prima mossa legale non tentata e non bloccata da un congelamento (lo stato degli effetti arriva dal server). */
+  pickMove(avoid: ReadonlySet<string>): string | null {
+    if (this.state === null) return null;
+    const frozen = new Set<Square>(
+      this.state.activeEffects.filter((s) => s.effects.some((e) => e.kind === 'freeze')).map((s) => s.square),
+    );
+    const move = new Chess(this.state.fen, { skipValidation: true })
+      .moves({ verbose: true })
+      .find((m) => !avoid.has(m.lan) && !frozen.has(m.from as Square));
+    return move?.lan ?? null;
+  }
+
   until(predicate: () => boolean, label: string, timeoutMs = 15_000): Promise<void> {
-    return this.waitFor(() => predicate(), label, timeoutMs);
+    if (predicate()) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.listeners.delete(listener);
+        const recent = this.events
+          .filter((e) => e.type !== 'timer_update')
+          .slice(-12)
+          .map((e) => (e.type === 'error' ? `error(${String(e.error.code)})` : e.type === 'phase_changed' ? `phase(${e.phase},${e.activePlayer})` : e.type))
+          .join(' ');
+        reject(
+          new Error(
+            `${this.username}: timeout in attesa di "${label}" — fase ${String(this.phase)}, attivo ${String(this.activePlayer)}, colore ${String(this.color)}, ultimi eventi: ${recent}`,
+          ),
+        );
+      }, timeoutMs);
+      const listener = () => {
+        if (!predicate()) return;
+        clearTimeout(timer);
+        this.listeners.delete(listener);
+        resolve();
+      };
+      this.listeners.add(listener);
+    });
   }
 
-  /** Attende un evento arrivato dopo l'indice `from` che soddisfa il predicato. */
   async event<T extends ServerEvent>(from: number, predicate: (e: ServerEvent) => e is T, label: string, timeoutMs = 15_000): Promise<T> {
     let found: T | undefined;
-    await this.waitFor(
+    await this.until(
       () => {
         found = this.events.slice(from).find(predicate);
         return found !== undefined;
@@ -237,23 +310,6 @@ export class E2EClient {
     );
     if (found === undefined) throw new Error(label);
     return found;
-  }
-
-  private waitFor(check: () => boolean, label: string, timeoutMs: number): Promise<void> {
-    if (check()) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.listeners.delete(listener);
-        reject(new Error(`${this.username}: timeout in attesa di "${label}"`));
-      }, timeoutMs);
-      const listener = () => {
-        if (!check()) return;
-        clearTimeout(timer);
-        this.listeners.delete(listener);
-        resolve();
-      };
-      this.listeners.add(listener);
-    });
   }
 }
 
