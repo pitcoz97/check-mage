@@ -34,7 +34,7 @@ func Leaderboard(w http.ResponseWriter, r *http.Request) {
 		Elo      int    `json:"elo"`
 	}
 
-	var entries []LeaderboardEntry
+	entries := make([]LeaderboardEntry, 0) // [] e non null se vuota
 	rank := 1
 	for rows.Next() {
 		var e LeaderboardEntry
@@ -94,7 +94,7 @@ func GameHistory(w http.ResponseWriter, r *http.Request) {
 		PlayedAt    string `json:"played_at"`
 	}
 
-	var games []GameEntry
+	games := make([]GameEntry, 0) // [] e non null se vuota
 	for rows.Next() {
 		var g GameEntry
 		rows.Scan(&g.ID, &g.White, &g.Black, &g.Result, &g.TimeControl, &g.PGN, &g.PlayedAt)

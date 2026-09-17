@@ -72,3 +72,16 @@ func TestHandIndex(t *testing.T) {
 		t.Errorf("HandIndex(nova) = %d, atteso -1", got)
 	}
 }
+
+func TestList_SortedAndComplete(t *testing.T) {
+	list := List()
+	if len(list) != len(Catalog) {
+		t.Fatalf("List() = %d magie, attese %d", len(list), len(Catalog))
+	}
+	for i := 1; i < len(list); i++ {
+		a, b := list[i-1], list[i]
+		if a.ManaCost > b.ManaCost || (a.ManaCost == b.ManaCost && a.ID > b.ID) {
+			t.Errorf("ordine errato: %s (%d) prima di %s (%d)", a.ID, a.ManaCost, b.ID, b.ManaCost)
+		}
+	}
+}

@@ -9,6 +9,7 @@ package spells
 
 import (
 	"math/rand"
+	"sort"
 
 	"chess-server/internal/phase"
 )
@@ -164,4 +165,20 @@ func (ps *PlayerState) HandIndex(spellID string) int {
 		}
 	}
 	return -1
+}
+
+// List restituisce il catalogo come lista ordinata per costo e poi per id
+// (ordine stabile per GET /spells).
+func List() []Spell {
+	out := make([]Spell, 0, len(Catalog))
+	for _, s := range Catalog {
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ManaCost != out[j].ManaCost {
+			return out[i].ManaCost < out[j].ManaCost
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
 }
