@@ -1,159 +1,223 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 
-import type { JwtService } from '../auth/jwt';
-import type { TicketStore } from '../auth/tickets';
+import type { JwtClaims, JwtService } from '../auth/jwt';
 import type { MockConfig } from '../config';
-import { publicUser, userProfile, validatePassword, validateUsername, type User, type UserStore } from '../store/users';
-import { createRateLimiter } from './rateLimit';
+import { HTTP, type ServerText } from '../serverTexts';
+import { validateRegister, type User, type UserStore } from '../store/users';
+import { clientKey, createRateLimiter } from './rateLimit';
+
+/**
+ * Porting di `api/router.go` e degli handler REST di chess-server.
+ * Inviluppo `{success, data?, error?}` (`models/response.go:5-9`).
+ */
 
 export interface RestDeps {
   readonly config: MockConfig;
   readonly users: UserStore;
   readonly jwt: JwtService;
-  readonly tickets: TicketStore;
   readonly catalog: unknown;
 }
 
-type AuthedRequest = Request & { user?: User };
+type AuthedRequest = Request & { claims?: JwtClaims };
 
-function clientIp(req: Request): string {
-  return req.socket.remoteAddress ?? 'unknown';
+function keyOf(req: Request): string {
+  return clientKey(req.headers, req.socket.remoteAddress, req.socket.remotePort);
 }
 
-function fail(res: Response, status: number, error: string): void {
-  res.status(status).json({ error });
+function ok(res: Response, data: unknown, status = 200): void {
+  // `omitempty` su un'interfaccia che contiene una slice nil produce `"data": null` (B8).
+  res.status(status).json({ success: true, data });
 }
 
-export function createRestApp(deps: RestDeps) {
-  const { config, users, jwt, tickets } = deps;
+function fail(res: Response, status: number, text: ServerText): void {
+  res.status(status).json({ success: false, error: text.message });
+}
+
+/** `User` serializzato come `models/user.go:4-11` (`created_at` omesso se vuoto). */
+function userJson(user: User, fields: { email: boolean; createdAt: boolean }) {
+  return {
+    id: user.id,
+    username: user.username,
+    ...(fields.email ? { email: user.email } : {}),
+    elo: user.elo,
+    ...(fields.createdAt ? { created_at: user.createdAt } : {}),
+  };
+}
+
+/**
+ * Controlli condivisi con l'upgrade WebSocket, che in Node non attraversa i middleware express.
+ * In Go la catena di `/ws` è: limiter generale → Auth → limiter ws (`api/router.go:27,46,51`).
+ */
+export interface RequestGate {
+  allow(bucket: 'general' | 'auth' | 'ws', key: string): boolean;
+  /** `middleware/auth.go:21-63`: header Bearer, altrimenti `?token=`. Nessun controllo su `type` (B3). */
+  authenticate(authorization: string | undefined, queryToken: string | null): JwtClaims | ServerText;
+}
+
+export function createRequestGate(config: MockConfig, jwt: JwtService): RequestGate {
+  const limits = config.rateLimits;
+  const limiters =
+    limits === false
+      ? null
+      : { general: createRateLimiter(limits.general), auth: createRateLimiter(limits.auth), ws: createRateLimiter(limits.ws) };
+  return {
+    allow: (bucket, key) => limiters === null || limiters[bucket].allow(key),
+    authenticate(authorization, queryToken) {
+      let token: string | null = null;
+      if (authorization?.startsWith('Bearer ') === true) token = authorization.slice('Bearer '.length);
+      else if (queryToken !== null && queryToken !== '') token = queryToken;
+      if (token === null) return HTTP.tokenMissing;
+      return jwt.verify(token) ?? HTTP.tokenInvalid;
+    },
+  };
+}
+
+export function createRestApp(deps: RestDeps, gate: RequestGate) {
+  const { config, users, jwt } = deps;
   const app = express();
   app.disable('x-powered-by');
+  app.disable('etag');
 
-  // --- CORS (P0-2) ---------------------------------------------------------------------------------
+  // --- CORS: go-chi/cors con AllowedOrigins `http://*`, `https://*` (`api/router.go:18-26`) ---------
   app.use((req, res, next) => {
     const origin = req.headers.origin;
-    if (origin !== undefined && config.corsOrigins.includes(origin)) {
+    const allowed = origin !== undefined && /^https?:\/\/.+/.test(origin);
+    if (allowed) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     }
-    if (req.method === 'OPTIONS') {
-      res.status(204).end();
+    if (req.method === 'OPTIONS' && req.headers['access-control-request-method'] !== undefined) {
+      if (allowed) {
+        res.setHeader('Access-Control-Allow-Methods', req.headers['access-control-request-method']);
+        res.setHeader('Access-Control-Allow-Headers', 'Accept, Authorization, Content-Type');
+        res.setHeader('Access-Control-Max-Age', '300');
+      }
+      res.status(200).end();
       return;
     }
     next();
   });
 
-  // --- Rate limit per IP -----------------------------------------------------------------------------
-  if (config.rateLimits !== false) {
-    const general = createRateLimiter(config.rateLimits.general);
-    const auth = createRateLimiter(config.rateLimits.auth);
-    app.use((req, res, next) => {
-      const limiter = req.path.startsWith('/auth/') ? auth : general;
-      if (!limiter.take(clientIp(req))) {
-        fail(res, 429, 'rate_limited');
-        return;
-      }
-      next();
-    });
-  }
-
-  app.use(express.json({ limit: '32kb' }));
+  // --- Rate limit generale su tutte le rotte (`api/router.go:27`) ---------------------------------
+  const limiter = (bucket: 'general' | 'auth') => (req: Request, res: Response, next: NextFunction) => {
+    if (!gate.allow(bucket, keyOf(req))) return fail(res, 429, HTTP.tooManyRequests);
+    next();
+  };
+  app.use(limiter('general'));
 
   function requireAuth(req: AuthedRequest, res: Response, next: NextFunction): void {
-    const header = req.headers.authorization;
-    const token = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : null;
-    const claims = token === null ? null : jwt.verify(token);
-    const user = claims === null ? undefined : users.findById(Number(claims.sub));
-    if (user === undefined) {
-      fail(res, 401, 'unauthorized');
-      return;
-    }
-    req.user = user;
+    const queryToken = typeof req.query['token'] === 'string' ? req.query['token'] : null;
+    const outcome = gate.authenticate(req.headers.authorization, queryToken);
+    if ('message' in outcome) return fail(res, 401, outcome);
+    req.claims = outcome;
     next();
   }
 
-  function authedUser(req: AuthedRequest): User {
-    if (req.user === undefined) throw new Error('requireAuth mancante');
-    return req.user;
-  }
-
-  // --- Pubblici --------------------------------------------------------------------------------------
-  app.get('/status', (_req, res) => {
-    res.json({ status: 'ok' });
-  });
-
-  app.post('/auth/register', (req, res) => {
-    const body: unknown = req.body;
-    const { username, password } = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
-    if (!validateUsername(username)) return fail(res, 400, 'invalid_username');
-    if (!validatePassword(password)) return fail(res, 400, 'invalid_password');
-    if (users.findByUsername(username) !== undefined) return fail(res, 409, 'username_taken');
-    const user = users.create(username, password);
-    res.status(201).json(publicUser(user));
-  });
-
-  app.post('/auth/login', (req, res) => {
-    const body: unknown = req.body;
-    const { username, password } = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
-    const user = typeof username === 'string' ? users.findByUsername(username) : undefined;
-    if (user === undefined || typeof password !== 'string' || !users.checkPassword(user, password)) {
-      return fail(res, 401, 'invalid_credentials');
+  /** Il body JSON si decodifica a mano per replicare `json.NewDecoder(r.Body).Decode`. */
+  const readJson = express.text({ type: () => true, limit: '64kb' });
+  function decodeBody(req: Request): Record<string, unknown> | null {
+    const raw: unknown = req.body;
+    if (typeof raw !== 'string') return null;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+    } catch {
+      return null;
     }
-    res.json({ token: jwt.issue(String(user.id), user.username), user: publicUser(user) });
+  }
+  const str = (value: unknown) => (typeof value === 'string' ? value : '');
+
+  // --- Pubbliche -----------------------------------------------------------------------------------
+  app.get('/status', (_req, res) => ok(res, { status: 'ok', version: '0.1.0' })); // handlers/status.go
+
+  // handlers/auth.go:18-87
+  app.post('/auth/register', limiter('auth'), readJson, (req, res) => {
+    const body = decodeBody(req);
+    if (body === null) return fail(res, 400, HTTP.invalidBody);
+    const [username, email, password] = [str(body['username']), str(body['email']), str(body['password'])];
+    if (username === '' || email === '' || password === '') return fail(res, 400, HTTP.missingFields);
+    const invalid = validateRegister(username, email, password);
+    if (invalid !== null) return fail(res, 400, invalid);
+    const user = users.insert(username, email, password);
+    if (user === null) return fail(res, 409, HTTP.taken);
+    ok(res, { user_id: user.id });
+  });
+
+  // handlers/auth.go:90-159
+  app.post('/auth/login', limiter('auth'), readJson, (req, res) => {
+    const body = decodeBody(req);
+    if (body === null) return fail(res, 400, HTTP.invalidBody);
+    const user = users.findByEmail(str(body['email']));
+    if (user === undefined || !users.checkPassword(user, str(body['password']))) return fail(res, 401, HTTP.badCredentials);
+    ok(res, {
+      tokens: { access_token: jwt.issueAccess(user.id, user.username), refresh_token: jwt.issueRefresh(user.id) },
+      user: userJson(user, { email: true, createdAt: false }),
+    });
   });
 
   app.get('/leaderboard', (_req, res) => {
-    res.json(users.leaderboard(10).map(publicUser));
+    const top = users.leaderboard();
+    ok(res, top.length === 0 ? null : top.map((u, i) => ({ rank: i + 1, id: u.id, username: u.username, elo: u.elo })));
   });
 
-  // G10: nel mock l'endpoint esiste. Il fallback su 404 si prova staccandolo.
-  app.get('/spells', (_req, res) => {
-    res.json(deps.catalog);
+  // handlers/stats.go:111-161 (pubblica)
+  app.get('/users/:id', (req, res) => {
+    const id = Number(req.params['id']);
+    if (!Number.isInteger(id)) return fail(res, 400, HTTP.invalidId);
+    const user = users.findById(id);
+    if (user === undefined) return fail(res, 404, HTTP.userNotFound);
+    const s = users.statsOf(id);
+    ok(res, { user: userJson(user, { email: false, createdAt: true }), stats: { ...s, total: s.wins + s.losses + s.draws } });
   });
 
-  // --- Protetti --------------------------------------------------------------------------------------
+  // handlers/auth.go:187-269 (niente limiter auth: B12)
+  app.post('/auth/refresh', readJson, (req, res) => {
+    const body = decodeBody(req);
+    if (body === null) return fail(res, 400, HTTP.invalidBody);
+    const claims = jwt.verify(str(body['refresh_token']));
+    if (claims === null) return fail(res, 401, HTTP.refreshInvalid);
+    if (claims.type !== 'refresh') return fail(res, 401, HTTP.notRefreshToken);
+    const user = users.findById(claims.user_id);
+    if (user === undefined) return fail(res, 401, HTTP.userNotFound);
+    ok(res, { access_token: jwt.issueAccess(user.id, user.username), refresh_token: jwt.issueRefresh(user.id) });
+  });
+
+  // P1-1: esiste solo nel contratto `proposed`.
+  if (config.contract === 'proposed') app.get('/spells', (_req, res) => ok(res, deps.catalog));
+
+  // --- Protette ------------------------------------------------------------------------------------
+  // handlers/auth.go:272-296
   app.get('/me', requireAuth, (req: AuthedRequest, res) => {
-    res.json(userProfile(authedUser(req)));
+    const user = req.claims === undefined ? undefined : users.findById(req.claims.user_id);
+    if (user === undefined) return fail(res, 500, HTTP.profileError);
+    ok(res, userJson(user, { email: true, createdAt: true }));
   });
 
-  app.get('/users/:id', requireAuth, (req: AuthedRequest, res) => {
-    const user = users.findById(Number(req.params['id']));
-    if (user === undefined) return fail(res, 404, 'not_found');
-    res.json(userProfile(user));
-  });
-
-  app.get('/users/:id/games', requireAuth, (req: AuthedRequest, res) => {
-    const user = users.findById(Number(req.params['id']));
-    if (user === undefined) return fail(res, 404, 'not_found');
-    res.json(
-      users.gamesOf(user.id).map(({ id, room_id, white, black, result, reason, ended_at }) => ({
-        id,
-        room_id,
-        white,
-        black,
-        result,
-        reason,
-        ended_at,
-      })),
+  // handlers/stats.go:54-108
+  app.get('/users/:id/games', requireAuth, (req, res) => {
+    const id = Number(req.params['id']);
+    if (!Number.isInteger(id)) return fail(res, 400, HTTP.invalidId);
+    const rows = users.gamesOf(id);
+    const name = (userId: number) => users.findById(userId)?.username ?? '';
+    ok(
+      res,
+      rows.length === 0
+        ? null
+        : rows.map((g) => ({
+            id: g.id,
+            white: name(g.whiteId),
+            black: name(g.blackId),
+            result: g.result,
+            time_control: g.timeControl,
+            pgn: g.pgn,
+            played_at: g.playedAt,
+          })),
     );
   });
 
-  // P0-1: ticket monouso per l'upgrade WebSocket.
-  app.get('/ws/ticket', requireAuth, (req: AuthedRequest, res) => {
-    res.json({ ticket: tickets.issue(String(authedUser(req).id)), expires_in: tickets.ttlSeconds });
-  });
-
-  // --- Fallback ------------------------------------------------------------------------------------
+  // --- Default di chi: 404 in testo semplice (B12) -------------------------------------------------
   app.use((_req, res) => {
-    fail(res, 404, 'not_found');
-  });
-
-  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    const status =
-      typeof err === 'object' && err !== null && 'status' in err && typeof err.status === 'number' ? err.status : 500;
-    fail(res, status, status === 400 ? 'invalid_body' : 'internal_error');
+    res.status(404).type('text/plain').send('404 page not found\n');
   });
 
   return app;

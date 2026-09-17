@@ -1,14 +1,14 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /**
- * JWT HS256 minimale. Il secret è casuale a ogni avvio del processo: nessun segreto nel repo, e i token
- * di una sessione precedente del mock risultano non validi (utile per provare il 401 → logout).
+ * JWT HS256 con le stesse claims di chess-server (`handlers/auth.go:162-184`).
+ * Il secret è casuale a ogni avvio del mock: nessun segreto nel repo.
  */
 
 export interface JwtClaims {
-  sub: string;
-  username: string;
-  iat: number;
+  user_id: number;
+  username?: string;
+  type: 'access' | 'refresh';
   exp: number;
 }
 
@@ -16,23 +16,32 @@ function base64url(input: Buffer | string): string {
   return Buffer.from(input).toString('base64url');
 }
 
-export function createJwtService(ttlSeconds: number, now: () => number = Date.now) {
+export function createJwtService(
+  ttl: { accessSeconds: number; refreshSeconds: number },
+  now: () => number = Date.now,
+) {
   const secret = randomBytes(32);
   const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-
-  function sign(data: string): string {
-    return createHmac('sha256', secret).update(data).digest('base64url');
-  }
+  const sign = (data: string) => createHmac('sha256', secret).update(data).digest('base64url');
+  const issue = (claims: JwtClaims) => {
+    const body = `${header}.${base64url(JSON.stringify(claims))}`;
+    return `${body}.${sign(body)}`;
+  };
+  const expiry = (seconds: number) => Math.floor(now() / 1000) + seconds;
 
   return {
-    issue(userId: string, username: string): string {
-      const iat = Math.floor(now() / 1000);
-      const claims: JwtClaims = { sub: userId, username, iat, exp: iat + ttlSeconds };
-      const body = `${header}.${base64url(JSON.stringify(claims))}`;
-      return `${body}.${sign(body)}`;
+    issueAccess(userId: number, username: string): string {
+      return issue({ user_id: userId, username, type: 'access', exp: expiry(ttl.accessSeconds) });
     },
 
-    /** Restituisce le claims se il token è integro e non scaduto, altrimenti `null`. */
+    issueRefresh(userId: number): string {
+      return issue({ user_id: userId, type: 'refresh', exp: expiry(ttl.refreshSeconds) });
+    },
+
+    /**
+     * Firma + scadenza, come `jwt.Parse` del server. **Non** controlla `type`: lo fa solo `/auth/refresh`
+     * (`handlers/auth.go:218`); il middleware accetta anche un refresh token (B3, replicato).
+     */
     verify(token: string): JwtClaims | null {
       const parts = token.split('.');
       if (parts.length !== 3) return null;
@@ -42,11 +51,14 @@ export function createJwtService(ttlSeconds: number, now: () => number = Date.no
       if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null;
       try {
         const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Partial<JwtClaims>;
-        if (typeof claims.sub !== 'string' || typeof claims.username !== 'string' || typeof claims.exp !== 'number') {
-          return null;
-        }
+        if (typeof claims.user_id !== 'number' || typeof claims.exp !== 'number') return null;
         if (claims.exp * 1000 <= now()) return null;
-        return { sub: claims.sub, username: claims.username, iat: claims.iat ?? 0, exp: claims.exp };
+        return {
+          user_id: claims.user_id,
+          type: claims.type === 'refresh' ? 'refresh' : 'access',
+          exp: claims.exp,
+          ...(typeof claims.username === 'string' ? { username: claims.username } : {}),
+        };
       } catch {
         return null;
       }

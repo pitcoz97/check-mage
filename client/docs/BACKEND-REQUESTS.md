@@ -123,6 +123,13 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
 - **Perché:** le rotte inesistenti rispondono `404 page not found` in testo semplice invece dell'inviluppo JSON
   (`api/router.go`). `POST /auth/refresh` non ha il limiter delle rotte auth (`api/router.go:42`).
 
+### B15 — Il rate limit per IP in realtà vale per connessione
+- **Stato:** aperta · **Priorità:** P1 (protezione dal brute force inefficace)
+- **Perché:** `getIP` (`middleware/ratelimit.go:96-105`) restituisce `r.RemoteAddr`, che in Go è `ip:porta`.
+  Ogni nuova connessione TCP ha quindi un limiter nuovo: il limite auth 3/s si aggira aprendo connessioni.
+- **Fix proposto:** `net.SplitHostPort(r.RemoteAddr)` e usare solo l'host; fidarsi di `X-Forwarded-For` solo dietro un proxy noto.
+- **Nel mock:** replicato (chiave `indirizzo:porta`).
+
 ### P0-1 → P1-8 — Ticket monouso per il WebSocket
 - **Stato:** aperta · **Priorità:** P1 (declassata: oggi `?token=` funziona, `middleware/auth.go:30`)
 - **Perché:** con `?token=` il JWT finisce nei log di accesso (`api/router.go:16`, `middleware.Logger`) e nella
