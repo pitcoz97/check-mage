@@ -1083,6 +1083,7 @@ func (r *Room) Leave(client *Client) {
 				zap.String("room", r.ID),
 				zap.String("player", client.Username),
 			)
+			r.broadcastState()
 		}
 		r.announceEnd(end)
 	})
@@ -1314,6 +1315,7 @@ func (r *Room) runTimer() {
 
 			if end != nil {
 				r.broadcastTimers()
+				r.broadcastState()
 				r.announceEnd(end)
 				return
 			}
