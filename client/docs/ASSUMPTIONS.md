@@ -97,6 +97,8 @@ Oltre il limite: 429 "Troppe richieste, rallenta!".
 | C3 | `GET /spells`, se aggiunto, serializzerà `spells.Catalog` con i tag JSON di `spells/spells.go:60-73`. | È la forma più probabile; contratto `proposed`. | `adapter.ts` §7 | P1-1 |
 | C4 | I testi d'errore restano quelli di commit `7f817e5`. Un testo nuovo o cambiato diventa `code: null` e la UI mostra un messaggio generico legato all'azione in volo. | Il server non espone codici. | `adapter.ts` §3b/§5; controllo incrociato in `tests/error-texts.test.ts` | P1-3 |
 | C5 | Gli id d'istanza locali delle carte si riallineano a ogni `hand` confrontando i multinsiemi di `spell_id`. | Il server manda solo id di magia. | reducer (Step 3) | — |
+| C7 | Sul web access e refresh token sono salvati in `localStorage` (via `src/lib/storage.ts`), perché la sessione deve sopravvivere alla chiusura della tab (§11 Step 2). Un XSS potrebbe leggerli: mitigazioni = nessuno script di terze parti, CSP allo Step 6. Su mobile passeranno a `@capacitor/preferences`. Il server non espone un logout: il client scarta i token. | Il server consegna i token nel body JSON (`handlers/auth.go:149-158`), non come cookie. | `src/store/authStore.ts` | P2-11 |
+| C8 | Lo username viene inviato già ripulito dagli spazi: il server lo valida dopo il trim ma lo salva così com'è (`validation/validation.go:13`, `handlers/auth.go:66-70`). | Evita nomi utente con spazi invisibili. | `src/screens/Auth/Register.tsx` | — |
 | C6 | La legalità delle mosse nel mock usa chess.js al posto di Stockfish. Coincidono sulle posizioni legali, possono divergere su quelle rese illegali da Teleport (B5). | Stockfish non è disponibile nel mock. | `mock-server/game/rules.ts` | — |
 
 ---

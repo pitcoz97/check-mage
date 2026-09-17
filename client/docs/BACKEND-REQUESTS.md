@@ -167,6 +167,15 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
   Se cambiano sul server, il client va aggiornato a mano.
 - **Contratto proposto:** `GET /auth/password-policy`.
 
+### P2-11 — Refresh token in cookie `HttpOnly`
+- **Stato:** aperta
+- **Perché:** oggi entrambi i token arrivano nel body (`handlers/auth.go:149-158`, `262-268`), quindi il client web
+  deve conservarli in `localStorage`, esposto a un eventuale XSS (ASSUMPTIONS C7).
+- **Contratto proposto:** `POST /auth/login` e `POST /auth/refresh` impostano
+  `Set-Cookie: refresh_token=…; HttpOnly; Secure; SameSite=Strict; Path=/auth`, e `/auth/refresh` legge il cookie.
+  L'access token resta nel body e il client lo tiene solo in memoria. Serve anche un `POST /auth/logout` che cancelli
+  il cookie. Su Capacitor il body resta necessario: il cookie va affiancato, non sostituito.
+
 ---
 
 ## Chiuse
