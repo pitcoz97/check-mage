@@ -1,6 +1,7 @@
 package game
 
 import (
+	"chess-server/internal/gameerr"
 	"chess-server/internal/models"
 	"encoding/json"
 	"testing"
@@ -50,7 +51,7 @@ func TestClient_SendError(t *testing.T) {
 	}
 
 	// Invia un errore
-	client.sendError("Test error message")
+	client.sendErr(gameerr.New(gameerr.NotYourTurn, "Test error message").With("phase", "move"))
 
 	// Verifica che il messaggio sia stato inviato al canale
 	select {
@@ -64,13 +65,19 @@ func TestClient_SendError(t *testing.T) {
 			t.Errorf("Type = %v, want %v", wsMsg.Type, models.MsgError)
 		}
 
-		var payload map[string]string
+		var payload map[string]interface{}
 		if err := json.Unmarshal(wsMsg.Payload, &payload); err != nil {
 			t.Fatalf("Failed to unmarshal payload: %v", err)
 		}
 
 		if payload["message"] != "Test error message" {
 			t.Errorf("Payload.message = %v, want %v", payload["message"], "Test error message")
+		}
+		if payload["code"] != string(gameerr.NotYourTurn) {
+			t.Errorf("Payload.code = %v, want %v", payload["code"], gameerr.NotYourTurn)
+		}
+		if details, ok := payload["details"].(map[string]interface{}); !ok || details["phase"] != "move" {
+			t.Errorf("Payload.details = %v, want phase=move", payload["details"])
 		}
 	default:
 		t.Error("Messaggio di errore non ricevuto dal canale")

@@ -23,6 +23,9 @@ const (
 	MsgDrawOffer            = "draw_offer"
 	MsgDrawAccepted         = "draw_accepted"
 	MsgDrawDeclined         = "draw_declined"
+	MsgDrawOfferSent        = "draw_offer_sent"
+	MsgOpponentReconnected  = "opponent_reconnected"
+	MsgTimerUpdate          = "timer_update"
 	MsgResign               = "resign"
 
 	// Fasi del turno (scacchi + magie)
