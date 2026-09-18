@@ -64,7 +64,8 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
 
 ## Applicate in `fix/backend-requests`
 
-Da verificare a runtime allo Step 7: il server le ha testate senza Stockfish né PostgreSQL.
+Da verificare a runtime allo Step 7: il server le ha testate senza Stockfish né PostgreSQL. Dallo Step 2-bis il mock
+le replica tutte (`mock-server/`, test in `room.test.ts`, `rest.test.ts` e nell'e2e).
 
 | Id | Voce | Cosa fa ora il server | Rif. |
 |---|---|---|---|

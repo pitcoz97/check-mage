@@ -7,9 +7,8 @@ Registro di ciò che il client assume sul server Go.
 `internal/`; dove è indicato `7f817e5` si riferiscono al codice precedente. Il server qui non è eseguibile: la verifica
 a runtime resta allo Step 7.
 
-> **Stato del client.** Adapter, mock e test implementano ancora il contratto di `7f817e5`. Il riallineamento al
-> contratto di §2 è lo **Step 2-bis** (vedi `PROGRESS.md`). Fino ad allora questa pagina descrive il bersaglio, non il
-> codice attuale.
+> **Stato del client.** Dallo Step 2-bis adapter, mock e test implementano il contratto di §2 e le regole di §5.
+> Il mock non replica più il contratto di `7f817e5`.
 
 **Stati:**
 - `verificata sul codice`;
@@ -114,15 +113,15 @@ coda (`game/manager.go:52`).
 
 | Id | Assunzione | Motivo | Dove vive | Richiesta |
 |---|---|---|---|---|
-| C1 | ~~Il colore arriverà in `white_player`/`black_player`~~ **Risolta** (`game/room.go:1365`). Resta da verificare a runtime; se i campi mancano l'adapter continua a produrre `players: null` con warning, senza dedurre il colore. | P0-5 applicata. | `adapter.ts` §3 | — |
-| C2 | ~~`code` prevale sulla tabella dei testi~~ **Risolta per il WebSocket**: si usa `code`; la tabella dei testi WS resta solo come riserva se `code` manca. | P1-3 applicata al WS. | `adapter.ts` §3b | — |
-| C3 | ~~Forma di `GET /spells`~~ **Risolta**: coincide con i tag JSON di `Spell` (`spells/spells.go:61-74`). | P1-1 applicata. | `adapter.ts` §7 | — |
+| C1 | ~~Il colore arriverà in `white_player`/`black_player`~~ **Risolta** (`game/room.go:1365`). Resta da verificare a runtime; se i campi mancano l'adapter produce `players: null` con warning, senza dedurre il colore. | P0-5 applicata. | `adapter.ts` §3 | — |
+| C2 | ~~`code` prevale sulla tabella dei testi~~ **Risolta**: si usa solo `code` (con `details`); la tabella dei testi WS è stata rimossa. Un `code` mancante o sconosciuto dà `code: null` e un warning G6. | P1-3 applicata al WS. | `adapter.ts` §3b | — |
+| C3 | ~~Forma di `GET /spells`~~ **Risolta**: coincide con i tag JSON di `Spell` (`spells/spells.go:61-74`). `endpoints.ts` → `fetchSpellCatalog`. | P1-1 applicata. | `adapter.ts` §7 | — |
 | C4 | I testi d'errore **REST** restano quelli del branch attuale (compresi i nuovi di §2). Un testo nuovo o cambiato diventa `code: null` e la UI mostra un messaggio generico. | La REST non espone codici. | `adapter.ts` §5; `tests/error-texts.test.ts` | P1-3 (REST) |
 | C5 | Gli id d'istanza locali delle carte si riallineano a ogni `hand` confrontando i multinsiemi di `spell_id`. | Il server manda solo id di magia. | reducer (Step 3) | — |
 | C6 | La legalità delle mosse nel mock usa chess.js al posto di Stockfish. Ora che le magie non creano più posizioni illegali (B5), le due fonti coincidono. | Stockfish non è disponibile nel mock. | `mock-server/game/engine.ts` | — |
 | C7 | Sul web access e refresh token sono salvati in `localStorage` (via `src/lib/storage.ts`), perché la sessione deve sopravvivere alla chiusura della tab. Un XSS potrebbe leggerli: mitigazioni = nessuno script di terze parti, CSP allo Step 6. Su mobile passeranno a `@capacitor/preferences`. Il server non espone un logout: il client scarta i token. | I token arrivano nel body JSON. | `src/store/authStore.ts` | P2-11 (sospesa) |
 | C8 | Lo username viene inviato già ripulito dagli spazi: il server lo valida dopo il trim ma lo salva così com'è (`validation/validation.go:62`). | Evita nomi utente con spazi invisibili. | `src/screens/Auth/Register.tsx` | — |
-| C9 | `password-policy.username.pattern` è una regex RE2 di Go; il client la compila come `RegExp` JS. Se non compila, o se l'endpoint non risponde, si usa la policy di riserva in `adapter.ts` (quella attuale). La regola dell'email non è nella policy e resta replicata nel client. | RE2 e JS coincidono solo sulle regex semplici; la policy non copre l'email. | `adapter.ts` §5 | — |
+| C9 | `password-policy.username.pattern` è una regex RE2 di Go; il client la compila come `RegExp` JS. Se non compila (warning `password_policy_invalid`) si usa quella di riserva; se l'endpoint non risponde vale tutta `FALLBACK_CREDENTIAL_POLICY`. La regola dell'email non è nella policy e resta replicata nel client. | RE2 e JS coincidono solo sulle regex semplici; la policy non copre l'email. | `adapter.ts` §6, `Register.tsx` | — |
 | C10 | Durante una partita il client considera morta la connessione se non riceve nulla per alcuni secondi (arriva un `timer_update` al secondo), e riconnette. In coda non c'è traffico: vale solo `onclose`. Il client **non** manda ping applicativi: un `type` sconosciuto riceve `unknown_message_type` e consuma il rate limit. | Il browser non espone i ping WS; il server rileva i socket morti solo dopo 60s. | `src/ws/connection.ts` (Step 3) | — |
 
 ---
@@ -147,8 +146,7 @@ insieme a `fix/backend-requests`; le righe seguenti riguardano `SERVER_API.md` e
 ---
 
 ## 5. Regole di gioco portate nel mock
-Porting 1:1, senza scelte del mock, salvo C6. **Bersaglio dello Step 2-bis**: il mock attuale implementa ancora le
-regole di `7f817e5`.
+Porting 1:1, senza scelte del mock, salvo C6 (e gli scenari con bot, che sono un'aggiunta).
 
 | # | Regola | Rif. Go |
 |---|---|---|
