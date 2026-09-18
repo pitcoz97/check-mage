@@ -59,7 +59,7 @@ describe('MatchState (match/match.go)', () => {
         m.castSpell('white', id, targets, () => []);
         return 'ok';
       } catch (e) {
-        return e instanceof CastError ? e.text.message : String(e);
+        return e instanceof CastError ? e.error.message : String(e);
       }
     };
     expect(cast('spark')).toBe('non puoi castare magie nella fase draw');
@@ -68,6 +68,15 @@ describe('MatchState (match/match.go)', () => {
     expect(cast('fireball')).toBe('magia sconosciuta: fireball');
     expect(cast('frostbolt', ['e7'])).toBe('carta non in mano');
     expect(cast('nova')).toBe('mana insufficiente: servono 5, hai 1');
+    const rejection = (() => {
+      try {
+        m.castSpell('white', 'nova', [], () => []);
+        return null;
+      } catch (e) {
+        return e instanceof CastError ? e.error : e;
+      }
+    })();
+    expect(rejection).toEqual({ code: 'insufficient_mana', message: 'mana insufficiente: servono 5, hai 1', details: { needed: 5, available: 1 } });
     m.gainMana('white', 2);
     expect(cast('teleport', ['b1'])).toBe('la magia Teleport richiede 2 bersagli, ricevuti 1');
     expect(m.white.mana).toBe(3);
@@ -141,13 +150,18 @@ describe('Tracker (effects/tracker.go)', () => {
     expect(t.activeEffects()).toEqual([{ square: 'd2', effects: [{ kind: 'shield', remaining_turns: 1, source_spell_id: 'aegis' }] }]);
   });
 
-  it('B13/B14 replicati: Teleport del re su g1 sposta la torre, pedone in diagonale cancella un’identità', () => {
+  it('movePiece segue arrocco ed en passant; relocate no (B13, B14: effects/tracker.go:69-116)', () => {
     const t = new Tracker('4k3/8/8/8/8/8/3P4/4K2R w K - 0 1');
     const rook = t.idAt('h1');
-    t.movePiece('e1', 'g1', null);
-    expect(t.idAt('f1')).toBe(rook); // la FEN però ha ancora la torre in h1
-    const t2 = new Tracker('4k3/8/8/8/8/8/2PP4/4K3 w - - 0 1');
-    t2.movePiece('d2', 'c4', null);
-    expect(t2.idAt('c2')).toBeUndefined(); // il pedone in c2 esiste ancora nella FEN
+    t.movePiece('e1', 'g1', null); // arrocco vero: la torre segue il re
+    expect(t.idAt('f1')).toBe(rook);
+    const t2 = new Tracker('4k3/8/8/8/8/8/3P4/4K2R w K - 0 1');
+    const rook2 = t2.idAt('h1');
+    t2.relocate('e1', 'g1'); // Teleport: nessuna semantica d'arrocco
+    expect([t2.idAt('h1'), t2.idAt('f1')]).toEqual([rook2, undefined]);
+    const t3 = new Tracker('4k3/8/8/8/8/8/2PP4/4K3 w - - 0 1');
+    const pawn = t3.idAt('c2');
+    t3.relocate('d2', 'c4'); // pedone spostato in diagonale: non è un en passant
+    expect(t3.idAt('c2')).toBe(pawn);
   });
 });

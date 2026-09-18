@@ -2,8 +2,7 @@ import type { Bucket } from '../config';
 
 /**
  * Token bucket come `golang.org/x/time/rate.Limiter`: parte pieno (`burst` gettoni), si ricarica a `rate`/s.
- * La chiave è quella usata dal server: `middleware/ratelimit.go:96-105` restituisce `r.RemoteAddr`, cioè
- * `ip:porta` (BACKEND-REQUESTS B15, replicato).
+ * Una chiave per IP (`middleware/ratelimit.go:101`): tutte le connessioni dallo stesso indirizzo condividono il limite.
  */
 export function createRateLimiter(bucket: Bucket, now: () => number = Date.now) {
   const buckets = new Map<string, { tokens: number; updatedAt: number }>();
@@ -25,11 +24,64 @@ export function createRateLimiter(bucket: Bucket, now: () => number = Date.now) 
 
 export type RateLimiter = ReturnType<typeof createRateLimiter>;
 
-/** `getIP` di `middleware/ratelimit.go:96-105`: header di proxy, altrimenti `RemoteAddr` con la porta. */
-export function clientKey(headers: Record<string, string | string[] | undefined>, remoteAddress?: string, remotePort?: number): string {
+/** Node riporta gli IPv4 come IPv6 mappati (`::ffff:1.2.3.4`); `net.IP.Equal` di Go li considera uguali. */
+function normalizeIp(address: string): string {
+  return address.startsWith('::ffff:') && address.includes('.') ? address.slice('::ffff:'.length) : address;
+}
+
+function ipv4ToInt(ip: string): number | null {
+  const parts = ip.split('.');
+  if (parts.length !== 4) return null;
+  let value = 0;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const n = Number(part);
+    if (n > 255) return null;
+    value = value * 256 + n;
+  }
+  return value;
+}
+
+/** `isTrustedProxy` (`middleware/ratelimit.go:127-145`): IP singoli o CIDR (qui solo IPv4). */
+export function isTrustedProxy(address: string, trustedProxies: readonly string[]): boolean {
+  const ip = normalizeIp(address.trim());
+  for (const entry of trustedProxies) {
+    if (entry.includes('/')) {
+      const [base = '', bits = ''] = entry.split('/');
+      const ipValue = ipv4ToInt(ip);
+      const baseValue = ipv4ToInt(base);
+      const prefix = Number(bits);
+      if (ipValue === null || baseValue === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) continue;
+      const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+      if (((ipValue & mask) >>> 0) === ((baseValue & mask) >>> 0)) return true;
+    } else if (normalizeIp(entry) === ip) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * `getIP` (`middleware/ratelimit.go:101-124`): l'IP senza porta. `X-Forwarded-For` (da destra, il primo indirizzo
+ * che non è un proxy fidato) e `X-Real-IP` valgono solo se la richiesta arriva da un proxy fidato.
+ */
+export function clientKey(
+  headers: Record<string, string | string[] | undefined>,
+  remoteAddress: string | undefined,
+  trustedProxies: readonly string[],
+): string {
+  const host = normalizeIp(remoteAddress ?? 'unknown');
+  if (!isTrustedProxy(host, trustedProxies)) return host;
+
   const forwarded = headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded !== '') return forwarded;
+  if (typeof forwarded === 'string' && forwarded !== '') {
+    const parts = forwarded.split(',');
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const ip = (parts[i] ?? '').trim();
+      if (ip !== '' && !isTrustedProxy(ip, trustedProxies)) return ip;
+    }
+  }
   const realIp = headers['x-real-ip'];
-  if (typeof realIp === 'string' && realIp !== '') return realIp;
-  return `${remoteAddress ?? 'unknown'}:${remotePort ?? 0}`;
+  if (typeof realIp === 'string' && realIp.trim() !== '') return realIp.trim();
+  return host;
 }

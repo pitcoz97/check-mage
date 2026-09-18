@@ -1,6 +1,16 @@
 import { CATALOG, type Spell } from '../game/catalog';
-import { legalMoves, isInCheck } from '../game/engine';
-import { movePieceFen, parsePlacement, pieceColor, squareName, withSideToMove, type Color } from '../game/fen';
+import { legalMoves } from '../game/engine';
+import {
+  destroyPiece,
+  isKingAttacked,
+  movePieceFen,
+  opponentOf,
+  parsePlacement,
+  pieceColor,
+  sideToMove,
+  squareName,
+  type Color,
+} from '../game/fen';
 import type { GameClient, Room } from '../game/room';
 import type { WireClientType, WireServerMessage } from '../wire';
 
@@ -34,6 +44,9 @@ export class Bot {
   private over = false;
   private connected = true;
   private pending: ReturnType<typeof setTimeout> | null = null;
+  /** Magie rifiutate dal room nella fase corrente: non si ritentano, così il bot non resta bloccato. */
+  private readonly rejected = new Set<string>();
+  private lastCast: string | null = null;
 
   constructor(
     readonly userId: number,
@@ -64,6 +77,11 @@ export class Bot {
       this.over = true;
       return;
     }
+    if (message.type === 'error' && this.lastCast !== null) {
+      this.rejected.add(this.lastCast);
+      return;
+    }
+    if (message.type === 'phase_changed') this.rejected.clear();
     if (message.type === 'draw_offer' && this.behavior.declineDrawsBeforeAccepting !== undefined) {
       const accept = this.declined >= this.behavior.declineDrawsBeforeAccepting;
       if (!accept) this.declined++;
@@ -102,7 +120,9 @@ export class Bot {
       case 'main2': {
         const cast = this.behavior.castSpells === true ? this.pickCast(room) : null;
         if (cast === null) return this.send('pass_phase');
+        this.lastCast = cast.spell_id;
         this.send('cast_spell', cast);
+        this.lastCast = null;
         return this.schedule(); // un cast può lasciare la fase invariata
       }
       case 'move':
@@ -143,7 +163,7 @@ export class Bot {
     const ps = room.match.player(this.color);
     for (const id of ps.hand) {
       const spell = CATALOG.get(id);
-      if (spell === undefined || spell.mana_cost > ps.mana || !spell.phases.includes(room.match.currentPhase)) continue;
+      if (spell === undefined || this.rejected.has(id) || spell.mana_cost > ps.mana || !spell.phases.includes(room.match.currentPhase)) continue;
       const targets = this.targetsFor(room, spell);
       if (targets !== null) return { spell_id: id, targets };
     }
@@ -165,8 +185,16 @@ export class Bot {
       case 'none':
         return [];
       case 'enemy_piece': {
-        // Bersaglio senza effetti, così una Disintegrate non cancella il congelamento appena lanciato.
-        const candidate = pawnsFirst(enemy).find((p) => !room.tracker.isFrozen(p.square) && !room.tracker.hasShield(p.square));
+        // Bersaglio senza effetti, così una Disintegrate non cancella il congelamento appena lanciato; e niente
+        // posizioni che il server rifiuterebbe con `illegal_position` (`game/room.go:725-733`).
+        const legalAfterDestroy = (square: string) => {
+          if (!spell.effects.some((e) => e.kind === 'destroy_piece')) return true;
+          const next = destroyPiece(room.board.fen, square, this.color).fen;
+          return !isKingAttacked(next, opponentOf(sideToMove(next)));
+        };
+        const candidate = pawnsFirst(enemy).find(
+          (p) => !room.tracker.isFrozen(p.square) && !room.tracker.hasShield(p.square) && legalAfterDestroy(p.square),
+        );
         return candidate === undefined ? null : [candidate.square];
       }
       case 'own_piece': {
@@ -175,7 +203,7 @@ export class Bot {
       }
       case 'piece_move': {
         const occupied = new Set(pieces.map((p) => p.square));
-        // Solo pezzi non pedoni e non re, per non incappare in B13/B14.
+        // Solo pezzi non pedoni e non re: basta per lo scenario e tiene le mosse leggibili.
         for (const from of own.filter((p) => p.piece.toLowerCase() !== 'p')) {
           for (let r = 2; r <= 5; r++) {
             for (let c = 0; c < 8; c++) {
@@ -183,7 +211,8 @@ export class Bot {
               if (occupied.has(to)) continue;
               try {
                 const next = movePieceFen(room.board.fen, from.square, to, this.color);
-                if (!isInCheck(withSideToMove(next, this.color))) return [from.square, to];
+                const waiting = opponentOf(sideToMove(next));
+                if (!isKingAttacked(next, this.color) && !isKingAttacked(next, waiting)) return [from.square, to];
               } catch {
                 continue;
               }

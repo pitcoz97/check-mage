@@ -1,6 +1,6 @@
 /**
  * Modelli REST **interni**. Nessun DTO del server: la forma sul filo vive solo in `adapter.ts`.
- * Riferimenti = chess-server `internal/`.
+ * Riferimenti = chess-server `internal/`, branch `fix/backend-requests`.
  */
 
 import type { GameResult, UserId, Username } from '../game/model';
@@ -61,6 +61,28 @@ export interface GameHistoryEntry {
   readonly playedAt: string;
 }
 
+/** `GET /ws/ticket` (`handlers/ws.go:23-42`): ticket monouso per aprire il WebSocket. */
+export interface WsTicket {
+  readonly ticket: string;
+  readonly expiresInSeconds: number;
+}
+
+/**
+ * Requisiti di registrazione da mostrare prima del submit, da `GET /auth/password-policy` o dalla riserva
+ * dell'adapter. Le lunghezze della password sono in byte.
+ */
+export interface CredentialPolicy {
+  readonly username: { readonly minLength: number; readonly maxLength: number; readonly pattern: RegExp };
+  readonly email: { readonly pattern: RegExp };
+  readonly password: {
+    readonly minBytes: number;
+    readonly maxBytes: number;
+    readonly requireUppercase: boolean;
+    readonly requireLowercase: boolean;
+    readonly requireDigit: boolean;
+  };
+}
+
 export interface ServerStatus {
   readonly healthy: boolean;
   readonly version: string | null;
@@ -85,10 +107,12 @@ export const HTTP_ERROR_CODES = [
   'user_not_found',
   'token_missing',
   'token_invalid_or_expired',
+  'ticket_invalid',
   'rate_limited',
   'invalid_id',
   'internal_error',
   'not_found',
+  'method_not_allowed',
   'service_unavailable',
   // Codici generati dal client, non dal server:
   /** Server irraggiungibile (fetch fallita, timeout, offline). */

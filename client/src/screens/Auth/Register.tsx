@@ -1,13 +1,14 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 
-import type { HttpErrorCode, HttpErrorInfo } from '../../api/types';
+import { FALLBACK_CREDENTIAL_POLICY } from '../../api/adapter';
+import type { CredentialPolicy, HttpErrorCode, HttpErrorInfo } from '../../api/types';
 import type { LoginRedirectState } from '../../app/guards';
 import { Button } from '../../design/components/Button';
 import { TextField } from '../../design/components/TextField';
-import { useAuth } from '../../store/AuthProvider';
-import { allChecksPass, checkCredentials, CREDENTIAL_CHECKS } from './credentialChecks';
+import { useApi, useAuth } from '../../store/AuthProvider';
+import { allChecksPass, checkCredentials, requiredChecks, type CredentialCheck } from './credentialChecks';
 import { httpErrorMessage } from './errorMessage';
 
 type Field = 'username' | 'email' | 'password';
@@ -19,6 +20,32 @@ function fieldOf(code: HttpErrorCode | null): Field | null {
   if (code === 'email_invalid') return 'email';
   if (code.startsWith('password_')) return 'password';
   return null;
+}
+
+/** Limiti da interpolare nell'etichetta di un requisito; le etichette senza numeri li ignorano. */
+function checkParams(check: CredentialCheck, policy: CredentialPolicy): { min: number; max: number } {
+  if (check === 'usernameLength') return { min: policy.username.minLength, max: policy.username.maxLength };
+  if (check === 'passwordLength') return { min: policy.password.minBytes, max: policy.password.maxBytes };
+  return { min: 0, max: 0 };
+}
+
+/**
+ * Requisiti da `GET /auth/password-policy`: finché non arrivano (o se la chiamata fallisce) vale la riserva
+ * dell'adapter, che ha gli stessi valori del server.
+ */
+function usePasswordPolicy(): CredentialPolicy {
+  const api = useApi();
+  const [policy, setPolicy] = useState<CredentialPolicy>(FALLBACK_CREDENTIAL_POLICY);
+  useEffect(() => {
+    let active = true;
+    void api.fetchPasswordPolicy().then((result) => {
+      if (active && result.ok) setPolicy(result.value);
+    });
+    return () => {
+      active = false;
+    };
+  }, [api]);
+  return policy;
 }
 
 function RequirementIcon({ met }: { met: boolean }) {
@@ -38,6 +65,7 @@ export function Register() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const register = useAuth((s) => s.register);
+  const policy = usePasswordPolicy();
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -45,13 +73,14 @@ export function Register() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<HttpErrorInfo | null>(null);
 
-  const checks = useMemo(() => checkCredentials({ username, email, password }), [username, email, password]);
+  const checks = useMemo(() => checkCredentials(policy, { username, email, password }), [policy, username, email, password]);
+  const ready = allChecksPass(policy, checks);
   const errorField = error === null ? null : fieldOf(error.code);
   const fieldError = (field: Field) => (error !== null && errorField === field ? httpErrorMessage(t, error) : null);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    if (submitting || !allChecksPass(checks)) return;
+    if (submitting || !ready) return;
     setSubmitting(true);
     setError(null);
     // Il server valida lo username dopo il trim ma lo salva così com'è: si invia già ripulito.
@@ -111,10 +140,10 @@ export function Register() {
           {t('auth.requirements')}
         </h2>
         <ul className="flex flex-col gap-1">
-          {CREDENTIAL_CHECKS.map((check) => (
+          {requiredChecks(policy).map((check) => (
             <li key={check} data-check={check} data-met={checks[check]} className="flex items-center gap-2 text-sm">
               <RequirementIcon met={checks[check]} />
-              <span className={checks[check] ? 'text-primary' : 'text-muted'}>{t(`auth.checks.${check}`)}</span>
+              <span className={checks[check] ? 'text-primary' : 'text-muted'}>{t(`auth.checks.${check}`, checkParams(check, policy))}</span>
               <span className="sr-only">{checks[check] ? t('auth.requirementMet') : t('auth.requirementUnmet')}</span>
             </li>
           ))}
@@ -127,7 +156,7 @@ export function Register() {
         </p>
       )}
 
-      <Button type="submit" fullWidth disabled={submitting || !allChecksPass(checks)}>
+      <Button type="submit" fullWidth disabled={submitting || !ready}>
         {submitting ? t('auth.submitting') : t('auth.submitRegister')}
       </Button>
 

@@ -3,7 +3,7 @@ import { EffectError, parsePlacement, pieceColor, squareName, type Color } from 
 
 /**
  * Porting 1:1 di `effects/tracker.go`: identità dei pezzi ed effetti persistenti, in parallelo alla FEN.
- * Replica anche l'euristica di `MovePiece` usata per Teleport (BACKEND-REQUESTS B13, B14).
+ * Le mosse di scacchi passano da `movePiece`, gli spostamenti magici da `relocate` (B13, B14 risolti).
  */
 
 export const KIND_FREEZE = 'freeze';
@@ -38,7 +38,7 @@ export class Tracker {
   private readonly pieces = new Map<number, PieceState>();
   private nextId = 1;
 
-  /** `tracker.go:38-58`: id assegnati in ordine di scansione (a8 → h1). */
+  /** `tracker.go:41-62`: id assegnati in ordine di scansione (a8 → h1). */
   constructor(fen: string) {
     const grid = parsePlacement(fen);
     grid.forEach((row, r) =>
@@ -52,7 +52,7 @@ export class Tracker {
     );
   }
 
-  /** `tracker.go:67-95`. */
+  /** `tracker.go:69-99`: catture, en passant, promozione e arrocco. */
   movePiece(from: string, to: string, promo: string | null): void {
     const id = this.bySquare.get(from);
     if (id === undefined) return;
@@ -61,7 +61,7 @@ export class Tracker {
     if (this.bySquare.has(to)) {
       this.removeAt(to);
     } else if (isPawn(ps.type) && from[0] !== to[0]) {
-      // En passant "euristico": vale anche per un Teleport diagonale di un pedone (B14).
+      // En passant: pedone in diagonale su casella vuota.
       this.removeAt(`${to[0]}${from[1]}`);
     }
     this.bySquare.delete(from);
@@ -69,8 +69,21 @@ export class Tracker {
     ps.square = to;
 
     if (promo !== null) ps.type = pieceColor(ps.type) === 'white' ? promo.toUpperCase() : promo.toLowerCase();
-    // Un re che arriva su g1/c1/g8/c8 sposta la torre, anche se è un Teleport (B13).
+    // Arrocco: il re che arriva su g1/c1/g8/c8 sposta anche la torre.
     if (isKing(ps.type)) this.moveCastlingRook(to);
+  }
+
+  /**
+   * `tracker.go:101-116`: sposta identità ed effetti senza semantica scacchistica (niente en passant, arrocco o
+   * promozione). Per `move_piece`.
+   */
+  relocate(from: string, to: string): void {
+    const id = this.bySquare.get(from);
+    if (id === undefined) return;
+    if (this.bySquare.has(to)) this.removeAt(to); // non dovrebbe accadere: move_piece richiede una casella vuota
+    this.bySquare.delete(from);
+    this.bySquare.set(to, id);
+    (this.pieces.get(id) as PieceState).square = to;
   }
 
   private moveCastlingRook(kingTo: string): void {
@@ -96,7 +109,7 @@ export class Tracker {
     return id === undefined ? null : pieceColor((this.pieces.get(id) as PieceState).type);
   }
 
-  /** `tracker.go:135-150`. */
+  /** `tracker.go:155-171`. */
   private addEffect(square: string, kind: string, turns: number, source: string): void {
     const id = this.bySquare.get(square);
     if (id === undefined) throw new EffectError(WS.nothingAt(square));
@@ -110,7 +123,7 @@ export class Tracker {
     ps.effects.push({ kind, remaining_turns: turns, source_spell_id: source });
   }
 
-  /** `tracker.go:153-162`. */
+  /** `tracker.go:173-183`. */
   freeze(square: string, caster: Color, turns: number, source: string): void {
     const color = this.colorAt(square);
     if (color === null) throw new EffectError(WS.nothingToFreeze(square));
@@ -118,7 +131,7 @@ export class Tracker {
     this.addEffect(square, KIND_FREEZE, turns, source);
   }
 
-  /** `tracker.go:165-174`. */
+  /** `tracker.go:185-195`. */
   shield(square: string, caster: Color, turns: number, source: string): void {
     const color = this.colorAt(square);
     if (color === null) throw new EffectError(WS.nothingToShield(square));
@@ -140,7 +153,7 @@ export class Tracker {
     return this.hasEffect(square, KIND_SHIELD);
   }
 
-  /** `tracker.go:196-209`. */
+  /** `tracker.go:216-230`. */
   consumeShield(square: string): void {
     const id = this.bySquare.get(square);
     if (id === undefined) return;
@@ -148,7 +161,7 @@ export class Tracker {
     ps.effects = ps.effects.filter((e) => e.kind !== KIND_SHIELD);
   }
 
-  /** `tracker.go:221-239`: decrementa gli effetti dei pezzi di `color` (chi ha appena chiuso il turno). */
+  /** `tracker.go:239-260`: decrementa gli effetti dei pezzi di `color` (chi ha appena chiuso il turno). */
   tickColor(color: Color): ExpiredEffect[] {
     const expired: ExpiredEffect[] = [];
     for (const ps of this.pieces.values()) {
@@ -163,13 +176,13 @@ export class Tracker {
     return expired;
   }
 
-  /** `tracker.go:259-267`. */
+  /** `tracker.go:279-292`: copie degli effetti, ordinate per casella. */
   activeEffects(): PieceEffectInfo[] {
     const out: PieceEffectInfo[] = [];
     for (const ps of this.pieces.values()) {
       if (ps.effects.length > 0) out.push({ square: ps.square, effects: ps.effects.map((e) => ({ ...e })) });
     }
-    return out;
+    return out.sort((a, b) => (a.square < b.square ? -1 : a.square > b.square ? 1 : 0));
   }
 
   /** Solo per i test del mock: identità del pezzo in una casella. */

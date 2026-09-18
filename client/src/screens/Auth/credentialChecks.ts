@@ -1,9 +1,10 @@
-import { CREDENTIAL_POLICY } from '../../api/adapter';
+import type { CredentialPolicy } from '../../api/types';
 
 /**
  * Requisiti delle credenziali da mostrare prima del submit (briefing §7.1). Solo guida per l'utente:
  * l'autorità resta il server, i cui errori vengono mostrati comunque.
  * Stesse regole di chess-server `validation/validation.go`: lunghezze in byte, username valutato dopo il trim.
+ * La policy arriva da `GET /auth/password-policy` o, in sua assenza, dalla riserva dell'adapter.
  */
 
 export const CREDENTIAL_CHECKS = [
@@ -20,8 +21,22 @@ export type CredentialCheck = (typeof CREDENTIAL_CHECKS)[number];
 
 const byteLength = (value: string) => new TextEncoder().encode(value).length;
 
-export function checkCredentials(input: { username: string; email: string; password: string }): Record<CredentialCheck, boolean> {
-  const { username: u, email: e, password: p } = CREDENTIAL_POLICY;
+/** I requisiti che la policy chiede davvero: quelli disattivati non vengono mostrati. */
+export function requiredChecks(policy: CredentialPolicy): readonly CredentialCheck[] {
+  const { password: p } = policy;
+  return CREDENTIAL_CHECKS.filter(
+    (check) =>
+      (check !== 'passwordUppercase' || p.requireUppercase) &&
+      (check !== 'passwordLowercase' || p.requireLowercase) &&
+      (check !== 'passwordDigit' || p.requireDigit),
+  );
+}
+
+export function checkCredentials(
+  policy: CredentialPolicy,
+  input: { username: string; email: string; password: string },
+): Record<CredentialCheck, boolean> {
+  const { username: u, email: e, password: p } = policy;
   const name = input.username.trim();
   const pwd = byteLength(input.password);
   return {
@@ -35,6 +50,6 @@ export function checkCredentials(input: { username: string; email: string; passw
   };
 }
 
-export function allChecksPass(checks: Record<CredentialCheck, boolean>): boolean {
-  return CREDENTIAL_CHECKS.every((check) => checks[check]);
+export function allChecksPass(policy: CredentialPolicy, checks: Record<CredentialCheck, boolean>): boolean {
+  return requiredChecks(policy).every((check) => checks[check]);
 }

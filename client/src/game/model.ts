@@ -3,7 +3,7 @@
  *
  * Il resto del codice conosce solo questi tipi, mai la forma dei payload del server:
  * la traduzione avviene esclusivamente in `src/api/adapter.ts`.
- * Riferimenti `file.go:riga` = chess-server, `internal/`.
+ * Riferimenti `file.go:riga` = chess-server, `internal/`, branch `fix/backend-requests`.
  */
 
 export type Color = 'white' | 'black';
@@ -33,6 +33,7 @@ export type PieceKind = (typeof PIECE_KINDS)[number];
 export const GAME_RESULTS = ['1-0', '0-1', '1/2-1/2'] as const;
 export type GameResult = (typeof GAME_RESULTS)[number] | 'unknown';
 
+// `game/room.go:533-537,1078,1305,1311,1401,1480`
 export const GAME_OVER_REASONS = [
   'checkmate',
   'stalemate',
@@ -41,12 +42,11 @@ export const GAME_OVER_REASONS = [
   'resign',
   'timeout',
   'abandonment',
-  'server_shutdown',
 ] as const;
 export type GameOverReason = (typeof GAME_OVER_REASONS)[number] | 'unknown';
 
-// `game/room.go:398-408,1194`
-export const BOARD_STATUSES = ['active', 'checkmate', 'stalemate', 'draw'] as const;
+// `game/room.go:25-33`: ogni valore diverso da `active` è terminale.
+export const BOARD_STATUSES = ['active', 'checkmate', 'stalemate', 'draw', 'resigned', 'timeout', 'abandoned'] as const;
 export type BoardStatus = (typeof BOARD_STATUSES)[number] | 'unknown';
 
 export type PerColor<T> = Readonly<Record<Color, T>>;
@@ -77,13 +77,25 @@ export interface PlayerRef {
   readonly username: Username;
 }
 
-/** Identità dei giocatori: arriva solo se il server applica P0-5 (ASSUMPTIONS C1). */
+/** Identità dei giocatori (`game/room.go:1365-1366`): il colore del giocatore si ricava confrontando gli id con `/me`. */
 export type MatchPlayers = PerColor<PlayerRef>;
 
-/** Stato pubblico di `game_state` (`game/room.go:1101-1119`). */
+/** `game_state.time_control` (`game/room.go:1367-1370`). */
+export interface TimeControl {
+  readonly baseMs: number;
+  readonly incrementMs: number;
+}
+
+/**
+ * Voce di `board.moves`. `absorbed` è la mossa consumata da uno scudo (`"0000"` sul filo, `game/room.go:37,488`):
+ * nessun pezzo si è mosso, ma il tratto è passato.
+ */
+export type PlayedMove = { readonly kind: 'move'; readonly uci: UciMove } | { readonly kind: 'absorbed' };
+
+/** Stato pubblico di `game_state` (`game/room.go:1360-1386`). */
 export interface PublicGameState {
   readonly fen: string;
-  readonly moves: readonly UciMove[];
+  readonly moves: readonly PlayedMove[];
   /** Tratto scacchistico secondo la FEN: può differire da `activePlayer` in `main2`. */
   readonly turn: Color | 'unknown';
   readonly status: BoardStatus;
@@ -95,10 +107,11 @@ export interface PublicGameState {
   readonly handSizes: PerColor<number>;
   readonly deckSizes: PerColor<number>;
   readonly activeEffects: readonly SquareEffects[];
-  /** `true` solo nel `game_state` inviato a chi si riconnette (`game/room.go:924`). */
+  /** `true` solo nel `game_state` inviato a chi si riconnette (`game/room.go:1136`). */
   readonly reconnected: boolean;
-  /** `null` finché il server non comunica l'identità dei giocatori (P0-5). */
+  /** `null` solo se il server non la manda (difesa, ASSUMPTIONS C1): il client non deduce mai il colore. */
   readonly players: MatchPlayers | null;
+  readonly timeControl: TimeControl | null;
 }
 
 export interface HandCard {
@@ -106,14 +119,14 @@ export interface HandCard {
   readonly spellId: SpellId;
 }
 
-/** Mano privata di `hand` (`game/room.go:827-842`). */
+/** Mano privata di `hand` (`game/room.go:1004-1019`). */
 export interface PrivateHand {
   readonly cards: readonly HandCard[];
   readonly mana: ManaState;
   readonly deckSize: number;
 }
 
-/** Effetto dichiarato dal server in `spell_cast` (`game/room.go:583-661`): il client lo anima, non lo ricalcola. */
+/** Effetto dichiarato dal server in `spell_cast` (`game/room.go:740-853`): il client lo anima, non lo ricalcola. */
 export type AppliedEffect =
   | { readonly kind: 'noop' }
   | { readonly kind: 'destroy_piece'; readonly target: Square; readonly destroyedPiece: PieceKind | 'unknown' }
@@ -124,7 +137,7 @@ export type AppliedEffect =
   /** Effetto sconosciuto o malformato: si mostra neutro, non blocca il resto (§5.1.6). */
   | { readonly kind: 'unknown'; readonly rawKind: string };
 
-/** `effect_expired` (`game/room.go:422,732`). */
+/** `effect_expired` (`game/room.go:548-555,902-916`). Per lo scudo sull'en passant `square` è il pedone catturato. */
 export interface ExpiredEffect {
   readonly square: Square;
   readonly kind: string;
@@ -132,38 +145,46 @@ export interface ExpiredEffect {
   readonly reason: 'expired' | 'shield_absorbed' | 'unknown';
 }
 
-/** Codici ricavati dai testi d'errore del server (`adapter.ts` §3b). */
+/** Codici di `error.code` (`gameerr/gameerr.go:17-49`). Un codice sconosciuto diventa `null` (errore generico). */
 export const PROTOCOL_ERROR_CODES = [
+  'invalid_payload',
+  'unknown_message_type',
+  'rate_limited',
+  'game_over',
+  'replaced_by_new_connection',
   'not_your_turn',
   'wrong_phase',
   'illegal_move',
   'piece_frozen',
-  'malformed_message',
-  'unknown_message_type',
-  'rate_limited',
-  'draw_offer_pending',
-  'no_draw_offer',
-  'own_draw_offer',
-  'already_queued',
   'unknown_spell',
   'card_not_in_hand',
   'insufficient_mana',
-  'wrong_target_count',
-  'no_piece_on_target',
-  'target_must_be_enemy',
-  'target_must_be_own',
-  'king_not_targetable',
-  'destination_occupied',
-  'exposes_own_king',
-  'invalid_square',
-  'unsupported_effect',
+  'invalid_target_count',
+  'invalid_target',
+  'illegal_position',
+  'draw_offer_pending',
+  'no_draw_offer',
+  'own_draw_offer',
+  'internal_error',
 ] as const;
 export type ProtocolErrorCode = (typeof PROTOCOL_ERROR_CODES)[number];
 
-/** Errore di protocollo normalizzato. Il testo del server non viene conservato. */
+/**
+ * Errore di protocollo normalizzato: il codice e i `details` utili alla UI (`gameerr/gameerr.go`).
+ * Il testo del server non viene conservato; `move`, `spell_id` e `type` il client li conosce già.
+ */
 export interface ProtocolErrorInfo {
   readonly code: ProtocolErrorCode | null;
+  /** `piece_frozen`. */
   readonly square: Square | null;
+  /** `wrong_phase`. */
+  readonly phase: Phase | null;
+  /** `insufficient_mana`. */
   readonly needed: number | null;
   readonly available: number | null;
+  /** `invalid_target_count`. */
+  readonly expected: number | null;
+  readonly received: number | null;
+  /** `illegal_position`: il re che resterebbe sotto scacco. */
+  readonly king: Color | null;
 }

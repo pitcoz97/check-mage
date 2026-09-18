@@ -1,20 +1,20 @@
-import { WS, type ServerText } from '../serverTexts';
+import { WS, type GameError } from '../serverTexts';
 
 /**
  * Porting di `effects/effects.go`: manipolazione della FEN come stringa, senza motore.
- * Gli errori sono i testi esatti del server.
+ * Gli errori sono quelli esatti del server (codice `invalid_target`, `gameerr/gameerr.go:37`).
  */
 
 export type Color = 'white' | 'black';
 export type Grid = (string | null)[][];
 
 export class EffectError extends Error {
-  constructor(readonly text: ServerText) {
-    super(text.message);
+  constructor(readonly error: GameError) {
+    super(error.message);
   }
 }
 
-/** `effects.go:23-35`: riga 0 = traversa 8. */
+/** `effects.go:25-37`: riga 0 = traversa 8. */
 export function parseSquare(square: string): [row: number, col: number] {
   if (square.length !== 2) throw new EffectError(WS.invalidSquare(square));
   const file = square.charCodeAt(0);
@@ -27,7 +27,7 @@ export function squareName(row: number, col: number): string {
   return String.fromCharCode(97 + col) + String.fromCharCode(56 - row);
 }
 
-/** `effects.go:38-73`. */
+/** `effects.go:40-75`. */
 export function parsePlacement(fen: string): Grid {
   const placement = fen.trim().split(/\s+/)[0] ?? '';
   const ranks = placement.split('/');
@@ -43,7 +43,7 @@ export function parsePlacement(fen: string): Grid {
   });
 }
 
-/** `effects.go:76-98`. */
+/** `effects.go:78-102`. */
 export function encodePlacement(grid: Grid): string {
   return grid
     .map((row) => {
@@ -77,7 +77,7 @@ export function pieceColor(piece: string): Color {
   return piece >= 'A' && piece <= 'Z' ? 'white' : 'black';
 }
 
-/** `effects.go:117-133`. */
+/** `effects.go:119-135`. */
 export function pieceName(piece: string): string {
   const names: Record<string, string> = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
   return names[piece.toLowerCase()] ?? 'unknown';
@@ -88,7 +88,7 @@ export function pieceAt(fen: string, square: string): string | null {
   return parsePlacement(fen)[row]?.[col] ?? null;
 }
 
-/** `effects.go:139-160`: mossa nulla (usata quando lo scudo assorbe una cattura). */
+/** `effects.go:141-162`: mossa nulla (usata quando lo scudo assorbe una cattura). */
 export function passTurn(fen: string): string {
   const f = fields(fen);
   if (f.length < 6) return fen;
@@ -103,7 +103,7 @@ export function passTurn(fen: string): string {
   return f.join(' ');
 }
 
-/** `effects.go:179-207`. */
+/** `effects.go:181-209`. */
 export function destroyPiece(fen: string, square: string, caster: Color): { fen: string; destroyed: string } {
   const [row, col] = parseSquare(square);
   const grid = parsePlacement(fen);
@@ -116,7 +116,7 @@ export function destroyPiece(fen: string, square: string, caster: Color): { fen:
   return { fen: next, destroyed: pieceName(piece) };
 }
 
-/** `effects.go:214-242`. */
+/** `effects.go:216-244`. */
 export function movePieceFen(fen: string, from: string, to: string, caster: Color): string {
   const [fr, fc] = parseSquare(from);
   const [tr, tc] = parseSquare(to);
@@ -130,7 +130,7 @@ export function movePieceFen(fen: string, from: string, to: string, caster: Colo
   return clearCastlingForMovedPiece(replacePlacement(fen, encodePlacement(grid)), from, piece);
 }
 
-/** `effects.go:247-258`. */
+/** `effects.go:249-260`. */
 export function withSideToMove(fen: string, color: Color): string {
   const f = fields(fen);
   if (f.length < 2) return fen;
@@ -151,7 +151,7 @@ function clearCastling(fen: string, rights: string): string {
   return f.join(' ');
 }
 
-/** `effects.go:262-272`. */
+/** `effects.go:264-274`. */
 function clearCastlingForMovedPiece(fen: string, from: string, piece: string): string {
   if (piece === 'K') return clearCastling(fen, 'KQ');
   if (piece === 'k') return clearCastling(fen, 'kq');
@@ -159,7 +159,7 @@ function clearCastlingForMovedPiece(fen: string, from: string, piece: string): s
   return fen;
 }
 
-/** `effects.go:293-318`. */
+/** `effects.go:295-320`. */
 function clearCastlingForRook(fen: string, square: string, piece: string): string {
   const right =
     piece === 'R' && square === 'a1'
@@ -172,4 +172,60 @@ function clearCastlingForRook(fen: string, square: string, piece: string): strin
             ? 'k'
             : null;
   return right === null ? fen : clearCastling(fen, right);
+}
+
+/** `SideToMove` / `Opponent` (`effects/attack.go:8-26`). */
+export function opponentOf(color: Color): Color {
+  return color === 'white' ? 'black' : 'white';
+}
+
+/**
+ * `IsKingAttacked` (`effects/attack.go:28-46`): il re del colore dato è attaccato da un pezzo avversario.
+ * Calcolato sulla sola disposizione dei pezzi, senza motore: vale anche per posizioni che il motore rifiuterebbe.
+ */
+export function isKingAttacked(fen: string, color: Color): boolean {
+  let grid: Grid;
+  try {
+    grid = parsePlacement(fen);
+  } catch {
+    return false;
+  }
+  const king = color === 'white' ? 'K' : 'k';
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      if (grid[row]?.[col] === king) return squareAttacked(grid, row, col, opponentOf(color));
+    }
+  }
+  return false;
+}
+
+/** `squareAttacked` (`effects/attack.go:50-110`): riga 0 = traversa 8. */
+function squareAttacked(grid: Grid, row: number, col: number, by: Color): boolean {
+  const piece = (p: string) => (by === 'white' ? p.toUpperCase() : p);
+  const at = (r: number, c: number) => (r < 0 || r > 7 || c < 0 || c > 7 ? null : (grid[r]?.[c] ?? null));
+
+  // Pedoni: il bianco avanza verso la riga 0, quindi attacca da row+1.
+  const pawnRow = by === 'white' ? row + 1 : row - 1;
+  if (at(pawnRow, col - 1) === piece('p') || at(pawnRow, col + 1) === piece('p')) return true;
+
+  const knight: readonly (readonly [number, number])[] = [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]];
+  if (knight.some(([dr, dc]) => at(row + dr, col + dc) === piece('n'))) return true;
+
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if ((dr !== 0 || dc !== 0) && at(row + dr, col + dc) === piece('k')) return true;
+    }
+  }
+
+  const slide = (dr: number, dc: number, a: string, b: string): boolean => {
+    for (let r = row + dr, c = col + dc; r >= 0 && r < 8 && c >= 0 && c < 8; r += dr, c += dc) {
+      const p = grid[r]?.[c] ?? null;
+      if (p !== null) return p === a || p === b;
+    }
+    return false;
+  };
+  const orthogonal: readonly (readonly [number, number])[] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const diagonal: readonly (readonly [number, number])[] = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+  if (orthogonal.some(([dr, dc]) => slide(dr, dc, piece('r'), piece('q')))) return true;
+  return diagonal.some(([dr, dc]) => slide(dr, dc, piece('b'), piece('q')));
 }

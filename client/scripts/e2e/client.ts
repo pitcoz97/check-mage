@@ -15,6 +15,7 @@ import {
   normalizeRegistration,
   normalizeSpellCatalog,
   normalizeTokenPair,
+  normalizeWsTicket,
   type AdapterWarning,
   type Normalized,
 } from '../../src/api/adapter';
@@ -22,7 +23,7 @@ import type { GameHistoryEntry, PublicProfile, TokenPair, UserAccount } from '..
 import type { Color, HandCard, Phase, PublicGameState, Square } from '../../src/game/model';
 import fallbackCatalog from '../../src/spells/fallback.json';
 import type { Spell } from '../../src/spells/schema';
-import { buildSocketUrl } from '../../src/ws/connection';
+import { resolveSocketUrl } from '../../src/ws/connection';
 import type { ClientIntent, DecodeFailure, ServerEvent } from '../../src/ws/protocol';
 
 /**
@@ -35,7 +36,7 @@ import type { ClientIntent, DecodeFailure, ServerEvent } from '../../src/ws/prot
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Rispetta il rate limit auth (3/s, burst 5) invece di farsi rifiutare. */
+/** Rispetta il rate limit auth (3/s, burst 5, per IP: condiviso da tutti i client dello script) invece di farsi rifiutare. */
 export function createPacer() {
   let last = 0;
   return {
@@ -51,8 +52,10 @@ export type Pacer = ReturnType<typeof createPacer>;
 export class E2EClient {
   tokens: TokenPair | null = null;
   account: UserAccount | null = null;
-  /** Colore: da P0-5 nel contratto `proposed`; nel contratto `current` lo imposta lo script, non il client. */
+  /** Colore: da `white_player`/`black_player` di `game_state`, confrontati con l'id dell'account. */
   color: Color | null = null;
+  /** Codice dell'ultima chiusura del socket (4001 = connessione sostituita). */
+  closeCode: number | null = null;
   readonly events: ServerEvent[] = [];
   readonly failures: DecodeFailure[] = [];
   readonly warnings: AdapterWarning[] = [];
@@ -109,6 +112,7 @@ export class E2EClient {
 
   async refresh(): Promise<void> {
     if (this.tokens === null) throw new Error('refresh senza sessione');
+    await this.pacer.auth();
     const res = await this.request('POST', '/auth/refresh', encodeRefresh(this.tokens.refreshToken));
     if (!res.ok) throw new Error(`refresh: ${JSON.stringify(res.error)}`);
     this.tokens = this.unwrap('refresh', normalizeTokenPair(res.data));
@@ -132,7 +136,7 @@ export class E2EClient {
     return this.unwrap('/games', normalizeGameHistory(res.data));
   }
 
-  /** `/spells` se esiste (contratto `proposed`), altrimenti il fallback (ASSUMPTIONS G10). */
+  /** `/spells`; il fallback locale solo se il server non risponde (ASSUMPTIONS G10). */
   async catalog(): Promise<{ spells: readonly Spell[]; source: 'server' | 'fallback' }> {
     const res = await this.request('GET', '/spells');
     const normalized = normalizeSpellCatalog(res.ok ? res.data : fallbackCatalog);
@@ -140,15 +144,38 @@ export class E2EClient {
     return { spells: normalized.spells, source: res.ok ? 'server' : 'fallback' };
   }
 
+  /** Stesso utente, stessa sessione, connessione distinta: come una seconda scheda del browser. */
+  twin(): E2EClient {
+    const other = new E2EClient(this.httpUrl, this.wsUrl, this.username, this.email, this.pacer);
+    other.tokens = this.tokens;
+    other.account = this.account;
+    return other;
+  }
+
+  /** Ticket monouso a ogni apertura, via `src/ws/connection.ts`. */
   async connect(scenario?: string): Promise<void> {
     if (this.tokens === null) throw new Error('connect senza sessione');
-    const url = new URL(buildSocketUrl(this.wsUrl, this.tokens.accessToken));
+    const resolved = await resolveSocketUrl(
+      {
+        fetchWsTicket: async () => {
+          const res = await this.request('GET', '/ws/ticket');
+          if (!res.ok) return { ok: false, error: res.error };
+          const ticket = normalizeWsTicket(res.data);
+          return ticket.ok ? { ok: true, value: ticket.value } : { ok: false, error: { status: 200, code: 'invalid_response' } };
+        },
+      },
+      this.wsUrl,
+    );
+    if (!resolved.ok) throw new Error(`ticket: ${JSON.stringify(resolved.error)}`);
+    const url = new URL(resolved.url);
     if (scenario !== undefined) url.searchParams.set('scenario', scenario);
     const ws = new WebSocket(url);
     this.ws = ws;
     ws.on('message', (data) => this.onFrame(data.toString()));
-    ws.on('close', () => {
+    this.closeCode = null;
+    ws.on('close', (code) => {
       this.connected = false;
+      this.closeCode = code;
       this.notify();
     });
     await new Promise<void>((resolve, reject) => {
@@ -159,7 +186,7 @@ export class E2EClient {
     this.connected = true;
   }
 
-  /** Chiude del tutto il socket prima di restituire (necessario per non incappare in B2). */
+  /** Chiude del tutto il socket prima di restituire. */
   async disconnect(): Promise<void> {
     const ws = this.ws;
     this.ws = null;
@@ -171,7 +198,7 @@ export class E2EClient {
   }
 
   /**
-   * Invia rispettando il limite del server di 5 messaggi/s (`handlers/ws.go:36`): oltre, il messaggio viene
+   * Invia rispettando il limite del server di 5 messaggi/s (`handlers/ws.go:60`): oltre, il messaggio viene
    * scartato con un `error`. Restituisce l'indice da cui attendere la risposta.
    */
   send(intent: ClientIntent): number {
@@ -211,15 +238,17 @@ export class E2EClient {
   }
 
   private apply(event: ServerEvent): void {
-    // Dopo il primo game_over gli eventi di partita si ignorano (B1, B4).
-    if (this.gameOver !== null && event.type !== 'game_over') return;
+    // Dopo il primo game_over gli eventi di partita si ignorano: difesa, il server ora ne manda uno solo (B1).
+    if (this.gameOver !== null && event.type !== 'game_over' && event.type !== 'error') return;
     switch (event.type) {
       case 'game_state':
         this.state = event.state;
         this.phase = event.state.phase;
         this.activePlayer = event.state.activePlayer;
         if (event.state.players !== null && this.account !== null) {
-          this.color = event.state.players.white.username === this.account.username ? 'white' : 'black';
+          const { white, black } = event.state.players;
+          const me = this.account.id;
+          this.color = white.id === me ? 'white' : black.id === me ? 'black' : null;
         }
         break;
       case 'hand':

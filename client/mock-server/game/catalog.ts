@@ -50,7 +50,8 @@ function loadCatalog(raw: unknown): Map<string, Spell> {
 }
 
 export const CATALOG: ReadonlyMap<string, Spell> = loadCatalog(rawCatalog);
-export const RAW_CATALOG: unknown = rawCatalog;
+/** Il catalogo come lo serializza `GET /spells` (stessi oggetti di `spells.json`). */
+export const RAW_CATALOG: readonly Spell[] = [...CATALOG.values()];
 
 /** `spells/spells.go:37-46`. */
 export function targetCount(t: TargetType): number {

@@ -26,19 +26,30 @@ export interface GameRow {
   playedAt: string;
 }
 
-const EMAIL = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-const USERNAME = /^[a-zA-Z0-9_]+$/;
+const EMAIL = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/; // validation/validation.go:22
 
-/** `validation/validation.go:11-69`. Le lunghezze sono in byte, come `len()` in Go. */
+/**
+ * `CurrentPolicy` (`validation/validation.go:11-58`), esposta da `GET /auth/password-policy`.
+ * `pattern` è la stringa RE2 di Go, identica in JavaScript per questa regex.
+ */
+export const PASSWORD_POLICY = {
+  username: { min_length: 3, max_length: 20, pattern: '^[a-zA-Z0-9_]+$' },
+  password: { min_length: 8, max_length: 72, require_uppercase: true, require_lowercase: true, require_digit: true },
+} as const;
+
+const USERNAME = new RegExp(PASSWORD_POLICY.username.pattern);
+
+/** `ValidateRegister` (`validation/validation.go:60-117`). Le lunghezze sono in byte, come `len()` in Go. */
 export function validateRegister(username: string, email: string, password: string): ServerText | null {
+  const { username: u, password: p } = PASSWORD_POLICY;
   const trimmed = username.trim();
   const bytes = (s: string) => Buffer.byteLength(s, 'utf8');
-  if (bytes(trimmed) < 3) return HTTP.usernameTooShort;
-  if (bytes(trimmed) > 20) return HTTP.usernameTooLong;
+  if (bytes(trimmed) < u.min_length) return HTTP.usernameTooShort;
+  if (bytes(trimmed) > u.max_length) return HTTP.usernameTooLong;
   if (!USERNAME.test(trimmed)) return HTTP.usernameChars;
   if (!EMAIL.test(email)) return HTTP.emailInvalid;
-  if (bytes(password) < 8) return HTTP.passwordTooShort;
-  if (bytes(password) > 72) return HTTP.passwordTooLong;
+  if (bytes(password) < p.min_length) return HTTP.passwordTooShort;
+  if (bytes(password) > p.max_length) return HTTP.passwordTooLong;
   if (!/[A-Z]/.test(password)) return HTTP.passwordUpper;
   if (!/[a-z]/.test(password)) return HTTP.passwordLower;
   if (!/[0-9]/.test(password)) return HTTP.passwordDigit;

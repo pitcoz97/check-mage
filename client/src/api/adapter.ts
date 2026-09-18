@@ -1,7 +1,8 @@
 /**
  * Adapter: l'UNICO punto del client che interpreta i payload grezzi del server.
  *
- * Fonte del contratto: il codice di chess-server (`internal/`, commit 7f817e5), citato come `file.go:riga`.
+ * Fonte del contratto: il codice di chess-server (`internal/`, branch `fix/backend-requests`), citato come
+ * `file.go:riga`.
  * Ciò che il codice non determina è in docs/ASSUMPTIONS.md: quelle voci vivono qui e generano warning
  * etichettati con il loro id. Se ti accorgi di stare normalizzando un payload altrove, fermati.
  *
@@ -9,9 +10,10 @@
  *   §1 Registro assunzioni e warning
  *   §2 Letture tolleranti del filo
  *   §3 Decoder WebSocket in entrata
- *   §3b Testi d'errore WebSocket → codici
+ *   §3b Errori WebSocket: codici e dettagli
  *   §4 Encoder WebSocket in uscita
- *   §5 REST: inviluppo, testi d'errore, normalizzatori, encoder, policy credenziali
+ *   §5 REST: inviluppo, testi d'errore, normalizzatori, encoder
+ *   §6 Policy delle credenziali
  *   §7 Catalogo magie
  *
  * Regole: non lancia mai eccezioni su input del server, un campo sconosciuto viene ignorato, e il testo
@@ -35,14 +37,17 @@ import {
   type MatchPlayers,
   type PerColor,
   type PieceKind,
+  type PlayedMove,
   type ProtocolErrorCode,
   type ProtocolErrorInfo,
   type Square,
   type SquareEffects,
+  type TimeControl,
 } from '../game/model';
 import { spellSchema, type Spell } from '../spells/schema';
 import {
   assertNever,
+  DRAW_DECLINE_REASONS,
   isServerMessageType,
   type ClientIntent,
   type DecodeResult,
@@ -51,6 +56,7 @@ import {
 } from '../ws/protocol';
 import type {
   AuthSession,
+  CredentialPolicy,
   GameHistoryEntry,
   HttpErrorCode,
   HttpErrorInfo,
@@ -60,17 +66,20 @@ import type {
   ServerStatus,
   TokenPair,
   UserAccount,
+  WsTicket,
 } from './types';
 
 // ===================================================================================================
 // §1 Registro assunzioni e warning
 // ===================================================================================================
 
-export type AssumptionId = 'G1' | 'G8' | 'G10' | 'A15' | 'C1' | 'C2' | 'C3' | 'C4';
+export type AssumptionId = 'G1' | 'G6' | 'G8' | 'G10' | 'A15' | 'C1' | 'C4' | 'C9';
 
 /** Ogni warning è legato all'assunzione che l'ha generato, così un log porta a ASSUMPTIONS.md. */
 const WARNING_ASSUMPTION = {
   active_effect_malformed: 'G1',
+  error_code_missing: 'G6',
+  error_code_unknown: 'G6',
   effect_unknown: 'G8',
   catalog_shape_unexpected: 'G10',
   catalog_entry_invalid: 'G10',
@@ -78,9 +87,8 @@ const WARNING_ASSUMPTION = {
   number_out_of_range: 'A15',
   value_invalid: 'A15',
   players_missing: 'C1',
-  error_code_unknown: 'C2',
-  error_text_unknown: 'C4',
   http_error_text_unknown: 'C4',
+  password_policy_invalid: 'C9',
 } as const satisfies Record<string, AssumptionId>;
 
 export type AdapterWarningCode = keyof typeof WARNING_ASSUMPTION;
@@ -134,7 +142,7 @@ const loose = z.unknown().optional();
 /** Gli id numerici del server (`int` in Go) diventano stringhe opache. */
 const wireId = z.union([z.number().int(), nonEmptyString]).transform((id) => String(id));
 const count = z.number().int();
-/** Le slice nil di Go arrivano come `null` (BACKEND-REQUESTS B8). */
+/** Liste: il server ora manda `[]` (B8 risolto), `null` e assenza restano tollerati come lista vuota. */
 const nullableList = <S extends z.ZodType>(item: S) =>
   z
     .array(item)
@@ -171,7 +179,7 @@ function clampNonNegative(ctx: Ctx, value: number, field: string): number {
   return 0;
 }
 
-// --- Effetti persistenti per casella (`effects/tracker.go:242-267`) ------------------------------
+// --- Effetti persistenti per casella (`effects/tracker.go:262-292`) ------------------------------
 
 const wireActiveEffectSchema = z.object({
   kind: nonEmptyString,
@@ -203,7 +211,7 @@ function decodeActiveEffects(ctx: Ctx, raw: unknown): SquareEffects[] {
   return out;
 }
 
-// --- Identità dei giocatori (P0-5, ASSUMPTIONS C1) -----------------------------------------------
+// --- Identità dei giocatori (`game/room.go:1350-1366`, ASSUMPTIONS C1) ---------------------------
 
 const wirePlayerSchema = z.object({ id: wireId, username: nonEmptyString });
 
@@ -215,7 +223,33 @@ function decodePlayers(ctx: Ctx, white: unknown, black: unknown): MatchPlayers |
   return null;
 }
 
-// --- Effetti applicati (`game/room.go:583-661`) ----------------------------------------------------
+// --- Time control (`game/room.go:1367-1370`) -------------------------------------------------------
+
+const wireTimeControlSchema = z.object({ base_ms: count, increment_ms: count });
+
+function decodeTimeControl(ctx: Ctx, raw: unknown): TimeControl | null {
+  if (raw === undefined || raw === null) return null;
+  const parsed = parseWith(wireTimeControlSchema, raw);
+  if (!parsed.ok) {
+    warn(ctx, 'value_invalid', `time_control: ${parsed.issues.join('; ')}`);
+    return null;
+  }
+  return {
+    baseMs: clampNonNegative(ctx, parsed.data.base_ms, 'time_control.base_ms'),
+    incrementMs: clampNonNegative(ctx, parsed.data.increment_ms, 'time_control.increment_ms'),
+  };
+}
+
+// --- Mosse giocate (`game/room.go:37,488-490`) ------------------------------------------------------
+
+/** `NullMove`: la mossa consumata da uno scudo, senza pezzi spostati. */
+const ABSORBED_MOVE = '0000';
+
+function decodeMoves(moves: readonly string[]): PlayedMove[] {
+  return moves.map((uci) => (uci === ABSORBED_MOVE ? { kind: 'absorbed' } : { kind: 'move', uci }));
+}
+
+// --- Effetti applicati (`game/room.go:740-853`) ----------------------------------------------------
 
 const PIECE_NAMES: readonly PieceKind[] = PIECE_KINDS;
 
@@ -299,7 +333,12 @@ function withCore<S extends z.ZodType, K extends ServerMessageType>(
 
 // Eventi senza dati utili: il testo del server (`{message}`) viene scartato di proposito (briefing §2.5).
 const decodeDrawOfferSent: Decoder<'draw_offer_sent'> = () => ({ ok: true, event: { type: 'draw_offer_sent' } });
-const decodeDrawDeclined: Decoder<'draw_declined'> = () => ({ ok: true, event: { type: 'draw_declined' } });
+
+// `game/room.go:556-561` (`move_played`) e `1495-1500` (`declined`). Senza `reason` resta un rifiuto.
+const decodeDrawDeclined: Decoder<'draw_declined'> = (payload, ctx) => {
+  const raw = isRecord(payload) ? payload['reason'] : undefined;
+  return { ok: true, event: { type: 'draw_declined', reason: raw === undefined ? 'declined' : readEnum(ctx, raw, DRAW_DECLINE_REASONS, 'reason') } };
+};
 const decodeOpponentDisconnected: Decoder<'opponent_disconnected'> = () => ({
   ok: true,
   event: { type: 'opponent_disconnected' },
@@ -311,7 +350,7 @@ const decodeOpponentReconnected: Decoder<'opponent_reconnected'> = () => ({
 
 const manaNumber = z.number();
 
-// `game/room.go:1101-1119` (+ `reconnected` da `game/room.go:924`, + P0-5 in contratto `proposed`).
+// `game/room.go:1360-1386` (+ `reconnected` da `game/room.go:1136`).
 const gameStateSchema = z.object({
   board: z.object({
     fen: nonEmptyString,
@@ -336,6 +375,7 @@ const gameStateSchema = z.object({
   reconnected: loose,
   white_player: loose,
   black_player: loose,
+  time_control: loose,
 });
 
 const decodeGameState: Decoder<'game_state'> = (payload, ctx) =>
@@ -346,7 +386,7 @@ const decodeGameState: Decoder<'game_state'> = (payload, ctx) =>
       type: 'game_state',
       state: {
         fen: core.board.fen,
-        moves: core.board.moves,
+        moves: decodeMoves(core.board.moves),
         turn: readEnum(ctx, core.board.turn, COLORS, 'board.turn'),
         status: readEnum(ctx, core.board.status, BOARD_STATUSES, 'board.status'),
         clocks: perColor(n(core.white_time, 'white_time'), n(core.black_time, 'black_time')),
@@ -362,11 +402,12 @@ const decodeGameState: Decoder<'game_state'> = (payload, ctx) =>
         activeEffects: decodeActiveEffects(ctx, core.active_effects),
         reconnected: core.reconnected === true,
         players: decodePlayers(ctx, core.white_player, core.black_player),
+        timeControl: decodeTimeControl(ctx, core.time_control),
       },
     };
   });
 
-// `game/room.go:827-842`
+// `game/room.go:1004-1019`
 const decodeHand: Decoder<'hand'> = (payload, ctx) =>
   withCore(
     z.object({ hand: nullableList(nonEmptyString), mana: manaNumber, max_mana: manaNumber, deck_size: count }),
@@ -381,7 +422,7 @@ const decodeHand: Decoder<'hand'> = (payload, ctx) =>
     }),
   );
 
-// `game/room.go:805-808`, `549-553`: `card_id` è lo spell_id.
+// `game/room.go:697-704,979-986`: `card_id` è lo spell_id.
 const decodeCardDrawn: Decoder<'card_drawn'> = (payload, ctx) =>
   withCore(z.object({ card_id: nonEmptyString, deck_size: count.optional() }), payload, (core) => ({
     type: 'card_drawn',
@@ -411,7 +452,7 @@ const decodePhaseChanged: Decoder<'phase_changed'> = (payload, ctx) =>
     turnNumber: clampNonNegative(ctx, core.turn_number, 'turn_number'),
   }));
 
-// `game/room.go:535-540`. `targets` ed `effects_applied` possono essere `null` (slice nil in Go).
+// `game/room.go:685-690`. `targets` ed `effects_applied` tollerati anche `null`.
 const decodeSpellCast: Decoder<'spell_cast'> = (payload, ctx) =>
   withCore(
     z.object({ player: colorSchema, spell_id: nonEmptyString, targets: nullableList(z.unknown()), effects_applied: loose }),
@@ -434,7 +475,7 @@ const decodeSpellCast: Decoder<'spell_cast'> = (payload, ctx) =>
     },
   );
 
-// `game/room.go:422-426` (scudo consumato) e `732-736` (scadenza).
+// `game/room.go:548-555` (scudo consumato) e `902-916` (scadenza).
 const decodeEffectExpired: Decoder<'effect_expired'> = (payload, ctx) =>
   withCore(
     z.object({ square: squareSchema, effect_kind: nonEmptyString, piece_id: wireId.optional(), reason: loose }),
@@ -463,7 +504,7 @@ const decodeTimerUpdate: Decoder<'timer_update'> = (payload, ctx) =>
     turn: readEnum(ctx, core.turn, COLORS, 'turn'),
   }));
 
-// `game/room.go:1022-1029`: `winner` assente in caso di patta.
+// `game/room.go:1258-1265`: `winner` assente in caso di patta.
 const decodeGameOver: Decoder<'game_over'> = (payload, ctx) =>
   withCore(z.object({ result: loose, reason: loose, winner: loose }), payload, (core) => ({
     type: 'game_over',
@@ -530,95 +571,53 @@ export function decodeServerMessage(raw: string, options?: DecodeOptions): Decod
 }
 
 // ===================================================================================================
-// §3b Testi d'errore WebSocket → codici (ASSUMPTIONS C4)
+// §3b Errori WebSocket: codici e dettagli (`game/client.go:126-137`, `gameerr/gameerr.go`)
 // ===================================================================================================
 
-interface ErrorTextRule<C extends string> {
-  readonly pattern: RegExp;
-  readonly code: C;
-  /** Estrae i dettagli numerici o la casella dai gruppi nominati `square`, `needed`, `available`. */
-  readonly details?: true;
-}
+/** `details` di `gameerr.Error`: solo i campi che servono alla UI, ciascuno letto in modo tollerante. */
+const wireErrorDetailsSchema = z.object({
+  square: loose,
+  phase: loose,
+  needed: loose,
+  available: loose,
+  expected: loose,
+  received: loose,
+  king: loose,
+});
+
+const intOrNull = (value: unknown): number | null => (typeof value === 'number' && Number.isInteger(value) ? value : null);
 
 /**
- * Testi esatti del server. L'ordine conta: le regole più specifiche vengono prima.
- * Ogni voce cita il punto del codice Go che produce il testo.
+ * `{message, code, details?}`. Il testo resta sul filo solo per il debug e qui viene scartato. Un `code` mancante
+ * o sconosciuto diventa `null`: la UI mostra un errore generico legato all'azione in volo (G6).
  */
-export const WS_ERROR_TEXTS: readonly ErrorTextRule<ProtocolErrorCode>[] = [
-  { pattern: /^mossa illegale: lascerebbe il re sotto scacco$/, code: 'exposes_own_king' }, // game/room.go:654
-  { pattern: /^Mossa illegale: \S+$/, code: 'illegal_move' }, // game/room.go:330
-  { pattern: /^[Nn]on è il tuo turno$/, code: 'not_your_turn' }, // game/room.go:318,443; match/match.go:303
-  { pattern: /^Non puoi muovere nella fase \S+$/, code: 'wrong_phase' }, // game/room.go:324
-  { pattern: /^Non puoi passare nella fase \S+$/, code: 'wrong_phase' }, // game/room.go:449
-  { pattern: /^non puoi castare magie nella fase \S+$/, code: 'wrong_phase' }, // match/match.go:306
-  { pattern: /^.+ non è giocabile nella fase \S+$/, code: 'wrong_phase' }, // match/match.go:314
-  { pattern: /^Il pezzo in (?<square>[a-h][1-8]) è congelato$/, code: 'piece_frozen', details: true }, // game/room.go:339
-  { pattern: /^Formato (mossa|cast_spell|messaggio) non valido$/, code: 'malformed_message' }, // game/room.go:276,290; game/client.go:70
-  { pattern: /^Tipo messaggio sconosciuto: .*$/, code: 'unknown_message_type' }, // game/room.go:308
-  { pattern: /^Stai inviando messaggi troppo velocemente$/, code: 'rate_limited' }, // game/client.go:64
-  { pattern: /^C'è già un'offerta di patta in corso$/, code: 'draw_offer_pending' }, // game/room.go:1149
-  { pattern: /^Nessuna offerta di patta in corso$/, code: 'no_draw_offer' }, // game/room.go:1179
-  { pattern: /^Non puoi rispondere alla tua stessa offerta$/, code: 'own_draw_offer' }, // game/room.go:1186
-  { pattern: /^Sei già in coda$/, code: 'already_queued' }, // game/manager.go:60
-  { pattern: /^magia sconosciuta: .*$/, code: 'unknown_spell' }, // match/match.go:311
-  { pattern: /^carta non in mano$/, code: 'card_not_in_hand' }, // match/match.go:320
-  {
-    pattern: /^mana insufficiente: servono (?<needed>\d+), hai (?<available>-?\d+)$/,
-    code: 'insufficient_mana',
-    details: true,
-  }, // match/match.go:323
-  { pattern: /^la magia .+ richiede \d+ bersagli, ricevuti \d+$/, code: 'wrong_target_count' }, // match/match.go:326
-  { pattern: /^la magia .+ richiede (un bersaglio|casella di partenza e arrivo)$/, code: 'wrong_target_count' }, // game/room.go:588,646
-  {
-    pattern: /^nessun pezzo (da (distruggere|congelare|proteggere|spostare) )?in (?<square>[a-h][1-8])$/,
-    code: 'no_piece_on_target',
-    details: true,
-  }, // effects/effects.go:191,229; effects/tracker.go:138,157,168
-  { pattern: /^non puoi (distruggere|congelare) un tuo pezzo \((?<square>[a-h][1-8])\)$/, code: 'target_must_be_enemy', details: true }, // effects/effects.go:194; effects/tracker.go:159
-  { pattern: /^puoi (proteggere|spostare) solo i tuoi pezzi \((?<square>[a-h][1-8])\)$/, code: 'target_must_be_own', details: true }, // effects/tracker.go:171; effects/effects.go:232
-  { pattern: /^il re non può essere distrutto$/, code: 'king_not_targetable' }, // effects/effects.go:197
-  { pattern: /^la casella (?<square>[a-h][1-8]) non è vuota$/, code: 'destination_occupied', details: true }, // effects/effects.go:235
-  { pattern: /^casella (non valida|fuori scacchiera): .*$/, code: 'invalid_square' }, // effects/effects.go:25,29
-  { pattern: /^effetto non supportato: .*$/, code: 'unsupported_effect' }, // game/room.go:664
-];
-
-function matchErrorText<C extends string>(
-  rules: readonly ErrorTextRule<C>[],
-  message: string,
-): { code: C; groups: Record<string, string> } | null {
-  for (const rule of rules) {
-    const m = rule.pattern.exec(message);
-    if (m !== null) return { code: rule.code, groups: rule.details === true ? { ...m.groups } : {} };
-  }
-  return null;
-}
-
 function interpretWsError(ctx: Ctx, payload: unknown): ProtocolErrorInfo {
-  const empty: ProtocolErrorInfo = { code: null, square: null, needed: null, available: null };
-  // P1-3 (contratto `proposed`): un codice esplicito prevale sul testo.
-  if (isRecord(payload) && typeof payload['code'] === 'string') {
-    if (isOneOf(PROTOCOL_ERROR_CODES, payload['code'])) return { ...empty, code: payload['code'] };
-    warn(ctx, 'error_code_unknown', payload['code']);
-  }
-  const message = isRecord(payload) && typeof payload['message'] === 'string' ? payload['message'] : null;
-  const matched = message === null ? null : matchErrorText(WS_ERROR_TEXTS, message);
-  if (matched === null) {
-    warn(ctx, 'error_text_unknown', message === null ? typeof payload : 'testo non riconosciuto');
-    return empty;
-  }
-  const square = matched.groups['square'];
-  const needed = matched.groups['needed'];
-  const available = matched.groups['available'];
+  const record = isRecord(payload) ? payload : {};
+  const rawCode = record['code'];
+  let code: ProtocolErrorCode | null = null;
+  if (isOneOf(PROTOCOL_ERROR_CODES, rawCode)) code = rawCode;
+  else if (typeof rawCode === 'string') warn(ctx, 'error_code_unknown', rawCode);
+  else warn(ctx, 'error_code_missing', isRecord(payload) ? 'nessun code' : typeof payload);
+
+  const parsed = parseWith(wireErrorDetailsSchema, isRecord(record['details']) ? record['details'] : {});
+  const details = parsed.ok ? parsed.data : {};
+  const square = details.square;
+  const phase = details.phase;
+  const king = details.king;
   return {
-    code: matched.code,
+    code,
     square: isSquare(square) ? square : null,
-    needed: needed === undefined ? null : Number(needed),
-    available: available === undefined ? null : Number(available),
+    phase: isOneOf(PHASES, phase) ? phase : null,
+    needed: intOrNull(details.needed),
+    available: intOrNull(details.available),
+    expected: intOrNull(details.expected),
+    received: intOrNull(details.received),
+    king: isOneOf(COLORS, king) ? king : null,
   };
 }
 
 // ===================================================================================================
-// §4 Encoder WebSocket in uscita (`game/room.go:268-310`)
+// §4 Encoder WebSocket in uscita (`game/room.go:365-408`)
 // ===================================================================================================
 
 type WireClientMessage =
@@ -661,29 +660,44 @@ export type Normalized<T> =
   | { readonly ok: true; readonly value: T; readonly warnings: readonly AdapterWarning[] }
   | { readonly ok: false; readonly issues: readonly string[] };
 
-/** Testi esatti degli errori REST. */
+interface ErrorTextRule<C extends string> {
+  readonly pattern: RegExp;
+  readonly code: C;
+}
+
+function matchErrorText<C extends string>(rules: readonly ErrorTextRule<C>[], message: string): C | null {
+  return rules.find((rule) => rule.pattern.test(message))?.code ?? null;
+}
+
+/** Testi esatti degli errori REST: la REST non ha codici (P1-3 applicata solo al WebSocket, ASSUMPTIONS C4). */
 export const HTTP_ERROR_TEXTS: readonly ErrorTextRule<HttpErrorCode>[] = [
   { pattern: /^Dati non validi$/, code: 'invalid_request' }, // handlers/auth.go:27,98,197
   { pattern: /^Username, email e password sono obbligatori$/, code: 'missing_fields' }, // handlers/auth.go:37
-  { pattern: /^username deve avere almeno 3 caratteri$/, code: 'username_too_short' }, // validation/validation.go:15
-  { pattern: /^username non può superare 20 caratteri$/, code: 'username_too_long' }, // validation/validation.go:18
-  { pattern: /^username può contenere solo lettere, numeri e underscore$/, code: 'username_invalid_chars' }, // validation/validation.go:21
-  { pattern: /^email non valida$/, code: 'email_invalid' }, // validation/validation.go:26
-  { pattern: /^password deve avere almeno 8 caratteri$/, code: 'password_too_short' }, // validation/validation.go:39
-  { pattern: /^password non può superare 72 caratteri$/, code: 'password_too_long' }, // validation/validation.go:43
-  { pattern: /^password deve contenere almeno una lettera maiuscola$/, code: 'password_needs_uppercase' }, // validation/validation.go:59
-  { pattern: /^password deve contenere almeno una lettera minuscola$/, code: 'password_needs_lowercase' }, // validation/validation.go:62
-  { pattern: /^password deve contenere almeno un numero$/, code: 'password_needs_digit' }, // validation/validation.go:65
+  { pattern: /^username deve avere almeno \d+ caratteri$/, code: 'username_too_short' }, // validation/validation.go:64
+  { pattern: /^username non può superare \d+ caratteri$/, code: 'username_too_long' }, // validation/validation.go:67
+  { pattern: /^username può contenere solo lettere, numeri e underscore$/, code: 'username_invalid_chars' }, // validation/validation.go:70
+  { pattern: /^email non valida$/, code: 'email_invalid' }, // validation/validation.go:75
+  { pattern: /^password deve avere almeno \d+ caratteri$/, code: 'password_too_short' }, // validation/validation.go:88
+  { pattern: /^password non può superare \d+ caratteri$/, code: 'password_too_long' }, // validation/validation.go:92
+  { pattern: /^password deve contenere almeno una lettera maiuscola$/, code: 'password_needs_uppercase' }, // validation/validation.go:108
+  { pattern: /^password deve contenere almeno una lettera minuscola$/, code: 'password_needs_lowercase' }, // validation/validation.go:111
+  { pattern: /^password deve contenere almeno un numero$/, code: 'password_needs_digit' }, // validation/validation.go:114
   { pattern: /^Username o email già in uso$/, code: 'username_or_email_taken' }, // handlers/auth.go:78
   { pattern: /^Credenziali non valide$/, code: 'invalid_credentials' }, // handlers/auth.go:116,126
   { pattern: /^Refresh token non valido o scaduto$/, code: 'refresh_token_invalid' }, // handlers/auth.go:210
-  { pattern: /^Token non valido o scaduto$/, code: 'token_invalid_or_expired' }, // middleware/auth.go:52
+  { pattern: /^Token non valido o scaduto$/, code: 'token_invalid_or_expired' }, // middleware/auth.go:42
   { pattern: /^Token non valido$/, code: 'token_invalid' }, // handlers/auth.go:222
-  { pattern: /^Token mancante$/, code: 'token_missing' }, // middleware/auth.go:38
+  { pattern: /^Token mancante$/, code: 'token_missing' }, // middleware/auth.go:36
+  { pattern: /^Ticket non valido o scaduto$/, code: 'ticket_invalid' }, // middleware/wsticket.go:88
   { pattern: /^Utente non trovato$/, code: 'user_not_found' }, // handlers/auth.go:236; handlers/stats.go:134
-  { pattern: /^Troppe richieste, rallenta!$/, code: 'rate_limited' }, // middleware/ratelimit.go:85
+  { pattern: /^Troppe richieste, rallenta!$/, code: 'rate_limited' }, // middleware/ratelimit.go:87
   { pattern: /^ID non valido$/, code: 'invalid_id' }, // handlers/stats.go:60,119
-  { pattern: /^(Errore interno|Errore generazione token|Errore recupero profilo|Errore DB)$/, code: 'internal_error' }, // handlers/auth.go:59,137,288; handlers/stats.go:25,82
+  { pattern: /^Risorsa non trovata$/, code: 'not_found' }, // api/router.go:33
+  { pattern: /^Metodo non consentito$/, code: 'method_not_allowed' }, // api/router.go:34
+  {
+    pattern: /^(Errore interno|Errore generazione token|Errore generazione ticket|Errore recupero profilo|Errore DB)$/,
+    code: 'internal_error',
+  }, // handlers/auth.go:59,137,145,247,257,288; handlers/ws.go:30; handlers/stats.go:25,82
 ];
 
 export type HttpOutcome =
@@ -692,7 +706,7 @@ export type HttpOutcome =
 
 /**
  * Interpreta una risposta HTTP a partire dal corpo testuale. L'inviluppo è `{success, data?, error?}`
- * (`models/response.go:5-9`); le rotte inesistenti rispondono in testo semplice (B12).
+ * (`models/response.go:5-9`), anche per 404 e 405 (`api/router.go:33-34`).
  */
 export function interpretHttpResponse(status: number, rawBody: string): HttpOutcome {
   const ctx = createCtx();
@@ -708,10 +722,10 @@ export function interpretHttpResponse(status: number, rawBody: string): HttpOutc
   }
 
   const text = envelope !== null && typeof envelope['error'] === 'string' ? envelope['error'] : null;
-  const matched = text === null ? null : matchErrorText(HTTP_ERROR_TEXTS, text);
-  let code: HttpErrorCode | null = matched?.code ?? null;
+  let code: HttpErrorCode | null = text === null ? null : matchErrorText(HTTP_ERROR_TEXTS, text);
   if (code === null) {
     if (status === 404) code = 'not_found';
+    else if (status === 405) code = 'method_not_allowed';
     else if (status === 503) code = 'service_unavailable'; // handlers/status.go:16: nessun testo d'errore
     else if (status === 429) code = 'rate_limited';
     else warn(ctx, 'http_error_text_unknown', `status ${status}`);
@@ -782,13 +796,13 @@ export function normalizePublicProfile(data: unknown): Normalized<PublicProfile>
   }));
 }
 
-/** `GET /leaderboard` (`handlers/stats.go:30-50`): `data` può essere `null` (B8). */
+/** `GET /leaderboard` (`handlers/stats.go:14-51`): `[]` se vuota; `null` resta tollerato. */
 export function normalizeLeaderboard(data: unknown): Normalized<readonly LeaderboardEntry[]> {
   const entry = z.object({ rank: count, id: wireId, username: nonEmptyString, elo: z.number() });
   return normalize(nullableList(entry), data, (list) => list);
 }
 
-/** `GET /users/{id}/games` (`handlers/stats.go:87-107`): `data` può essere `null` (B8). */
+/** `GET /users/{id}/games` (`handlers/stats.go:54-108`): `[]` se vuota; `null` resta tollerato. */
 export function normalizeGameHistory(data: unknown): Normalized<readonly GameHistoryEntry[]> {
   const entry = z.object({
     id: wireId,
@@ -841,19 +855,73 @@ export function encodeRefresh(refreshToken: string): string {
   return JSON.stringify({ refresh_token: refreshToken });
 }
 
+/** `GET /ws/ticket` → `{ticket, expires_in}` (`handlers/ws.go:23-42`). */
+export function normalizeWsTicket(data: unknown): Normalized<WsTicket> {
+  return normalize(z.object({ ticket: nonEmptyString, expires_in: count }), data, (d) => ({
+    ticket: d.ticket,
+    expiresInSeconds: d.expires_in,
+  }));
+}
+
+// ===================================================================================================
+// §6 Policy delle credenziali (`validation/validation.go`, ASSUMPTIONS C9)
+// ===================================================================================================
+
 /**
- * Requisiti delle credenziali, copiati da `validation/validation.go`. Servono solo a mostrarli prima del
- * submit (briefing §7.1); l'autorità resta il server. Le lunghezze della password sono in **byte**
- * (`len()` in Go), la lunghezza dello username dopo il trim.
+ * Riserva usata finché `GET /auth/password-policy` non risponde, o se risponde in modo inatteso: gli stessi valori
+ * di `validation/validation.go:11-58`. L'email non fa parte della policy del server: la sua regola (`:22`) resta
+ * replicata qui. Servono solo a mostrare i requisiti prima del submit (briefing §7.1); l'autorità resta il server.
+ * Le lunghezze della password sono in **byte** (`len()` in Go), quella dello username dopo il trim.
  */
-export const CREDENTIAL_POLICY = {
+export const FALLBACK_CREDENTIAL_POLICY: CredentialPolicy = {
   username: { minLength: 3, maxLength: 20, pattern: /^[a-zA-Z0-9_]+$/ },
   email: { pattern: /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/ },
   password: { minBytes: 8, maxBytes: 72, requireUppercase: true, requireLowercase: true, requireDigit: true },
-} as const;
+};
+
+const wirePolicySchema = z.object({
+  username: z.object({ min_length: count, max_length: count, pattern: z.string() }),
+  password: z.object({
+    min_length: count,
+    max_length: count,
+    require_uppercase: z.boolean(),
+    require_lowercase: z.boolean(),
+    require_digit: z.boolean(),
+  }),
+});
+
+/** Compila la regex RE2 del server come `RegExp` JS; se non compila si tiene quella di riserva (C9). */
+function compilePattern(ctx: Ctx, pattern: string): RegExp {
+  try {
+    return new RegExp(pattern);
+  } catch {
+    warn(ctx, 'password_policy_invalid', `pattern ${JSON.stringify(pattern)}`);
+    return FALLBACK_CREDENTIAL_POLICY.username.pattern;
+  }
+}
+
+/** `GET /auth/password-policy` (`handlers/catalog.go:24-30`, `validation/validation.go:27-58`). */
+export function normalizePasswordPolicy(data: unknown): Normalized<CredentialPolicy> {
+  const parsed = parseWith(wirePolicySchema, data);
+  if (!parsed.ok) return { ok: false, issues: parsed.issues };
+  const ctx = createCtx();
+  const { username, password } = parsed.data;
+  const policy: CredentialPolicy = {
+    username: { minLength: username.min_length, maxLength: username.max_length, pattern: compilePattern(ctx, username.pattern) },
+    email: FALLBACK_CREDENTIAL_POLICY.email,
+    password: {
+      minBytes: password.min_length,
+      maxBytes: password.max_length,
+      requireUppercase: password.require_uppercase,
+      requireLowercase: password.require_lowercase,
+      requireDigit: password.require_digit,
+    },
+  };
+  return { ok: true, value: policy, warnings: ctx.warnings };
+}
 
 // ===================================================================================================
-// §7 Catalogo magie (G10, C3)
+// §7 Catalogo magie (`GET /spells`, `handlers/catalog.go:13-20`; riserva `src/spells/fallback.json`, G10)
 // ===================================================================================================
 
 const wireSpellSchema = z.object({
@@ -870,7 +938,7 @@ export interface NormalizedCatalog {
   readonly warnings: readonly AdapterWarning[];
 }
 
-/** Accetta un array di magie o `{ spells: [...] }`. Le voci invalide vengono scartate una per una. */
+/** Accetta un array di magie (forma del server) o `{ spells: [...] }`. Le voci invalide vengono scartate una per una. */
 export function normalizeSpellCatalog(raw: unknown): NormalizedCatalog {
   const ctx = createCtx();
   const list: unknown = isRecord(raw) && Array.isArray(raw['spells']) ? raw['spells'] : raw;

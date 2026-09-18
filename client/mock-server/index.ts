@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { pathToFileURL } from 'node:url';
 
 import { createJwtService } from './auth/jwt';
+import { createTicketStore } from './auth/tickets';
 import { configFromEnv, DEFAULT_CONFIG, type MockConfig } from './config';
 import { RAW_CATALOG } from './game/catalog';
 import { createRequestGate, createRestApp } from './rest/app';
@@ -24,9 +25,10 @@ export async function startMockServer(overrides: Partial<MockConfig> = {}): Prom
   const log = createLogger(config.quiet);
   const users = createUserStore();
   const jwt = createJwtService({ accessSeconds: config.accessTokenTtlSeconds, refreshSeconds: config.refreshTokenTtlSeconds });
-  const gate = createRequestGate(config, jwt);
+  const tickets = createTicketStore();
+  const gate = createRequestGate(config, jwt, tickets);
 
-  const app = createRestApp({ config, users, jwt, catalog: RAW_CATALOG }, gate);
+  const app = createRestApp({ config, users, jwt, tickets, catalog: RAW_CATALOG }, gate);
   const gateway = createGateway({ config, users, gate, log });
   const server = createServer(app);
   server.on('upgrade', (req, socket, head) => gateway.handleUpgrade(req, socket, head));
@@ -36,7 +38,7 @@ export async function startMockServer(overrides: Partial<MockConfig> = {}): Prom
     server.listen(config.port, () => resolve());
   });
   const { port } = server.address() as AddressInfo;
-  log.info(`in ascolto su http://localhost:${port} — contratto "${config.contract}", scenario di default "${config.scenario}"`);
+  log.info(`in ascolto su http://localhost:${port} — scenario di default "${config.scenario}"`);
 
   return {
     port,

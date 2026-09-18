@@ -4,14 +4,27 @@ import {
   encodeRegister,
   normalizeAccount,
   normalizeLogin,
+  normalizePasswordPolicy,
   normalizePublicProfile,
   normalizeRegistration,
+  normalizeSpellCatalog,
   normalizeTokenPair,
+  normalizeWsTicket,
   type HttpOutcome,
   type Normalized,
 } from './adapter';
 import type { HttpClient } from './http';
-import type { AuthSession, HttpErrorInfo, PublicProfile, Registration, TokenPair, UserAccount } from './types';
+import type { Spell } from '../spells/schema';
+import type {
+  AuthSession,
+  CredentialPolicy,
+  HttpErrorInfo,
+  PublicProfile,
+  Registration,
+  TokenPair,
+  UserAccount,
+  WsTicket,
+} from './types';
 
 /** Esito di una chiamata: dato già normalizzato dall'adapter, oppure errore con codice. */
 export type ApiResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: HttpErrorInfo };
@@ -22,6 +35,12 @@ function toResult<T>(outcome: HttpOutcome, normalize: (data: unknown) => Normali
   return normalized.ok
     ? { ok: true, value: normalized.value }
     : { ok: false, error: { status: 200, code: 'invalid_response' } };
+}
+
+/** Il catalogo non fallisce mai: le voci invalide vengono scartate dall'adapter (G10). */
+function normalizeCatalogList(data: unknown): Normalized<readonly Spell[]> {
+  const catalog = normalizeSpellCatalog(data);
+  return { ok: true, value: catalog.spells, warnings: catalog.warnings };
 }
 
 /** Endpoint REST usati dal client (chess-server `api/router.go`). */
@@ -46,6 +65,24 @@ export function createApi(http: HttpClient) {
 
     async fetchPublicProfile(userId: string): Promise<ApiResult<PublicProfile>> {
       return toResult(await http.request('GET', `/users/${encodeURIComponent(userId)}`), normalizePublicProfile);
+    },
+
+    /** Requisiti di registrazione (`handlers/catalog.go:24-30`). Pubblico. */
+    async fetchPasswordPolicy(): Promise<ApiResult<CredentialPolicy>> {
+      return toResult(await http.request('GET', '/auth/password-policy'), normalizePasswordPolicy);
+    },
+
+    /** Catalogo delle magie (`handlers/catalog.go:13-20`). Pubblico. */
+    async fetchSpellCatalog(): Promise<ApiResult<readonly Spell[]>> {
+      return toResult(await http.request('GET', '/spells'), normalizeCatalogList);
+    },
+
+    /**
+     * Ticket monouso per aprire il WebSocket (`handlers/ws.go:23-42`). Autenticato: un 401 passa dal refresh
+     * condiviso di `http.ts`. Va chiesto a ogni apertura, anche nelle riconnessioni.
+     */
+    async fetchWsTicket(): Promise<ApiResult<WsTicket>> {
+      return toResult(await http.request('GET', '/ws/ticket', { auth: true }), normalizeWsTicket);
     },
   };
 }

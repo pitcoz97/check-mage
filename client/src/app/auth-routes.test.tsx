@@ -113,7 +113,7 @@ describe('login', () => {
 });
 
 describe('registrazione', () => {
-  it('requisiti visibili prima del submit, submit abilitato solo quando sono tutti soddisfatti', async () => {
+  it('requisiti visibili prima del submit (policy di riserva se l’endpoint non risponde), submit abilitato solo quando sono tutti soddisfatti', async () => {
     await renderApp('/register', {});
     await screen.findByRole('heading', { name: 'Crea un account' });
     const submit = screen.getByRole('button', { name: 'Crea account' }) as HTMLButtonElement;
@@ -145,7 +145,26 @@ describe('registrazione', () => {
     });
     expect(await screen.findByRole('heading', { name: 'Pronto a giocare?' })).toBeTruthy();
     expect(router.state.location.pathname).toBe('/lobby');
-    expect(server.hits).toEqual(['POST /auth/register', 'POST /auth/login']);
+    expect(server.hits.filter((hit) => hit !== 'GET /auth/password-policy')).toEqual(['POST /auth/register', 'POST /auth/login']);
+  });
+
+  it('i requisiti seguono GET /auth/password-policy', async () => {
+    const policy = {
+      username: { min_length: 4, max_length: 16, pattern: '^[a-z]+$' },
+      password: { min_length: 10, max_length: 64, require_uppercase: false, require_lowercase: true, require_digit: true },
+    };
+    const { server } = await renderApp('/register', { 'GET /auth/password-policy': () => data(policy) });
+    await screen.findByText('Nome utente da 4 a 16 caratteri');
+    expect(server.hits).toContain('GET /auth/password-policy');
+    expect(screen.getByText('Password da 10 a 64 caratteri')).toBeTruthy();
+    expect(document.querySelector('[data-check="passwordUppercase"]')).toBeNull();
+
+    type('Nome utente', 'mario');
+    type('Email', 'mario@test.it');
+    type('Password', 'password12');
+    expect((screen.getByRole('button', { name: 'Crea account' }) as HTMLButtonElement).disabled).toBe(false);
+    type('Nome utente', 'mario_1');
+    expect(document.querySelector('[data-check="usernameChars"]')?.getAttribute('data-met')).toBe('false');
   });
 
   it('errori del server sotto il campo giusto o sul form', async () => {

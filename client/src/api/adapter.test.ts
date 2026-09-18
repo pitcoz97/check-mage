@@ -11,19 +11,22 @@ import {
   encodeRegister,
   interpretHttpResponse,
   normalizeAccount,
+  FALLBACK_CREDENTIAL_POLICY,
   normalizeGameHistory,
   normalizeLeaderboard,
   normalizeLogin,
+  normalizePasswordPolicy,
   normalizePublicProfile,
   normalizeRegistration,
   normalizeSpellCatalog,
   normalizeStatus,
   normalizeTokenPair,
+  normalizeWsTicket,
   type AdapterWarningCode,
 } from './adapter';
 
 /**
- * Payload costruiti come li serializza chess-server (`internal/`, commit 7f817e5).
+ * Payload costruiti come li serializza chess-server (`internal/`, branch `fix/backend-requests`).
  */
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -43,10 +46,13 @@ function failureKind(result: DecodeResult): string | null {
   return result.ok ? null : result.failure.kind;
 }
 
-/** `game/room.go:1101-1119`, così come lo produce `publicState()`. */
+/** `game/room.go:1360-1386`, così come lo produce `publicState()`. */
 function publicState(overrides: Record<string, unknown> = {}) {
   return {
     board: { fen: START_FEN, moves: [], turn: 'white', status: 'active' },
+    white_player: { id: 42, username: 'mario' },
+    black_player: { id: 7, username: 'luigi' },
+    time_control: { base_ms: 600000, increment_ms: 5000 },
     white_time: 600000,
     black_time: 600000,
     phase: 'draw',
@@ -84,7 +90,7 @@ describe('busta WebSocket', () => {
 });
 
 describe('game_state', () => {
-  it('stato pubblico completo, senza identità dei giocatori (contratto current)', () => {
+  it('stato pubblico completo, con giocatori e time control', () => {
     const { event, codes } = decodeOk(
       frame(
         'game_state',
@@ -96,7 +102,7 @@ describe('game_state', () => {
         }),
       ),
     );
-    expect(codes).toEqual(['players_missing']);
+    expect(codes).toEqual([]);
     expect(event).toEqual({
       type: 'game_state',
       state: {
@@ -113,31 +119,39 @@ describe('game_state', () => {
         deckSizes: { white: 36, black: 36 },
         activeEffects: [{ square: 'e7', effects: [{ kind: 'freeze', remainingTurns: 2, sourceSpellId: 'frostbolt' }] }],
         reconnected: false,
-        players: null,
+        players: { white: { id: '42', username: 'mario' }, black: { id: '7', username: 'luigi' } },
+        timeControl: { baseMs: 600000, incrementMs: 5000 },
       },
     });
   });
 
-  it('P0-5 (contratto proposed): identità dei giocatori; riconnessione', () => {
-    const { event, codes } = decodeOk(
-      frame(
-        'game_state',
-        publicState({
-          reconnected: true,
-          white_player: { id: 42, username: 'mario' },
-          black_player: { id: 7, username: 'luigi' },
-        }),
-      ),
-    );
-    expect(codes).toEqual([]);
-    expect(event.type === 'game_state' && event.state.players).toEqual({
-      white: { id: '42', username: 'mario' },
-      black: { id: '7', username: 'luigi' },
-    });
-    expect(event.type === 'game_state' && event.state.reconnected).toBe(true);
+  it('riconnessione; giocatori o time control mancanti → null + warning, il colore non si deduce (C1)', () => {
+    expect(decodeOk(frame('game_state', publicState({ reconnected: true }))).event).toMatchObject({ state: { reconnected: true } });
+    const { white_player: _w, black_player: _b, time_control: _t, ...legacy } = publicState();
+    const { event, codes } = decodeOk(frame('game_state', legacy));
+    expect(event).toMatchObject({ state: { players: null, timeControl: null } });
+    expect(codes).toEqual(['players_missing']);
+    const bad = decodeOk(frame('game_state', publicState({ time_control: { base_ms: '10' } })));
+    expect(bad.event).toMatchObject({ state: { timeControl: null } });
+    expect(bad.codes).toEqual(['value_invalid']);
   });
 
-  it('status terminali, moves null, effetti malformati scartati uno per uno', () => {
+  it('mosse: 0000 è la mossa assorbita da uno scudo (game/room.go:37,488)', () => {
+    const { event } = decodeOk(
+      frame('game_state', publicState({ board: { fen: START_FEN, moves: ['e2e4', '0000', 'e7e8q'], turn: 'white', status: 'active' } })),
+    );
+    expect(event).toMatchObject({
+      state: { moves: [{ kind: 'move', uci: 'e2e4' }, { kind: 'absorbed' }, { kind: 'move', uci: 'e7e8q' }] },
+    });
+  });
+
+  it.each(['checkmate', 'stalemate', 'draw', 'resigned', 'timeout', 'abandoned'])('status terminale %s', (status) => {
+    const { event, codes } = decodeOk(frame('game_state', publicState({ board: { fen: START_FEN, moves: [], turn: 'white', status } })));
+    expect(event).toMatchObject({ state: { status } });
+    expect(codes).toEqual([]);
+  });
+
+  it('moves null, effetti malformati scartati uno per uno', () => {
     const { event, codes } = decodeOk(
       frame(
         'game_state',
@@ -148,7 +162,6 @@ describe('game_state', () => {
       ),
     );
     if (event.type !== 'game_state') throw new Error('tipo inatteso');
-    expect(event.state.status).toBe('checkmate');
     expect(event.state.moves).toEqual([]);
     expect(event.state.activeEffects).toEqual([
       { square: 'd4', effects: [{ kind: 'shield', remainingTurns: 1, sourceSpellId: null }] },
@@ -292,85 +305,66 @@ describe('orologio, fine partita, patta, connessione', () => {
   });
 
   it('i messaggi solo testuali scartano il testo del server', () => {
-    for (const type of ['draw_offer_sent', 'draw_declined', 'opponent_disconnected', 'opponent_reconnected'] as const) {
+    for (const type of ['draw_offer_sent', 'opponent_disconnected', 'opponent_reconnected'] as const) {
       const { event } = decodeOk(frame(type, { message: 'mario si è riconnesso!' }));
       expect(event).toEqual({ type });
     }
     expect(decodeOk(frame('draw_offer', { from: 'mario' })).event).toEqual({ type: 'draw_offer', from: 'mario' });
   });
+
+  it('draw_declined: rifiutata o decaduta per mossa; il testo resta fuori', () => {
+    expect(decodeOk(frame('draw_declined', { message: 'luigi ha rifiutato la patta', reason: 'declined' })).event).toEqual({
+      type: 'draw_declined',
+      reason: 'declined',
+    });
+    expect(decodeOk(frame('draw_declined', { message: 'x', reason: 'move_played' })).event).toEqual({
+      type: 'draw_declined',
+      reason: 'move_played',
+    });
+    expect(decodeOk(frame('draw_declined', { message: 'x' })).event).toEqual({ type: 'draw_declined', reason: 'declined' });
+    const unknown = decodeOk(frame('draw_declined', { reason: 'timeout' }));
+    expect(unknown.event).toEqual({ type: 'draw_declined', reason: 'unknown' });
+    expect(unknown.codes).toEqual(['enum_unknown']);
+  });
 });
 
-describe('error: testi del server → codici (§3b)', () => {
-  const samples: [string, string][] = [
-    ['Non è il tuo turno', 'not_your_turn'],
-    ['non è il tuo turno', 'not_your_turn'],
-    ['Non puoi muovere nella fase main1', 'wrong_phase'],
-    ['Non puoi passare nella fase move', 'wrong_phase'],
-    ['non puoi castare magie nella fase move', 'wrong_phase'],
-    ['Frost Bolt non è giocabile nella fase move', 'wrong_phase'],
-    ['Mossa illegale: e2e5', 'illegal_move'],
-    ['mossa illegale: lascerebbe il re sotto scacco', 'exposes_own_king'],
-    ['Il pezzo in e2 è congelato', 'piece_frozen'],
-    ['Formato mossa non valido', 'malformed_message'],
-    ['Formato cast_spell non valido', 'malformed_message'],
-    ['Formato messaggio non valido', 'malformed_message'],
-    ['Tipo messaggio sconosciuto: chat', 'unknown_message_type'],
-    ['Stai inviando messaggi troppo velocemente', 'rate_limited'],
-    ["C'è già un'offerta di patta in corso", 'draw_offer_pending'],
-    ['Nessuna offerta di patta in corso', 'no_draw_offer'],
-    ['Non puoi rispondere alla tua stessa offerta', 'own_draw_offer'],
-    ['Sei già in coda', 'already_queued'],
-    ['magia sconosciuta: fireball', 'unknown_spell'],
-    ['carta non in mano', 'card_not_in_hand'],
-    ['mana insufficiente: servono 4, hai 1', 'insufficient_mana'],
-    ['la magia Teleport richiede 2 bersagli, ricevuti 1', 'wrong_target_count'],
-    ['la magia Aegis richiede un bersaglio', 'wrong_target_count'],
-    ['la magia Teleport richiede casella di partenza e arrivo', 'wrong_target_count'],
-    ['nessun pezzo da distruggere in e5', 'no_piece_on_target'],
-    ['nessun pezzo da congelare in e5', 'no_piece_on_target'],
-    ['nessun pezzo da proteggere in e5', 'no_piece_on_target'],
-    ['nessun pezzo da spostare in e5', 'no_piece_on_target'],
-    ['nessun pezzo in e5', 'no_piece_on_target'],
-    ['non puoi distruggere un tuo pezzo (e2)', 'target_must_be_enemy'],
-    ['non puoi congelare un tuo pezzo (e2)', 'target_must_be_enemy'],
-    ['puoi proteggere solo i tuoi pezzi (e7)', 'target_must_be_own'],
-    ['puoi spostare solo i tuoi pezzi (e7)', 'target_must_be_own'],
-    ['il re non può essere distrutto', 'king_not_targetable'],
-    ['la casella e4 non è vuota', 'destination_occupied'],
-    ['casella non valida: "e"', 'invalid_square'],
-    ['casella fuori scacchiera: "z9"', 'invalid_square'],
-    ['effetto non supportato: summon', 'unsupported_effect'],
-  ];
+describe('error: codici e dettagli (§3b, gameerr/gameerr.go)', () => {
+  const none = { square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null };
 
-  it.each(samples)('%s → %s', (message, code) => {
-    const { event, codes } = decodeOk(frame('error', { message }));
-    expect(event).toMatchObject({ type: 'error', error: { code } });
+  it('il codice arriva così com’è, il testo resta fuori', () => {
+    const { event, codes } = decodeOk(frame('error', { message: 'Non è il tuo turno', code: 'not_your_turn' }));
+    expect(event).toEqual({ type: 'error', error: { ...none, code: 'not_your_turn' } });
     expect(codes).toEqual([]);
-    expect(JSON.stringify(event)).not.toContain(message);
+    expect(JSON.stringify(event)).not.toContain('turno');
   });
 
-  it('estrae dettagli numerici e casella', () => {
-    expect(decodeOk(frame('error', { message: 'mana insufficiente: servono 4, hai 1' })).event).toEqual({
+  it('dettagli usati dalla UI', () => {
+    const decode = (code: string, details: Record<string, unknown>) =>
+      decodeOk(frame('error', { message: 'x', code, details })).event;
+    expect(decode('insufficient_mana', { needed: 4, available: 1 })).toEqual({
       type: 'error',
-      error: { code: 'insufficient_mana', square: null, needed: 4, available: 1 },
+      error: { ...none, code: 'insufficient_mana', needed: 4, available: 1 },
     });
-    expect(decodeOk(frame('error', { message: 'Il pezzo in g7 è congelato' })).event).toMatchObject({
-      error: { code: 'piece_frozen', square: 'g7' },
+    expect(decode('piece_frozen', { square: 'g7' })).toMatchObject({ error: { code: 'piece_frozen', square: 'g7' } });
+    expect(decode('wrong_phase', { phase: 'move' })).toMatchObject({ error: { phase: 'move' } });
+    expect(decode('invalid_target_count', { expected: 2, received: 1 })).toMatchObject({ error: { expected: 2, received: 1 } });
+    expect(decode('illegal_position', { king: 'black' })).toMatchObject({ error: { code: 'illegal_position', king: 'black' } });
+    // Dettagli di forma inattesa vengono ignorati, non fanno fallire l'evento.
+    expect(decode('wrong_phase', { phase: 'lunch', square: 'z9', needed: '4' })).toEqual({
+      type: 'error',
+      error: { ...none, code: 'wrong_phase' },
     });
   });
 
-  it('testo sconosciuto o payload inatteso → code null + warning, mai un fallimento', () => {
-    for (const payload of [{ message: 'Qualcosa di nuovo' }, 'stringa nuda', null, 42]) {
+  it('codice sconosciuto o mancante → code null + warning, mai un fallimento', () => {
+    const unknown = decodeOk(frame('error', { message: 'x', code: 'dragon_asleep' }));
+    expect(unknown.event).toEqual({ type: 'error', error: { ...none, code: null } });
+    expect(unknown.codes).toEqual(['error_code_unknown']);
+    for (const payload of [{ message: 'Un errore mai visto prima' }, 'stringa nuda', null, 42]) {
       const { event, codes } = decodeOk(frame('error', payload));
-      expect(event).toEqual({ type: 'error', error: { code: null, square: null, needed: null, available: null } });
-      expect(codes).toEqual(['error_text_unknown']);
+      expect(event).toEqual({ type: 'error', error: { ...none, code: null } });
+      expect(codes).toEqual(['error_code_missing']);
     }
-  });
-
-  it('P1-3 (contratto proposed): un code esplicito prevale sul testo', () => {
-    expect(decodeOk(frame('error', { message: 'x', code: 'card_not_in_hand' })).event).toMatchObject({
-      error: { code: 'card_not_in_hand' },
-    });
   });
 });
 
@@ -385,8 +379,8 @@ describe('encoder', () => {
     ).toEqual({ type: 'cast_spell', payload: { spell_id: 'teleport', targets: ['b1', 'c3'] } });
   });
 
-  it('connection.ts: token come query param', () => {
-    expect(buildSocketUrl('ws://localhost:8080/ws', 'a.b.c')).toBe('ws://localhost:8080/ws?token=a.b.c');
+  it('connection.ts: ticket monouso come query param', () => {
+    expect(buildSocketUrl('ws://localhost:8080/ws', 'ab12')).toBe('ws://localhost:8080/ws?ticket=ab12');
   });
 });
 
@@ -408,13 +402,17 @@ describe('REST', () => {
     [401, 'Token non valido', 'token_invalid'],
     [401, 'Token mancante', 'token_missing'],
     [401, 'Refresh token non valido o scaduto', 'refresh_token_invalid'],
+    [401, 'Ticket non valido o scaduto', 'ticket_invalid'],
+    [404, 'Risorsa non trovata', 'not_found'],
+    [405, 'Metodo non consentito', 'method_not_allowed'],
+    [500, 'Errore generazione ticket', 'internal_error'],
     [429, 'Troppe richieste, rallenta!', 'rate_limited'],
     [500, 'Errore DB', 'internal_error'],
   ])('%i %s → %s', (status, text, code) => {
     expect(interpretHttpResponse(status, ko(text))).toEqual({ ok: false, error: { status, code }, warnings: [] });
   });
 
-  it('404 in testo semplice, 503 senza testo, testo sconosciuto', () => {
+  it('404 in testo semplice (tollerato), 503 senza testo, testo sconosciuto', () => {
     expect(interpretHttpResponse(404, '404 page not found\n')).toMatchObject({ ok: false, error: { status: 404, code: 'not_found' } });
     expect(
       interpretHttpResponse(503, JSON.stringify({ success: false, data: { status: 'unavailable', version: '0.1.0' } })),
@@ -466,6 +464,35 @@ describe('REST', () => {
       healthy: false,
       version: '0.1.0',
     });
+  });
+
+  it('ticket WebSocket', () => {
+    expect(normalizeWsTicket({ ticket: 'ab12', expires_in: 30 })).toEqual({
+      ok: true,
+      value: { ticket: 'ab12', expiresInSeconds: 30 },
+      warnings: [],
+    });
+    expect(normalizeWsTicket({ ticket: '' })).toMatchObject({ ok: false });
+  });
+
+  it('password policy (C9): valori del server, regex RE2 non compilabile → riserva + warning', () => {
+    const wire = {
+      username: { min_length: 4, max_length: 16, pattern: '^[a-z]+$' },
+      password: { min_length: 10, max_length: 64, require_uppercase: false, require_lowercase: true, require_digit: true },
+    };
+    const result = normalizePasswordPolicy(wire);
+    if (!result.ok) throw new Error('policy rifiutata');
+    expect(result.warnings).toEqual([]);
+    expect(result.value.username).toMatchObject({ minLength: 4, maxLength: 16 });
+    expect(result.value.username.pattern.test('mario')).toBe(true);
+    expect(result.value.username.pattern.test('Mario')).toBe(false);
+    expect(result.value.password).toEqual({ minBytes: 10, maxBytes: 64, requireUppercase: false, requireLowercase: true, requireDigit: true });
+    expect(result.value.email).toBe(FALLBACK_CREDENTIAL_POLICY.email);
+
+    const re2 = normalizePasswordPolicy({ ...wire, username: { ...wire.username, pattern: '(?P<nome>[a-z]+)' } });
+    expect(re2.ok && re2.value.username.pattern).toBe(FALLBACK_CREDENTIAL_POLICY.username.pattern);
+    expect(re2.ok && re2.warnings.map((w) => w.code)).toEqual(['password_policy_invalid']);
+    expect(normalizePasswordPolicy({ username: {} })).toMatchObject({ ok: false });
   });
 
   it('encoder dei body', () => {

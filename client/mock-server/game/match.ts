@@ -1,4 +1,4 @@
-import { WS, type ServerText } from '../serverTexts';
+import { WS, type GameError } from '../serverTexts';
 import { shuffle, type Rng } from '../util';
 import type { WirePhase } from '../wire';
 import { buildDeck, CATALOG, INITIAL_MANA, MAX_MANA_CAP, STARTING_HAND, targetCount, type Spell } from './catalog';
@@ -64,8 +64,8 @@ export interface CastResult {
 export type ApplyEffects = (spell: Spell, targets: string[]) => Record<string, unknown>[];
 
 export class CastError extends Error {
-  constructor(readonly text: ServerText) {
-    super(text.message);
+  constructor(readonly error: GameError) {
+    super(error.message);
   }
 }
 
@@ -101,7 +101,7 @@ export class MatchState {
   readonly white: PlayerState;
   readonly black: PlayerState;
 
-  /** `match.go:51-62`: il Bianco non pesca al turno 1. */
+  /** `match.go:50-73`: il Bianco non pesca al turno 1. */
   constructor(
     rng: Rng,
     private readonly overrides: MatchOverrides = {},
@@ -130,7 +130,7 @@ export class MatchState {
     return { ...r, phase: this.currentPhase, activePlayer: this.activePlayer, turnNumber: this.turnNumber };
   }
 
-  /** `match.go:155-178`: da main2 un Advance approda direttamente alla draw avversaria. */
+  /** `match.go:154-178`: da main2 un Advance approda direttamente alla draw avversaria. */
   advance(): AdvanceResult {
     const index = ORDER.indexOf(this.currentPhase);
     const next = ORDER[(index + 1) % ORDER.length] as WirePhase;
@@ -150,14 +150,14 @@ export class MatchState {
     return this.drawCard(p);
   }
 
-  /** `match.go:188-195`. */
+  /** `match.go:187-196`. */
   gainMana(p: Color, amount: number): ManaState {
     const ps = this.player(p);
     ps.mana = Math.min(MAX_MANA_CAP, ps.mana + amount);
     return { player: p, current: ps.mana, max: ps.max_mana };
   }
 
-  /** `match.go:199-211`. */
+  /** `match.go:198-214`. */
   canCastAny(): boolean {
     if (!this.allows('cast_spell')) return false;
     const ps = this.player(this.activePlayer);
@@ -167,7 +167,7 @@ export class MatchState {
     });
   }
 
-  /** `match.go:217-238`. */
+  /** `match.go:216-239`. */
   autoAdvance(): AdvanceResult[] {
     const results: AdvanceResult[] = [];
     for (let i = 0; i < 12 && this.shouldAutoAdvance(); i++) results.push(this.advance());
@@ -180,7 +180,7 @@ export class MatchState {
     return false;
   }
 
-  /** `match.go:242-260`. */
+  /** `match.go:241-261`. */
   private refreshMana(p: Color): ManaState {
     const ps = this.player(p);
     const index = p === 'white' ? Math.floor((this.turnNumber + 1) / 2) : Math.floor(this.turnNumber / 2);
@@ -191,7 +191,7 @@ export class MatchState {
     return { player: p, current: ps.mana, max: ps.max_mana };
   }
 
-  /** `match.go:264-277`. */
+  /** `match.go:263-290`. */
   private drawCard(p: Color): DrawResult {
     const ps = this.player(p);
     const card = ps.deck.shift();
@@ -199,7 +199,7 @@ export class MatchState {
     return { player: p, cardId: card ?? '', handSize: ps.hand.length, deckSize: ps.deck.length };
   }
 
-  /** `match.go:301-349`: valida, applica gli effetti PRIMA di spendere, poi scala mana e scarta. */
+  /** `match.go:300-353`: valida, applica gli effetti PRIMA di spendere, poi scala mana e scarta. */
   castSpell(p: Color, spellId: string, targets: string[] | null, apply: ApplyEffects): CastResult {
     if (!this.isActive(p)) throw new CastError(WS.castNotYourTurn);
     if (!this.allows('cast_spell')) throw new CastError(WS.castWrongPhase(this.currentPhase));
@@ -208,7 +208,7 @@ export class MatchState {
     if (!def.phases.includes(this.currentPhase)) throw new CastError(WS.spellWrongPhase(def.name, this.currentPhase));
     const ps = this.player(p);
     const index = ps.hand.indexOf(spellId);
-    if (index < 0) throw new CastError(WS.cardNotInHand);
+    if (index < 0) throw new CastError(WS.cardNotInHand(spellId));
     if (ps.mana < def.mana_cost) throw new CastError(WS.insufficientMana(def.mana_cost, ps.mana));
     const received = targets?.length ?? 0;
     const expected = targetCount(def.target_type);
