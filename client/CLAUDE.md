@@ -21,11 +21,12 @@ Serve sempre `npm run mock` in parallelo a `npm run dev`: senza, il client non h
 
 ## Stato del backend
 
-Il codice del server Go è **consultabile in sola lettura** in `C:\Projects\chess-server`
-(non modificarlo mai). Qui **non è eseguibile** (niente Go, Postgres, Stockfish): si sviluppa
+Il codice del server Go è **consultabile in sola lettura** in `C:\Projects\chess-server`,
+branch `fix/backend-requests` (non modificarlo mai). Le modifiche fatte per il client sono riassunte in
+`docs/SERVER-CHANGES.md` del server. Qui **non è eseguibile** (niente Go, Postgres, Stockfish): si sviluppa
 contro il mock in `mock-server/`, che è un porting fedele della logica Go.
 
-Gerarchia delle fonti, dalla più autorevole: **codice Go** > `PROTOCOL.md` del server >
+Gerarchia delle fonti, dalla più autorevole: **codice Go** > `PROTOCOL.md` e `docs/SERVER-CHANGES.md` del server >
 `docs/SERVER_API.md` e `docs/FRONTEND_TEST_SPEC.md` (ignora le parti Unreal; alcuni punti sono
 superati dal codice, vedi `docs/ASSUMPTIONS.md`) > briefing §3.
 
