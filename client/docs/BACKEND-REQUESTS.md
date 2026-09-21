@@ -60,6 +60,26 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
   L'access token resta nel body e il client lo tiene solo in memoria. Serve anche un `POST /auth/logout` che cancelli
   il cookie. Su Capacitor il body resta necessario: il cookie va affiancato, non sostituito.
 
+### P2-12 — Esporre la finestra di rientro
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** il banner di riconnessione mostra i secondi residui per rientrare, ma `RECONNECT_TIMEOUT` (`config/config.go:68`)
+  non arriva al client, che assume 30s (ASSUMPTIONS C12).
+- **Contratto proposto:** `reconnect_timeout_ms` in `game_state` (o in `GET /status`).
+
+### P2-13 — Sapere se c'è una partita in corso senza aprire il socket
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** aprire `/ws` senza partita mette l'utente in coda (`game/manager.go:31-101`). Dopo un ricaricamento il client
+  ricorda da sé la partita aperta (ASSUMPTIONS C11), ma non può saperlo da un altro dispositivo.
+- **Contratto proposto:** `GET /me/match` (Bearer) → `{room_id, color}` oppure `data: null`.
+
+### P2-14 — Turni residui degli effetti dopo il cambio di turno
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** `tickEffectsOnNewTurn` (`game/room.go:858-866`) decrementa `remaining_turns` al rollover, ma dopo un `pass_phase` o
+  un cast che chiude il turno non parte un `game_state`: il client mostra il valore vecchio fino alla mossa successiva
+  (ASSUMPTIONS C13). Emerso dal confronto reducer/server nell'e2e.
+- **Contratto proposto:** `game_state` anche quando il rollover decrementa degli effetti, oppure un evento `effects_ticked`
+  con `active_effects`.
+
 ---
 
 ## Applicate in `fix/backend-requests`
