@@ -28,7 +28,8 @@ export function SpellCard({ spell, spellId, refusal, selected = false, onPick }:
   const { t } = useTranslation();
   const playable = refusal === null;
   const name = spell?.name ?? spellId;
-  const rules = spell === undefined ? [t('spells.refusal.unknown_spell')] : spellRulesText(t, spell.effects);
+  // Di una magia che il catalogo non conosce non si inventa il testo: resta il nome, e il motivo sotto.
+  const rules = spell === undefined ? [] : spellRulesText(t, spell.effects);
 
   return (
     <button
@@ -40,8 +41,9 @@ export function SpellCard({ spell, spellId, refusal, selected = false, onPick }:
       onClick={onPick}
       aria-label={name}
       className={[
-        'flex h-40 w-32 shrink-0 flex-col gap-1 rounded-md border-2 bg-elevated p-2 text-left',
-        playable ? 'border-spell-frame' : 'border-subtle opacity-60',
+        'flex h-40 w-32 shrink-0 flex-col gap-1 rounded-md border-2 p-2 text-left',
+        // La carta spenta si distingue per superficie e cornice, non per opacità: il testo deve restare leggibile.
+        playable ? 'border-spell-frame bg-elevated' : 'border-subtle bg-panel',
         selected ? 'outline outline-2 outline-offset-2 outline-accent' : '',
       ].join(' ')}
     >
@@ -67,7 +69,7 @@ export function SpellCard({ spell, spellId, refusal, selected = false, onPick }:
       </span>
 
       {refusal !== null && (
-        <span data-refusal className="mt-auto text-xs leading-tight text-danger">
+        <span data-refusal className="mt-auto text-xs leading-tight font-semibold text-primary">
           {cardRefusalMessage(t, refusal, spell)}
         </span>
       )}

@@ -257,6 +257,17 @@ export const en: Translation = {
       invalid_target: 'Not a valid target for this spell.',
       cast_pending: 'Waiting for the server.',
     },
+    dev: {
+      title: 'Spell catalogue',
+      source: 'Source: {{source}} — {{count}} spells',
+      stateLabel: 'Card state',
+      state: {
+        playable: 'Playable',
+        mana: 'Not enough mana',
+        phase: 'Wrong phase',
+        targeting: 'Targeting',
+      },
+    },
   },
   errors: {
     notFoundTitle: 'Page not found',

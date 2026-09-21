@@ -261,6 +261,18 @@ export const it = {
       invalid_target: 'Bersaglio non valido per questa magia.',
       cast_pending: 'Attendi la risposta del server.',
     },
+    /** Pagina di sviluppo `/dev/cards`: non esiste nella build di produzione. */
+    dev: {
+      title: 'Catalogo magie',
+      source: 'Sorgente: {{source}} — {{count}} magie',
+      stateLabel: 'Stato delle carte',
+      state: {
+        playable: 'Giocabile',
+        mana: 'Mana insufficiente',
+        phase: 'Fase sbagliata',
+        targeting: 'In targeting',
+      },
+    },
   },
   errors: {
     notFoundTitle: 'Pagina non trovata',
