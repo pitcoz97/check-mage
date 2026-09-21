@@ -17,6 +17,10 @@
   --color-board-hint: var(--board-hint);
   --color-board-last: var(--board-last);
   --color-board-check: var(--board-check);
+  --color-board-select: var(--board-select);
+  --color-piece-light: var(--piece-light);
+  --color-piece-dark: var(--piece-dark);
+  --color-piece-edge: var(--piece-edge);
 
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);

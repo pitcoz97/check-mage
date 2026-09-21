@@ -17,6 +17,12 @@
   --board-hint: rgba(20, 85, 30, 0.5);
   --board-last: rgba(255, 255, 51, 0.5);
   --board-check: #e02b2b;
+  --board-select: rgba(255, 255, 51, 0.75);
+
+  /* Pezzi: set disegnato in casa (CREDITS.md), stessa forma per i due colori, contorno unico */
+  --piece-light: #f7f6f2;
+  --piece-dark: #2b2926;
+  --piece-edge: #16150f;
 
   --accent: #81b64c;
   --accent-hover: #a3d160;
