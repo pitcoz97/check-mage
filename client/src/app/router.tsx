@@ -14,20 +14,24 @@ import { GuestOnly, RequireAuth, RootRedirect, SessionGate } from './guards';
 /** La schermata di partita (scacchiera e chess.js) si carica solo quando serve: fuori dal bundle iniziale. */
 const Match = lazy(() => import('../screens/Match/Match').then((module) => ({ default: module.Match })));
 
-/** Galleria delle carte (briefing §5.1.9): solo in sviluppo, e comunque caricata a richiesta. */
-const CardGallery = lazy(() => import('../screens/Dev/CardGallery').then((module) => ({ default: module.CardGallery })));
-
+/**
+ * Galleria delle carte (briefing §5.1.9): solo in sviluppo. L'import dinamico sta **dentro** il ramo `DEV`, così la
+ * build di produzione lo elimina del tutto invece di produrne un chunk irraggiungibile.
+ */
 const devRoutes: RouteObject[] = import.meta.env.DEV
-  ? [
-      {
-        path: 'dev/cards',
-        element: (
-          <Suspense fallback={<MatchFallback />}>
-            <CardGallery />
-          </Suspense>
-        ),
-      },
-    ]
+  ? (() => {
+      const CardGallery = lazy(() => import('../screens/Dev/CardGallery').then((module) => ({ default: module.CardGallery })));
+      return [
+        {
+          path: 'dev/cards',
+          element: (
+            <Suspense fallback={<MatchFallback />}>
+              <CardGallery />
+            </Suspense>
+          ),
+        },
+      ];
+    })()
   : [];
 
 /** Albero delle rotte: la sessione si valida in `SessionGate` prima di qualunque schermata. */

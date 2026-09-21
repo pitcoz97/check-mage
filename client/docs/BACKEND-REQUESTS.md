@@ -80,6 +80,16 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
 - **Contratto proposto:** `game_state` anche quando il rollover decrementa degli effetti, oppure un evento `effects_ticked`
   con `active_effects`.
 
+### P2-15 — Testo della carta nel catalogo
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** `GET /spells` porta solo dati di gioco (`spells/spells.go:61-74`). Il testo di regole della carta il client
+  lo **genera** dai parametri degli effetti, quindi resta sempre allineato al bilanciamento; ma non esiste un posto dove
+  mettere il testo di ambientazione, che è contenuto di gioco e non deve vivere nel client (rischio di invecchiare a
+  ogni modifica del catalogo).
+- **Contratto proposto:** campi facoltativi per magia: `description` (testo di regole scritto a mano, se un giorno
+  servisse più preciso di quello generato) e `flavor` (ambientazione). Il client li mostra se ci sono, altrimenti
+  continua a generare il testo dagli effetti.
+
 ---
 
 ## Applicate in `fix/backend-requests`
