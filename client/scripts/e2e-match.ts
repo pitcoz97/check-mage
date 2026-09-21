@@ -1,6 +1,7 @@
 /**
- * Prova end-to-end del contratto: avvia il mock (porting di chess-server, branch `fix/backend-requests`)
- * in-process e gioca partite reali passando SOLO per `src/api/adapter.ts` e `src/ws/connection.ts`.
+ * Prova end-to-end: avvia il mock (porting di chess-server, branch `fix/backend-requests`) in-process e gioca
+ * partite reali con lo stack del client: adapter, connessione (ticket, riconnessione), dispatch e reducer.
+ * Ogni scenario è quindi anche una sequenza reale di eventi per `applyServerEvent`.
  * Uso: `npm run mock:e2e [-- scenario ...]`.
  */
 
@@ -176,6 +177,12 @@ function finalStatus(c: E2EClient): string | null {
   return before?.state.status ?? null;
 }
 
+/** Il reducer, evento dopo evento, deve arrivare allo stesso stato che il server ricostruisce al rientro. */
+async function expectSnapshot(ctx: Ctx, c: E2EClient, label: string): Promise<void> {
+  const diff = await c.verifySnapshot();
+  ctx.report.expect(diff.length === 0, `reducer coerente col server (${label})${diff.length === 0 ? '' : ': ' + diff.join(' | ')}`);
+}
+
 async function resignAndWait(c: E2EClient): Promise<void> {
   if (c.gameOver !== null) return;
   c.send({ type: 'resign' });
@@ -232,6 +239,10 @@ const SCENARIOS: Record<string, Scenario> = {
     const blackMoves = ['a7a6', 'b7b6', 'e7e5', 'd8h4'];
     for (let i = 0; i < blackMoves.length && white.gameOver === null; i++) {
       await playTurn(black, { move: blackMoves[i] as string, inMain });
+      if (i === 1 && white.gameOver === null) {
+        await waitMyTurn(white);
+        await expectSnapshot(ctx, white, 'pvp, dopo i primi cast');
+      }
       const move = whiteMoves[i];
       if (move !== undefined && white.gameOver === null) await playTurn(white, { move, inMain });
     }
@@ -267,12 +278,14 @@ const SCENARIOS: Record<string, Scenario> = {
       move: 'e2e4',
       afterMove: async () => {
         const handBefore = c.hand.map((h) => h.spellId).sort();
+        const handIds = c.hand.map((h) => h.instanceId);
         await c.disconnect();
         const from = c.events.length;
         await c.connect();
         const resumed = await c.event(from, isType('game_state'), 'game_state al rientro');
         const hand = await c.event(from, isType('hand'), 'hand al rientro');
         ctx.report.expect(resumed.state.reconnected && resumed.state.moves.some((m) => m.kind === 'move' && m.uci === 'e2e4'), 'G5: game_state con reconnected e mosse');
+        ctx.report.expect(c.hand.every((h, i) => h.instanceId === handIds[i]), 'mano riconciliata: stessi id d’istanza (C5)');
         ctx.report.expect(JSON.stringify(hand.hand.cards.map((h) => h.spellId).sort()) === JSON.stringify(handBefore), 'G5: mano ripristinata');
       },
     });
@@ -292,9 +305,9 @@ const SCENARIOS: Record<string, Scenario> = {
     await playTurn(c);
     await c.until(() => !c.connected, 'chiusura del socket per riavvio');
     const from = c.events.length;
-    await c.connect();
-    const resumed = await c.event(from, isType('game_state'), 'game_state dopo il riavvio');
+    const resumed = await c.event(from, isType('game_state'), 'game_state dopo la riconnessione automatica');
     ctx.report.expect(resumed.state.reconnected, 'rientro dopo il riavvio con reconnected: true');
+    ctx.report.expect(c.statusHistory.includes('reconnecting'), 'riconnessione automatica con backoff, senza intervento');
     await playTurn(c);
     ctx.report.expect(c.gameOver === null, 'la partita prosegue dopo il riavvio');
     await resignAndWait(c);
@@ -328,6 +341,10 @@ const SCENARIOS: Record<string, Scenario> = {
     for (let turn = 0; turn < 6 && c.gameOver === null && !wanted.every((k) => seen().has(k)); turn++) await playTurn(c);
     await c.until(() => wanted.every((k) => seen().has(k)) || c.gameOver !== null, 'tutti gli effetti', 10_000).catch(() => undefined);
     ctx.report.expect(wanted.every((k) => seen().has(k)), `effetti visti: ${[...seen()].join(', ')}`);
+    if (c.gameOver === null) {
+      await waitMyTurn(c);
+      await expectSnapshot(ctx, c, 'spells, dopo tutti gli effetti');
+    }
     ctx.report.expect(
       c.events.some((e) => e.type === 'game_state' && e.state.activeEffects.some((s) => s.effects.some((x) => x.sourceSpellId === 'frostbolt'))),
       'active_effects con source_spell_id',
@@ -411,7 +428,7 @@ const SCENARIOS: Record<string, Scenario> = {
     await queuedTwin.connect('pvp');
     const kicked = await queued.event(0, isType('error'), 'errore alla connessione in coda sostituita');
     await queued.until(() => !queued.connected, 'chiusura della connessione in coda');
-    report.expect(kicked.error.code === 'replaced_by_new_connection' && queued.closeCode === 4001, `coda: ${String(kicked.error.code)}, chiusura ${String(queued.closeCode)}`);
+    report.expect(kicked.error.code === 'replaced_by_new_connection' && queued.replaced, `coda: ${String(kicked.error.code)}, connessione sostituita`);
     await queuedTwin.disconnect();
 
     const first = await newPlayer(ctx.server, ctx.pacer, 'lea');
@@ -424,10 +441,11 @@ const SCENARIOS: Record<string, Scenario> = {
     const replaced = await first.event(0, isType('error'), 'errore sulla connessione sostituita');
     await first.until(() => !first.connected, 'chiusura della connessione sostituita');
     report.expect(resumed.state.reconnected && second.color === 'white', 'la nuova connessione riprende la partita');
-    report.expect(replaced.error.code === 'replaced_by_new_connection' && first.closeCode === 4001, `partita: ${String(replaced.error.code)}, chiusura ${String(first.closeCode)}`);
+    report.expect(replaced.error.code === 'replaced_by_new_connection' && first.replaced, `partita: ${String(replaced.error.code)}, connessione sostituita`);
     await playTurn(second, { move: 'd1h5' });
     await new Promise((resolve) => setTimeout(resolve, 3_500)); // oltre il timeout di riconnessione del mock e2e
     report.expect(second.gameOver === null, 'nessuna sconfitta per abbandono dopo la chiusura della connessione vecchia');
+    report.expect(first.replaced && first.statusHistory.at(-1) === 'replaced', 'la connessione sostituita non si riconnette da sola');
     await resignAndWait(second);
     report.expect(unexpectedWarnings([first, second]).length === 0 && first.failures.length + second.failures.length === 0, 'nessun warning inatteso né decode failure');
     await second.disconnect();

@@ -1,9 +1,6 @@
 import { Chess } from 'chess.js';
-import { WebSocket } from 'ws';
 
 import {
-  decodeServerMessage,
-  encodeClientIntent,
   encodeLogin,
   encodeRefresh,
   encodeRegister,
@@ -21,20 +18,23 @@ import {
 } from '../../src/api/adapter';
 import type { GameHistoryEntry, PublicProfile, TokenPair, UserAccount } from '../../src/api/types';
 import type { Color, HandCard, Phase, PublicGameState, Square } from '../../src/game/model';
+import { createLogger } from '../../src/lib/log';
 import fallbackCatalog from '../../src/spells/fallback.json';
 import type { Spell } from '../../src/spells/schema';
-import { resolveSocketUrl } from '../../src/ws/connection';
+import { createMatchStore, type GameOutcome, type MatchState, type MatchStoreState } from '../../src/store/matchStore';
+import { createConnection, type Connection, type ConnectionStatus } from '../../src/ws/connection';
+import { routeFrame } from '../../src/ws/dispatch';
 import type { ClientIntent, DecodeFailure, ServerEvent } from '../../src/ws/protocol';
+import type { StoreApi } from 'zustand/vanilla';
 
 /**
- * Client di prova per lo script e2e. Parla col mock SOLO attraverso `src/api/adapter.ts` e
- * `src/ws/connection.ts`: se il mock (porting di chess-server) e l'adapter divergono, qui emergono
- * decode failure o warning inattesi.
- *
- * Tiene un mini-stato derivato dagli eventi solo per pilotare la partita: non è il reducer del client.
+ * Client di prova per lo script e2e. Usa lo stack vero del client: REST tramite `src/api/adapter.ts`, WebSocket
+ * tramite `src/ws/connection.ts` (ticket, riconnessione, heartbeat), `src/ws/dispatch.ts` e il reducer di
+ * `src/store/matchStore.ts`. Così ogni scenario del mock è anche una sequenza di eventi per il reducer.
  */
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const silent = createLogger(() => undefined);
 
 /** Rispetta il rate limit auth (3/s, burst 5, per IP: condiviso da tutti i client dello script) invece di farsi rifiutare. */
 export function createPacer() {
@@ -49,26 +49,43 @@ export function createPacer() {
 }
 export type Pacer = ReturnType<typeof createPacer>;
 
+/**
+ * Fotografia dello stato accumulato dal reducer, confrontabile con quella ricostruita dal server al rientro.
+ * Esclusi gli orologi (scorrono) e i turni residui degli effetti: il server li decrementa al cambio di turno
+ * senza comunicarlo (ASSUMPTIONS C13, BACKEND-REQUESTS P2-14).
+ */
+function snapshotOf(state: MatchState) {
+  const game = state.game;
+  return {
+    color: state.myColor,
+    hand: state.hand.map((c) => c.spellId).sort(),
+    myDeckSize: state.myDeckSize,
+    phase: game?.phase,
+    activePlayer: game?.activePlayer,
+    turnNumber: game?.turnNumber,
+    fen: game?.fen,
+    moves: game?.moves,
+    mana: game?.mana,
+    handSizes: game?.handSizes,
+    deckSizes: game?.deckSizes,
+    effects: [...(game?.activeEffects ?? [])]
+      .map((e) => ({ square: e.square, kinds: e.effects.map((x) => `${x.kind}:${String(x.sourceSpellId)}`).sort() }))
+      .sort((a, b) => a.square.localeCompare(b.square)),
+  };
+}
+
 export class E2EClient {
   tokens: TokenPair | null = null;
   account: UserAccount | null = null;
-  /** Colore: da `white_player`/`black_player` di `game_state`, confrontati con l'id dell'account. */
-  color: Color | null = null;
-  /** Codice dell'ultima chiusura del socket (4001 = connessione sostituita). */
-  closeCode: number | null = null;
   readonly events: ServerEvent[] = [];
   readonly failures: DecodeFailure[] = [];
   readonly warnings: AdapterWarning[] = [];
   readonly problems: string[] = [];
+  /** Stati della connessione attraversati, in ordine. */
+  readonly statusHistory: ConnectionStatus['kind'][] = [];
 
-  state: PublicGameState | null = null;
-  hand: HandCard[] = [];
-  phase: Phase | 'unknown' | null = null;
-  activePlayer: Color | 'unknown' | null = null;
-  gameOver: Extract<ServerEvent, { type: 'game_over' }> | null = null;
-  connected = false;
-
-  private ws: WebSocket | null = null;
+  private store: StoreApi<MatchStoreState> | null = null;
+  private connection: Connection | null = null;
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -78,6 +95,8 @@ export class E2EClient {
     readonly email: string,
     private readonly pacer: Pacer,
   ) {}
+
+  // --- REST ----------------------------------------------------------------------------------------
 
   private async request(method: 'GET' | 'POST', path: string, body?: string) {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -144,6 +163,8 @@ export class E2EClient {
     return { spells: normalized.spells, source: res.ok ? 'server' : 'fallback' };
   }
 
+  // --- WebSocket: lo stack del client --------------------------------------------------------------
+
   /** Stesso utente, stessa sessione, connessione distinta: come una seconda scheda del browser. */
   twin(): E2EClient {
     const other = new E2EClient(this.httpUrl, this.wsUrl, this.username, this.email, this.pacer);
@@ -152,141 +173,129 @@ export class E2EClient {
     return other;
   }
 
-  /** Ticket monouso a ogni apertura, via `src/ws/connection.ts`. */
+  private matchState(): MatchStoreState | null {
+    return this.store?.getState() ?? null;
+  }
+
+  /** Apre (o riapre) la connessione e attende che il socket sia aperto. `scenario` vale solo alla prima apertura. */
   async connect(scenario?: string): Promise<void> {
-    if (this.tokens === null) throw new Error('connect senza sessione');
-    const resolved = await resolveSocketUrl(
-      {
-        fetchWsTicket: async () => {
-          const res = await this.request('GET', '/ws/ticket');
-          if (!res.ok) return { ok: false, error: res.error };
-          const ticket = normalizeWsTicket(res.data);
-          return ticket.ok ? { ok: true, value: ticket.value } : { ok: false, error: { status: 200, code: 'invalid_response' } };
+    if (this.tokens === null || this.account === null) throw new Error('connect senza sessione');
+    if (this.store === null) {
+      this.store = createMatchStore(this.account.id);
+      this.store.subscribe(() => this.notify());
+    }
+    if (this.connection === null) {
+      const store = this.store;
+      this.connection = createConnection({
+        wsBaseUrl: this.wsUrl,
+        tickets: {
+          fetchWsTicket: async () => {
+            const res = await this.request('GET', '/ws/ticket');
+            if (!res.ok) return { ok: false, error: res.error };
+            const ticket = normalizeWsTicket(res.data);
+            return ticket.ok ? { ok: true, value: ticket.value } : { ok: false, error: { status: 200, code: 'invalid_response' } };
+          },
         },
-      },
-      this.wsUrl,
-    );
-    if (!resolved.ok) throw new Error(`ticket: ${JSON.stringify(resolved.error)}`);
-    const url = new URL(resolved.url);
-    if (scenario !== undefined) url.searchParams.set('scenario', scenario);
-    const ws = new WebSocket(url);
-    this.ws = ws;
-    ws.on('message', (data) => this.onFrame(data.toString()));
-    this.closeCode = null;
-    ws.on('close', (code) => {
-      this.connected = false;
-      this.closeCode = code;
-      this.notify();
-    });
-    await new Promise<void>((resolve, reject) => {
-      ws.once('open', () => resolve());
-      ws.once('error', reject);
-      ws.once('unexpected-response', (_req, response) => reject(new Error(`upgrade rifiutato: ${response.statusCode}`)));
-    });
-    this.connected = true;
+        onFrame: (raw) => this.onFrame(raw, store),
+        log: silent,
+        ...(scenario === undefined ? {} : { extraParams: { scenario } }),
+      });
+      this.connection.subscribe((status) => {
+        this.statusHistory.push(status.kind);
+        // In partita il silenzio vuol dire socket morto (C10), come nella sessione del client.
+        this.connection?.expectTraffic(store.getState().lifecycle === 'playing');
+        this.notify();
+      });
+      store.subscribe((next, previous) => {
+        if (next.lifecycle !== previous.lifecycle) this.connection?.expectTraffic(next.lifecycle === 'playing');
+      });
+    }
+    this.connection.open();
+    await this.until(() => this.connected, 'apertura del socket');
   }
 
-  /** Chiude del tutto il socket prima di restituire. */
+  /** Chiusura voluta della connessione (il server vede una disconnessione). */
   async disconnect(): Promise<void> {
-    const ws = this.ws;
-    this.ws = null;
-    if (ws === null || ws.readyState === ws.CLOSED) return;
-    await new Promise<void>((resolve) => {
-      ws.once('close', () => resolve());
-      ws.close();
-    });
+    this.connection?.close();
+    await sleep(50);
   }
 
-  /**
-   * Invia rispettando il limite del server di 5 messaggi/s (`handlers/ws.go:60`): oltre, il messaggio viene
-   * scartato con un `error`. Restituisce l'indice da cui attendere la risposta.
-   */
-  send(intent: ClientIntent): number {
-    if (this.ws === null) throw new Error('socket non connesso');
-    const ws = this.ws;
-    const now = Date.now();
-    const at = Math.max(now, this.nextSendAt);
-    this.nextSendAt = at + 220;
-    const frame = encodeClientIntent(intent);
-    if (at === now) ws.send(frame);
-    else setTimeout(() => ws.readyState === ws.OPEN && ws.send(frame), at - now);
-    return this.events.length;
-  }
-
-  private nextSendAt = 0;
-
-  private onFrame(raw: string): void {
-    let result;
+  private onFrame(raw: string, store: StoreApi<MatchStoreState>): void {
     try {
-      result = decodeServerMessage(raw);
+      const result = routeFrame(raw, { dispatch: (event) => this.record(event, store) }, silent);
+      if (result.ok) this.warnings.push(...result.warnings);
+      else this.failures.push(result.failure);
     } catch (error) {
-      this.problems.push(`l'adapter ha lanciato un'eccezione: ${String(error)}`);
-      return;
+      this.problems.push(`dispatch o reducer hanno lanciato un'eccezione: ${String(error)}`);
     }
-    if (!result.ok) {
-      this.failures.push(result.failure);
-    } else {
-      this.warnings.push(...result.warnings);
-      this.apply(result.event);
-      this.events.push(result.event);
-    }
-    this.notify();
+  }
+
+  private record(event: ServerEvent, store: StoreApi<MatchStoreState>): void {
+    this.events.push(event);
+    store.getState().dispatch(event);
   }
 
   private notify(): void {
     for (const listener of [...this.listeners]) listener();
   }
 
-  private apply(event: ServerEvent): void {
-    // Dopo il primo game_over gli eventi di partita si ignorano: difesa, il server ora ne manda uno solo (B1).
-    if (this.gameOver !== null && event.type !== 'game_over' && event.type !== 'error') return;
-    switch (event.type) {
-      case 'game_state':
-        this.state = event.state;
-        this.phase = event.state.phase;
-        this.activePlayer = event.state.activePlayer;
-        if (event.state.players !== null && this.account !== null) {
-          const { white, black } = event.state.players;
-          const me = this.account.id;
-          this.color = white.id === me ? 'white' : black.id === me ? 'black' : null;
-        }
-        break;
-      case 'hand':
-        this.hand = [...event.hand.cards];
-        break;
-      case 'card_drawn':
-        this.hand.push(event.card);
-        break;
-      case 'phase_changed':
-        this.phase = event.phase;
-        this.activePlayer = event.activePlayer;
-        break;
-      case 'spell_cast':
-        if (event.player === this.color) {
-          const index = this.hand.findIndex((c) => c.spellId === event.spellId);
-          if (index >= 0) this.hand.splice(index, 1);
-        }
-        break;
-      case 'game_over':
-        this.gameOver ??= event;
-        break;
-      default:
-        break;
-    }
+  /** Invia tramite la connessione (che distanzia gli invii). Restituisce l'indice da cui attendere la risposta. */
+  send(intent: ClientIntent): number {
+    if (this.connection === null || !this.connection.send(intent)) throw new Error(`${this.username}: socket non aperto per ${intent.type}`);
+    return this.events.length;
   }
 
+  // --- Stato letto dal reducer ---------------------------------------------------------------------
+
+  get state(): PublicGameState | null {
+    return this.matchState()?.game ?? null;
+  }
+  get hand(): readonly HandCard[] {
+    return this.matchState()?.hand ?? [];
+  }
+  get phase(): Phase | 'unknown' | null {
+    return this.state?.phase ?? null;
+  }
+  get activePlayer(): Color | 'unknown' | null {
+    return this.state?.activePlayer ?? null;
+  }
+  /** Da `white_player`/`black_player` confrontati con l'id dell'account, nel reducer. */
+  get color(): Color | null {
+    return this.matchState()?.myColor ?? null;
+  }
+  get gameOver(): GameOutcome | null {
+    return this.matchState()?.outcome ?? null;
+  }
+  get connected(): boolean {
+    return this.connection?.getStatus().kind === 'open';
+  }
+  get replaced(): boolean {
+    return this.connection?.getStatus().kind === 'replaced';
+  }
   get isMyTurn(): boolean {
     return this.color !== null && this.activePlayer === this.color;
   }
-
-  /** Mana attuale del giocatore, dall'ultimo `mana_changed` o `game_state`. */
   get myMana(): number {
-    for (let i = this.events.length - 1; i >= 0; i--) {
-      const e = this.events[i];
-      if (e?.type === 'mana_changed' && e.player === this.color) return e.mana.current;
-      if (e?.type === 'game_state' && this.color !== null) return e.state.mana[this.color].current;
-    }
-    return 0;
+    return this.color === null ? 0 : (this.state?.mana[this.color].current ?? 0);
+  }
+
+  /**
+   * Controllo del reducer sulle sequenze reali: lo stato accumulato evento per evento deve coincidere con quello che
+   * il server ricostruisce al rientro (`game_state` + `hand`). Restituisce le differenze trovate.
+   */
+  async verifySnapshot(): Promise<string[]> {
+    await sleep(300); // quiete: nessun evento in volo
+    const store = this.store;
+    if (store === null) return ['nessuna partita'];
+    const before = snapshotOf(store.getState());
+    await this.disconnect();
+    const from = this.events.length;
+    await this.connect();
+    await this.event(from, isType('hand'), 'hand al rientro');
+    const after = snapshotOf(store.getState());
+    return (Object.keys(before) as (keyof typeof before)[])
+      .filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
+      .map((key) => `${key}: reducer ${JSON.stringify(before[key])} ≠ server ${JSON.stringify(after[key])}`);
   }
 
   /** Prima mossa legale non tentata e non bloccata da un congelamento (lo stato degli effetti arriva dal server). */
@@ -313,7 +322,7 @@ export class E2EClient {
           .join(' ');
         reject(
           new Error(
-            `${this.username}: timeout in attesa di "${label}" — fase ${String(this.phase)}, attivo ${String(this.activePlayer)}, colore ${String(this.color)}, ultimi eventi: ${recent}`,
+            `${this.username}: timeout in attesa di "${label}" — fase ${String(this.phase)}, attivo ${String(this.activePlayer)}, colore ${String(this.color)}, connessione ${String(this.connection?.getStatus().kind)}, ultimi eventi: ${recent}`,
           ),
         );
       }, timeoutMs);
