@@ -10,3 +10,12 @@ Provenienza e licenza di ogni asset incluso nel client.
 | Cinzel (600) | Solo il nome della magia sulla carta | [Google Fonts](https://fonts.google.com/specimen/Cinzel), pacchetto npm `@fontsource/cinzel` | SIL Open Font License 1.1 |
 
 I file dei font sono serviti dal bundle (self-hosted): nessuna richiesta a servizi terzi a runtime.
+
+## Grafica
+
+| Asset | Uso | Provenienza | Licenza |
+|---|---|---|---|
+| Set di pezzi degli scacchi | Scacchiera | Disegnato per questo progetto (`src/game/pieces/PieceIcon.tsx`), nessun set di terzi | Licenza del progetto (ancora da scegliere) |
+
+I pezzi sono tracciati SVG inline, colorati con i token di `src/design/tokens.css`: per sostituirli con un altro set
+basta cambiare quel file, la scacchiera non cambia.
