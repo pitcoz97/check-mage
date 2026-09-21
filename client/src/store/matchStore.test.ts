@@ -232,6 +232,36 @@ describe('applyServerEvent: patta, connessione, errori', () => {
   });
 });
 
+describe('mossa ottimista', () => {
+  it('mostrata subito, poi confermata dal game_state del server', () => {
+    const store = createMatchStore('1', () => 100);
+    for (const event of START) store.getState().dispatch(event);
+    store.getState().previewMove('e2', 'e4');
+    expect(store.getState().optimistic).toEqual({ from: 'e2', to: 'e4', at: 100 });
+    store.getState().dispatch({ type: 'game_state', state: publicState({ fen: AFTER_E4, turn: 'black', moves: [{ kind: 'move', uci: 'e2e4' }] }) });
+    expect(store.getState().optimistic).toBeNull();
+  });
+
+  it('un rifiuto del server la annulla', () => {
+    const store = createMatchStore('1', () => 100);
+    for (const event of START) store.getState().dispatch(event);
+    store.getState().previewMove('e2', 'e4');
+    const info = { code: 'illegal_move' as const, square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null };
+    store.getState().dispatch({ type: 'error', error: info });
+    expect(store.getState().optimistic).toBeNull();
+    expect(store.getState().lastError?.info.code).toBe('illegal_move');
+  });
+
+  it('anche un game_state che smentisce la mossa (scudo che assorbe) la toglie di mezzo', () => {
+    const store = createMatchStore('1', () => 100);
+    for (const event of START) store.getState().dispatch(event);
+    store.getState().previewMove('e4', 'd5');
+    store.getState().dispatch({ type: 'game_state', state: publicState({ turn: 'black', moves: [{ kind: 'absorbed' }] }) });
+    expect(store.getState().optimistic).toBeNull();
+    expect(store.getState().game?.fen).toBe(START_FEN);
+  });
+});
+
 describe('reconcileHand', () => {
   it('riusa gli id noti per spell_id, uno per copia', () => {
     const previous = [card('spark', 'a'), card('spark', 'b'), card('aegis', 'c')];

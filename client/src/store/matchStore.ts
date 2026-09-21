@@ -11,6 +11,7 @@ import type {
   PerColor,
   ProtocolErrorInfo,
   PublicGameState,
+  Square,
   SquareEffects,
   UserId,
   Username,
@@ -29,6 +30,12 @@ export interface ClockSync {
   readonly clocks: Clocks;
   /** Giocatore di cui scorre il tempo (il giocatore attivo, `game/room.go:1279-1327`). */
   readonly turn: Color | 'unknown';
+  readonly at: number;
+}
+
+export interface OptimisticMove {
+  readonly from: Square;
+  readonly to: Square;
   readonly at: number;
 }
 
@@ -54,6 +61,11 @@ export interface MatchState {
   readonly drawNotice: { readonly reason: DrawDeclineReason; readonly seq: number } | null;
   readonly opponentConnected: boolean;
   readonly lastError: { readonly info: ProtocolErrorInfo; readonly seq: number } | null;
+  /**
+   * Mossa propria mostrata prima della conferma (briefing §8): solo le caselle, nessuna FEN calcolata qui. Si azzera
+   * al `game_state` successivo — che può anche smentirla, se uno scudo assorbe la cattura — o su `error`.
+   */
+  readonly optimistic: OptimisticMove | null;
   readonly outcome: GameOutcome | null;
   /** Numero di eventi applicati: rende distinguibili avvisi ed errori uguali e consecutivi. */
   readonly seq: number;
@@ -72,6 +84,7 @@ export function initialMatchState(selfId: UserId | null): MatchState {
     drawNotice: null,
     opponentConnected: true,
     lastError: null,
+    optimistic: null,
     outcome: null,
     seq: 0,
   };
@@ -179,6 +192,7 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
           at: receivedAt,
         },
         drawOffer: movedByMe ? { ...state.drawOffer, incoming: false } : state.drawOffer,
+        optimistic: null,
       };
     }
 
@@ -265,7 +279,8 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
       };
 
     case 'error':
-      return { ...base, lastError: { info: event.error, seq } };
+      // Rifiuto del server: la mossa mostrata in anticipo torna indietro.
+      return { ...base, lastError: { info: event.error, seq }, optimistic: null };
 
     case 'draw_offer':
       return { ...base, drawOffer: { ...state.drawOffer, incoming: true } };
@@ -293,6 +308,8 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
 
 export interface MatchStoreState extends MatchState {
   dispatch(event: ServerEvent, receivedAt?: number): void;
+  /** Mostra subito la propria mossa, in attesa della conferma del server. */
+  previewMove(from: Square, to: Square): void;
   /** Nuova ricerca: stato pulito, in coda. */
   enterQueue(): void;
   /** Stato pulito (uscita dalla partita, cambio utente). */
@@ -304,6 +321,9 @@ export function createMatchStore(selfId: UserId | null, now: () => number = Date
     ...initialMatchState(selfId),
     dispatch(event, receivedAt = now()) {
       set(applyServerEvent(get(), event, receivedAt));
+    },
+    previewMove(from, to) {
+      set({ optimistic: { from, to, at: now() } });
     },
     enterQueue() {
       set({ ...initialMatchState(get().selfId), lifecycle: 'queued' });
