@@ -8,10 +8,14 @@ import { Panel } from '../../design/components/Panel';
 import { Spinner } from '../../design/components/Spinner';
 import { useMatch, useMatchSession, useSessionStatus } from '../../store/MatchProvider';
 import type { GameOutcome } from '../../store/matchStore';
+import { Actions } from './Actions';
 import { ConnectionBanner } from './ConnectionBanner';
+import { protocolErrorMessage } from './errorMessage';
+import { MatchBoard } from './MatchBoard';
 import { MatchLayout } from './MatchLayout';
-
-const FILES = 8;
+import { MoveHistory } from './MoveHistory';
+import { PhaseTrack } from './PhaseTrack';
+import { PlayerPanel } from './PlayerPanel';
 
 /**
  * Dopo un ricaricamento il client riapre la connessione solo se ricorda una partita aperta (ASSUMPTIONS C11).
@@ -20,43 +24,31 @@ const FILES = 8;
  */
 export const RESUME_TIMEOUT_MS = 4_000;
 
-/** Scacchiera segnaposto: griglia statica con i colori dei token, senza pezzi né logica (sostituita allo Step 4). */
-function BoardPlaceholder() {
+/**
+ * Ultimo avviso da mostrare: rifiuto del server, esito di un'offerta di patta, o rifiuto deciso dal client.
+ * Si sceglie per progressivo, senza effetti collaterali: l'avviso più recente vince.
+ */
+function useNotice(): { text: string | null; show(text: string): void } {
   const { t } = useTranslation();
-  const squares = Array.from({ length: FILES * FILES }, (_, i) => {
-    const light = (Math.floor(i / FILES) + (i % FILES)) % 2 === 0;
-    return <div key={i} className={light ? 'bg-board-light' : 'bg-board-dark'} />;
-  });
-  return (
-    <div role="img" aria-label={t('match.board')} className="grid h-full w-full grid-cols-8 grid-rows-8 overflow-hidden rounded-sm">
-      {squares}
-    </div>
-  );
-}
+  const seq = useMatch((s) => s.seq);
+  const lastError = useMatch((s) => s.lastError);
+  const drawNotice = useMatch((s) => s.drawNotice);
+  const [local, setLocal] = useState<{ text: string; seq: number } | null>(null);
 
-function Region({ title, detail }: { title: string; detail?: string }) {
-  return (
-    <Panel className="flex min-h-[var(--hit-target)] items-center justify-between gap-2 px-3 py-2">
-      <h2 className="text-sm font-semibold text-muted">{title}</h2>
-      {detail !== undefined && <span className="truncate text-sm">{detail}</span>}
-    </Panel>
-  );
-}
+  const candidates = [
+    lastError === null ? null : { seq: lastError.seq, text: protocolErrorMessage(t, lastError.info) },
+    drawNotice === null
+      ? null
+      : { seq: drawNotice.seq, text: t(drawNotice.reason === 'move_played' ? 'match.notice.drawLapsed' : 'match.notice.drawDeclined') },
+    local,
+  ].filter((candidate) => candidate !== null);
+  const latest = candidates.sort((a, b) => a.seq - b.seq).at(-1);
 
-/** Pannello di un giocatore: per ora solo nome e colore, dallo stato del server (Step 4: timer, mana, carte). */
-function PlayerRegion({ side }: { side: 'self' | 'opponent' }) {
-  const { t } = useTranslation();
-  const players = useMatch((s) => s.game?.players ?? null);
-  const myColor = useMatch((s) => s.myColor);
-  const color: Color | null = myColor === null ? null : side === 'self' ? myColor : myColor === 'white' ? 'black' : 'white';
-  const name = color === null || players === null ? undefined : players[color].username;
-  const colorLabel = color === null ? undefined : color === 'white' ? t('match.colorWhite') : t('match.colorBlack');
-  return (
-    <Region
-      title={side === 'self' ? t('match.you') : t('match.opponent')}
-      {...(name === undefined ? {} : { detail: colorLabel === undefined ? name : `${name} · ${colorLabel}` })}
-    />
-  );
+  return {
+    text: latest?.text ?? null,
+    // Mezzo punto sopra il progressivo corrente: più recente di tutto ciò che è già arrivato dal server.
+    show: (text: string) => setLocal({ text, seq: seq + 0.5 }),
+  };
 }
 
 function outcomeHeadline(outcome: GameOutcome, myColor: Color | null): 'win' | 'loss' | 'draw' | 'whiteWins' | 'blackWins' | 'unknownResult' {
@@ -67,7 +59,7 @@ function outcomeHeadline(outcome: GameOutcome, myColor: Color | null): 'win' | '
   return winner === myColor ? 'win' : 'loss';
 }
 
-/** Fine partita testuale (lo Step 4 ne farà il riepilogo completo). */
+/** Riepilogo di fine partita: esito, motivo, ritorno alla lobby. */
 function OutcomePanel({ outcome }: { outcome: GameOutcome }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -91,19 +83,40 @@ function OutcomePanel({ outcome }: { outcome: GameOutcome }) {
 }
 
 function MatchScreen() {
-  const { t } = useTranslation();
   const outcome = useMatch((s) => s.outcome);
+  const notice = useNotice();
   return (
     <MatchLayout
-      banner={<ConnectionBanner />}
-      opponent={<PlayerRegion side="opponent" />}
-      board={<BoardPlaceholder />}
-      phases={<Region title={t('match.phases')} />}
-      history={<Region title={t('match.history')} />}
-      actions={outcome === null ? <Region title={t('match.actions')} /> : <OutcomePanel outcome={outcome} />}
-      self={<PlayerRegion side="self" />}
-      hand={<Region title={t('match.hand')} />}
+      banner={
+        <>
+          <ConnectionBanner />
+          {notice.text !== null && outcome === null && (
+            <p role="status" aria-live="polite" className="bg-elevated px-4 py-2 text-center text-sm">
+              {notice.text}
+            </p>
+          )}
+        </>
+      }
+      opponent={<PlayerPanel side="opponent" />}
+      board={<MatchBoard onRefused={notice.show} />}
+      phases={<PhaseTrack />}
+      history={<MoveHistory />}
+      actions={outcome === null ? <Actions /> : <OutcomePanel outcome={outcome} />}
+      self={<PlayerPanel side="self" />}
+      hand={<HandPlaceholder />}
     />
+  );
+}
+
+/** Segnaposto della mano: il conteggio arriva dal server, le carte vere arrivano allo Step 5. */
+function HandPlaceholder() {
+  const { t } = useTranslation();
+  const count = useMatch((s) => s.hand.length);
+  return (
+    <Panel className="flex min-h-[var(--hit-target)] items-center gap-2 px-3 py-2 text-sm text-muted">
+      <span>{t('match.hand')}</span>
+      <span data-hand-count>{count}</span>
+    </Panel>
   );
 }
 

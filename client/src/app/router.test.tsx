@@ -127,10 +127,11 @@ describe('coda, partita e connessione', () => {
       sockets.last().open();
       sockets.last().receive(gameState());
     });
-    expect(await screen.findByRole('img', { name: 'Scacchiera' })).toBeTruthy();
+    expect(await screen.findByRole('grid', { name: 'Scacchiera' })).toBeTruthy();
     expect(router.state.location.pathname).toBe('/match');
-    expect(screen.getByText('luigi · Nero')).toBeTruthy();
-    expect(screen.getByText('mario · Bianco')).toBeTruthy();
+    const panel = (side: string) => (document.querySelector(`[data-player="${side}"]`) as HTMLElement).textContent ?? '';
+    expect(panel('opponent')).toContain('luigi');
+    expect(panel('self')).toContain('mario');
   });
 
   it('partita salvata: /match riprende la connessione; 4001 → "Riprendi qui"; fine partita → lobby', async () => {
@@ -145,7 +146,7 @@ describe('coda, partita e connessione', () => {
       sockets.last().open();
       sockets.last().receive({ ...gameState(), payload: { ...gameState().payload, reconnected: true } });
     });
-    expect(await screen.findByRole('img', { name: 'Scacchiera' })).toBeTruthy();
+    expect(await screen.findByRole('grid', { name: 'Scacchiera' })).toBeTruthy();
 
     act(() => sockets.last().drop(4001));
     expect(await screen.findByText('Questa partita è aperta in un’altra scheda o dispositivo.')).toBeTruthy();
