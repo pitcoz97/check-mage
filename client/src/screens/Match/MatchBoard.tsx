@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { Board } from '../../game/board/Board';
+import { Board, type BoardTargeting } from '../../game/board/Board';
 import { PromotionDialog } from '../../game/board/PromotionDialog';
 import type { BoardContext, PickupRefusal } from '../../game/board/selection';
 import type { Color, Square } from '../../game/model';
@@ -14,8 +14,16 @@ function frozenSquares(effects: readonly { square: Square; effects: readonly { k
   return new Set(effects.filter((entry) => entry.effects.some((effect) => effect.kind === 'freeze')).map((entry) => entry.square));
 }
 
+export interface MatchBoardProps {
+  onRefused(message: string): void;
+  /** Scelta dei bersagli di una magia: quando c'è, la scacchiera non muove pezzi. */
+  readonly targeting: BoardTargeting | null;
+  /** Caselle toccate dall'ultima magia risolta, da far pulsare. */
+  readonly flash: readonly Square[];
+}
+
 /** Scacchiera collegata alla partita: legge lo stato, manda gli intenti, mostra l'anteprima della propria mossa. */
-export function MatchBoard({ onRefused }: { onRefused(message: string): void }) {
+export function MatchBoard({ onRefused, targeting, flash }: MatchBoardProps) {
   const { t } = useTranslation();
   const session = useMatchSession();
   const game = useMatch((s) => s.game);
@@ -55,6 +63,9 @@ export function MatchBoard({ onRefused }: { onRefused(message: string): void }) 
         orientation={myColor ?? 'white'}
         lastMove={lastMove}
         optimistic={optimistic}
+        effects={game.activeEffects}
+        targeting={targeting}
+        flash={flash}
         onMove={(from, to, needsPromotion) => (needsPromotion ? setPromotion({ from, to }) : sendMove(from, to))}
         onRefused={(reason: PickupRefusal) => onRefused(refusalMessage(t, reason))}
       />

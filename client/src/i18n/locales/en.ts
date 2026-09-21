@@ -216,7 +216,8 @@ export const en: Translation = {
       cancel: 'Cancel',
       cancelHint: 'Esc to cancel',
     },
-    resolved: '{{name}}',
+    castByYou: 'You cast {{name}}: {{effects}}',
+    castByOpponent: 'The opponent cast {{name}}: {{effects}}',
     effect: {
       noop: { label: 'No effect', text: 'Nothing happens.' },
       destroy_piece: { label: 'Destruction', text: 'Destroys an enemy piece, except the king.' },
@@ -253,6 +254,7 @@ export const en: Translation = {
       insufficient_mana: 'Needs {{cost}} mana.',
       unknown_spell: 'This client does not know this spell.',
       unsupported_target: 'This client cannot target this spell.',
+      invalid_target: 'Not a valid target for this spell.',
       cast_pending: 'Waiting for the server.',
     },
   },

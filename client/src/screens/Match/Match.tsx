@@ -2,12 +2,16 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useNavigate } from 'react-router';
 
-import type { Color } from '../../game/model';
+import { Hand } from '../../game/hand/Hand';
+import type { AppliedEffect, Color, Square } from '../../game/model';
 import { Button } from '../../design/components/Button';
 import { Panel } from '../../design/components/Panel';
 import { Spinner } from '../../design/components/Spinner';
+import { useCatalog } from '../../spells/CatalogProvider';
+import { effectPresentation } from '../../spells/effects.registry';
 import { useMatch, useMatchSession, useSessionStatus } from '../../store/MatchProvider';
 import type { GameOutcome } from '../../store/matchStore';
+import { useCasting, type Casting } from './useCasting';
 import { Actions } from './Actions';
 import { ConnectionBanner } from './ConnectionBanner';
 import { protocolErrorMessage } from './errorMessage';
@@ -24,6 +28,9 @@ import { PlayerPanel } from './PlayerPanel';
  */
 export const RESUME_TIMEOUT_MS = 4_000;
 
+/** Durata del lampeggio sulle caselle toccate da una magia. */
+const SPELL_FLASH_MS = 1_200;
+
 /**
  * Ultimo avviso da mostrare: rifiuto del server, esito di un'offerta di patta, o rifiuto deciso dal client.
  * Si sceglie per progressivo, senza effetti collaterali: l'avviso più recente vince.
@@ -33,10 +40,22 @@ function useNotice(): { text: string | null; show(text: string): void } {
   const seq = useMatch((s) => s.seq);
   const lastError = useMatch((s) => s.lastError);
   const drawNotice = useMatch((s) => s.drawNotice);
+  const lastCast = useMatch((s) => s.lastCast);
+  const myColor = useMatch((s) => s.myColor);
+  const byId = useCatalog((s) => s.byId);
   const [local, setLocal] = useState<{ text: string; seq: number } | null>(null);
 
   const candidates = [
     lastError === null ? null : { seq: lastError.seq, text: protocolErrorMessage(t, lastError.info) },
+    lastCast === null
+      ? null
+      : {
+          seq: lastCast.seq,
+          text: t(lastCast.player === myColor ? 'spells.castByYou' : 'spells.castByOpponent', {
+            name: byId.get(lastCast.spellId)?.name ?? lastCast.spellId,
+            effects: lastCast.effects.map((effect) => effectPresentation(effect.kind).label(t)).join(', '),
+          }),
+        },
     drawNotice === null
       ? null
       : { seq: drawNotice.seq, text: t(drawNotice.reason === 'move_played' ? 'match.notice.drawLapsed' : 'match.notice.drawDeclined') },
@@ -82,9 +101,86 @@ function OutcomePanel({ outcome }: { outcome: GameOutcome }) {
   );
 }
 
+/**
+ * Caselle toccate dall'ultima magia: pulsano per un attimo, poi si spengono. Solo feedback grafico, nessuno stato
+ * di gioco (il server ha già mandato tutto quello che conta).
+ */
+function useSpellFlash(): readonly Square[] {
+  const lastCast = useMatch((s) => s.lastCast);
+  const seq = lastCast?.seq ?? 0;
+  /** Progressivo della magia il cui lampeggio è già finito. */
+  const [faded, setFaded] = useState(0);
+
+  useEffect(() => {
+    if (seq === 0 || faded === seq) return;
+    const timer = setTimeout(() => setFaded(seq), SPELL_FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [seq, faded]);
+
+  if (lastCast === null || faded === seq) return [];
+  return [...lastCast.targets, ...lastCast.effects.flatMap(effectSquares)];
+}
+
+/** Caselle dichiarate da un effetto: il client anima quello che dice il server, non lo ricalcola (G8). */
+function effectSquares(effect: AppliedEffect): Square[] {
+  if ('target' in effect) return [effect.target];
+  if ('from' in effect) return [effect.from, effect.to];
+  return [];
+}
+
+/** La mano del giocatore, con il catalogo caricato all'ingresso in partita. */
+function PlayerHand({ casting }: { casting: Casting }) {
+  const byId = useCatalog((s) => s.byId);
+  const loading = useCatalog((s) => s.status !== 'ready');
+  const hand = useMatch((s) => s.hand);
+  const myColor = useMatch((s) => s.myColor);
+  const mana = useMatch((s) => (s.myColor === null ? null : (s.game?.mana[s.myColor] ?? null)));
+  const phase = useMatch((s) => s.game?.phase ?? 'unknown');
+  const activePlayer = useMatch((s) => s.game?.activePlayer ?? null);
+  const playing = useMatch((s) => s.lifecycle === 'playing');
+  const castPending = useMatch((s) => s.pendingCast !== null);
+  const connected = useSessionStatus((s) => s.connection.kind === 'open');
+
+  return (
+    <Hand
+      cards={hand}
+      spellOf={(spellId) => byId.get(spellId)}
+      context={{
+        playing,
+        connected,
+        myTurn: myColor !== null && activePlayer === myColor,
+        phase,
+        mana: mana?.current ?? 0,
+        castPending,
+      }}
+      selectedInstanceId={casting.selectedInstanceId}
+      loading={loading}
+      onPick={casting.pick}
+    />
+  );
+}
+
+/** Barra della modalità targeting: cosa si sta lanciando, cosa scegliere, come annullare. */
+function TargetingBar({ casting }: { casting: Casting }) {
+  const { t } = useTranslation();
+  if (casting.spellName === null) return null;
+  return (
+    <Panel role="status" data-targeting className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+      <span className="font-semibold">{t('spells.targeting.title', { name: casting.spellName })}</span>
+      <span className="text-muted">{casting.prompt}</span>
+      <Button variant="secondary" className="ml-auto" onClick={casting.cancel}>
+        {t('spells.targeting.cancel')}
+      </Button>
+      <span className="text-xs text-muted">{t('spells.targeting.cancelHint')}</span>
+    </Panel>
+  );
+}
+
 function MatchScreen() {
   const outcome = useMatch((s) => s.outcome);
   const notice = useNotice();
+  const casting = useCasting(notice.show);
+  const flash = useSpellFlash();
   return (
     <MatchLayout
       banner={
@@ -98,25 +194,22 @@ function MatchScreen() {
         </>
       }
       opponent={<PlayerPanel side="opponent" />}
-      board={<MatchBoard onRefused={notice.show} />}
+      board={<MatchBoard onRefused={notice.show} targeting={casting.boardTargeting} flash={flash} />}
       phases={<PhaseTrack />}
       history={<MoveHistory />}
-      actions={outcome === null ? <Actions /> : <OutcomePanel outcome={outcome} />}
+      actions={
+        outcome === null ? (
+          <>
+            <TargetingBar casting={casting} />
+            <Actions />
+          </>
+        ) : (
+          <OutcomePanel outcome={outcome} />
+        )
+      }
       self={<PlayerPanel side="self" />}
-      hand={<HandPlaceholder />}
+      hand={outcome === null ? <PlayerHand casting={casting} /> : null}
     />
-  );
-}
-
-/** Segnaposto della mano: il conteggio arriva dal server, le carte vere arrivano allo Step 5. */
-function HandPlaceholder() {
-  const { t } = useTranslation();
-  const count = useMatch((s) => s.hand.length);
-  return (
-    <Panel className="flex min-h-[var(--hit-target)] items-center gap-2 px-3 py-2 text-sm text-muted">
-      <span>{t('match.hand')}</span>
-      <span data-hand-count>{count}</span>
-    </Panel>
   );
 }
 

@@ -219,7 +219,8 @@ export const it = {
       cancel: 'Annulla',
       cancelHint: 'Esc per annullare',
     },
-    resolved: '{{name}}',
+    castByYou: 'Hai lanciato {{name}}: {{effects}}',
+    castByOpponent: 'L’avversario ha lanciato {{name}}: {{effects}}',
     effect: {
       noop: { label: 'Nessun effetto', text: 'Non succede nulla.' },
       destroy_piece: { label: 'Distruzione', text: 'Distrugge un pezzo avversario, tranne il re.' },
@@ -257,6 +258,7 @@ export const it = {
       insufficient_mana: 'Servono {{cost}} mana.',
       unknown_spell: 'Magia sconosciuta a questo client.',
       unsupported_target: 'Bersaglio non gestito da questo client.',
+      invalid_target: 'Bersaglio non valido per questa magia.',
       cast_pending: 'Attendi la risposta del server.',
     },
   },

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { formatClock, isLowTime } from '../../game/clock';
+import { ManaBar } from '../../game/mana/ManaBar';
 import type { Color } from '../../game/model';
 import { Panel } from '../../design/components/Panel';
 import { useApi } from '../../store/AuthProvider';
@@ -31,6 +32,7 @@ export function PlayerPanel({ side }: { side: 'self' | 'opponent' }) {
   const myColor = useMatch((s) => s.myColor);
   const players = useMatch((s) => s.game?.players ?? null);
   const handSizes = useMatch((s) => s.game?.handSizes ?? null);
+  const mana = useMatch((s) => s.game?.mana ?? null);
   const activePlayer = useMatch((s) => s.game?.activePlayer ?? null);
   const opponentConnected = useMatch((s) => s.opponentConnected);
 
@@ -51,7 +53,8 @@ export function PlayerPanel({ side }: { side: 'self' | 'opponent' }) {
       </span>
       <div className="flex min-w-0 flex-col">
         <span className="truncate font-semibold">{player?.username ?? t(side === 'self' ? 'match.you' : 'match.opponent')}</span>
-        <span className="flex gap-2 text-xs text-muted">
+        {mana !== null && <ManaBar current={mana[color].current} max={mana[color].max} />}
+        <span className="flex flex-wrap gap-2 text-xs text-muted">
           <span>{t(color === 'white' ? 'match.colorWhite' : 'match.colorBlack')}</span>
           {elo !== null && <span>{t('match.panel.elo', { elo })}</span>}
           {handSizes !== null && <span>{t('match.panel.cards', { count: handSizes[color] })}</span>}

@@ -18,6 +18,8 @@
   --board-last: rgba(255, 255, 51, 0.5);
   --board-check: #e02b2b;
   --board-select: rgba(255, 255, 51, 0.75);
+  /* Lampeggio della casella toccata da una magia: oro della carta, trasparente */
+  --board-cast: rgba(201, 162, 39, 0.45);
 
   /* Pezzi: set disegnato in casa (CREDITS.md), stessa forma per i due colori, contorno unico */
   --piece-light: #f7f6f2;

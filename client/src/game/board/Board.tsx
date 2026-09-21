@@ -1,7 +1,8 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { Color, Square } from '../model';
+import type { Color, Square, SquareEffects } from '../model';
+import { StateBadge, statePresentation } from '../../spells/effects.registry';
 import { PieceIcon } from '../pieces/PieceIcon';
 import { isLightSquare, kingInCheckSquare, piecesOf, squaresInOrder, type PlacedPiece } from '../position';
 import { dropOnSquare, tapSquare, type BoardContext, type PickupRefusal, type Selection } from './selection';
@@ -11,6 +12,16 @@ import { dropOnSquare, tapSquare, type BoardContext, type PickupRefusal, type Se
  * Non conosce la connessione: riceve lo stato e chiama `onMove`.
  */
 
+/**
+ * Scacchiera in modalità targeting: si scelgono le caselle per una magia, non si muovono pezzi. Fuori dai bersagli
+ * il tap annulla (briefing §7.5).
+ */
+export interface BoardTargeting {
+  readonly squares: ReadonlySet<Square>;
+  onPick(square: Square): void;
+  onCancel(): void;
+}
+
 export interface BoardProps {
   readonly context: BoardContext;
   /** Orientamento: il proprio lato in basso; senza colore si guarda dalla parte del bianco. */
@@ -19,6 +30,12 @@ export interface BoardProps {
   readonly lastMove: { readonly from: Square; readonly to: Square } | null;
   /** Mossa propria mostrata prima della conferma del server: solo un'anteprima grafica. */
   readonly optimistic: { readonly from: Square; readonly to: Square } | null;
+  /** Stati persistenti per casella, dal server: il badge segue il pezzo perché lo segue la casella (G1). */
+  readonly effects?: readonly SquareEffects[];
+  /** Scelta dei bersagli di una magia in corso: `null` quando si gioca normalmente. */
+  readonly targeting?: BoardTargeting | null;
+  /** Caselle da far pulsare dopo la risoluzione di una magia. */
+  readonly flash?: readonly Square[];
   onMove(from: Square, to: Square, promotion: boolean): void;
   onRefused(reason: PickupRefusal): void;
 }
@@ -34,7 +51,17 @@ function withOptimistic(pieces: PlacedPiece[], optimistic: BoardProps['optimisti
   ];
 }
 
-export function Board({ context, orientation, lastMove, optimistic, onMove, onRefused }: BoardProps) {
+export function Board({
+  context,
+  orientation,
+  lastMove,
+  optimistic,
+  effects = [],
+  targeting = null,
+  flash = [],
+  onMove,
+  onRefused,
+}: BoardProps) {
   const { t } = useTranslation();
   const [selection, setSelection] = useState<Selection>(null);
   /** Trascinamento in corso: porta con sé la selezione nata al pickup, così il tap-tap resta indipendente. */
@@ -50,9 +77,24 @@ export function Board({ context, orientation, lastMove, optimistic, onMove, onRe
     setSelection(null);
   }
 
+  // Entrando in targeting la selezione di una mossa decade: le due modalità non convivono.
+  const [wasTargeting, setWasTargeting] = useState(targeting !== null);
+  if (wasTargeting !== (targeting !== null)) {
+    setWasTargeting(targeting !== null);
+    setSelection(null);
+  }
+
   const pieces = withOptimistic(piecesOf(context.fen), optimistic);
   const pieceOn = new Map(pieces.map((piece) => [piece.square, piece]));
   const checkSquare = kingInCheckSquare(context.fen);
+  const effectsOn = new Map(effects.map((entry) => [entry.square, entry.effects]));
+  const flashing = new Set(flash);
+
+  /** Etichetta accessibile di uno stato sul pezzo: "Congelato, ancora 2 turni". */
+  function stateLabel(kind: string, remainingTurns: number): string {
+    const state = statePresentation(kind).label(t);
+    return remainingTurns === 1 ? t('spells.state.badgeOne', { state }) : t('spells.state.badgeMany', { state, count: remainingTurns });
+  }
 
   function apply(outcome: ReturnType<typeof tapSquare>): void {
     if (outcome.kind === 'selection') setSelection(outcome.selection);
@@ -70,8 +112,19 @@ export function Board({ context, orientation, lastMove, optimistic, onMove, onRe
     return square as Square | null;
   }
 
+  /** Tap su una casella: in targeting sceglie un bersaglio (o annulla), altrimenti muove. */
+  function onSquareClick(square: Square): void {
+    if (targeting === null) {
+      apply(tapSquare(context, selection, square));
+      return;
+    }
+    if (targeting.squares.has(square)) targeting.onPick(square);
+    else targeting.onCancel();
+  }
+
   function onPointerDown(event: ReactPointerEvent<HTMLButtonElement>, square: Square): void {
-    if (event.button !== 0 || !pieceOn.has(square)) return;
+    // In targeting i pezzi non si trascinano: si sceglie un bersaglio.
+    if (targeting !== null || event.button !== 0 || !pieceOn.has(square)) return;
     const outcome = tapSquare(context, selection, square);
     // Il drag parte solo se il pickup è andato a buon fine; il tap resta la via principale.
     if (outcome.kind === 'selection' && outcome.selection?.from === square) {
@@ -108,8 +161,11 @@ export function Board({ context, orientation, lastMove, optimistic, onMove, onRe
     >
       {squares.map((square) => {
         const piece = pieceOn.get(square);
-        const isTarget = selection?.targets.includes(square) === true;
-        const label = piece === undefined ? square : `${square}, ${t(`board.piece.${piece.kind}`)} ${t(piece.color === 'white' ? 'match.colorWhite' : 'match.colorBlack')}`;
+        const states = effectsOn.get(square) ?? [];
+        const isTarget = targeting === null ? selection?.targets.includes(square) === true : targeting.squares.has(square);
+        const pieceLabel =
+          piece === undefined ? square : `${square}, ${t(`board.piece.${piece.kind}`)} ${t(piece.color === 'white' ? 'match.colorWhite' : 'match.colorBlack')}`;
+        const label = [pieceLabel, ...states.map((state) => stateLabel(state.kind, state.remainingTurns))].join(', ');
         return (
           <button
             key={square}
@@ -117,6 +173,7 @@ export function Board({ context, orientation, lastMove, optimistic, onMove, onRe
             data-square={square}
             data-selected={selection?.from === square}
             data-target={isTarget}
+            data-cast-target={targeting !== null && isTarget}
             aria-label={label}
             className={[
               'relative flex items-center justify-center p-0',
@@ -124,13 +181,15 @@ export function Board({ context, orientation, lastMove, optimistic, onMove, onRe
               selection?.from === square ? 'outline outline-2 -outline-offset-2 outline-board-select' : '',
               lastMove?.from === square || lastMove?.to === square ? 'shadow-[inset_0_0_0_100vmax_var(--board-last)]' : '',
               checkSquare === square ? 'shadow-[inset_0_0_0_100vmax_var(--board-check)]' : '',
+              targeting !== null && isTarget ? 'outline outline-2 -outline-offset-2 outline-spell-frame' : '',
+              flashing.has(square) ? 'spell-flash' : '',
             ].join(' ')}
             onPointerDown={(event) => onPointerDown(event, square)}
             onPointerMove={onPointerMove}
             onPointerUp={(event) => onPointerUp(event, square)}
             onClick={() => {
               if (skipClick.current) skipClick.current = false;
-              else apply(tapSquare(context, selection, square));
+              else onSquareClick(square);
             }}
           >
             {piece !== undefined && (
@@ -138,7 +197,17 @@ export function Board({ context, orientation, lastMove, optimistic, onMove, onRe
                 <PieceIcon kind={piece.kind} color={piece.color} />
               </span>
             )}
-            {isTarget && (
+            {states.length > 0 && (
+              <span aria-hidden="true" data-effects className="pointer-events-none absolute top-0 left-0 flex flex-col gap-px p-px">
+                {states.map((state) => (
+                  <span key={state.kind} className="flex items-center">
+                    <StateBadge kind={state.kind} className="size-3" />
+                    <span className="text-[0.55rem] leading-none font-bold text-primary tabular-nums">{state.remainingTurns}</span>
+                  </span>
+                ))}
+              </span>
+            )}
+            {isTarget && targeting === null && (
               <span
                 aria-hidden="true"
                 data-hint={piece === undefined ? 'move' : 'capture'}

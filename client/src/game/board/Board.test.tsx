@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { initI18n } from '../../i18n';
 import { createWebStorage } from '../../lib/storage';
-import type { Square } from '../model';
+import type { Square, SquareEffects } from '../model';
 import { Board } from './Board';
 import type { BoardContext } from './selection';
 
@@ -21,7 +21,15 @@ function context(overrides: Partial<BoardContext> = {}): BoardContext {
   return { fen: START, myColor: 'white', activePlayer: 'white', phase: 'move', frozen: new Set<Square>(), canAct: true, ...overrides };
 }
 
-function setup(overrides: { context?: Partial<BoardContext>; orientation?: 'white' | 'black'; optimistic?: { from: Square; to: Square } } = {}) {
+interface Setup {
+  context?: Partial<BoardContext>;
+  orientation?: 'white' | 'black';
+  optimistic?: { from: Square; to: Square };
+  effects?: readonly SquareEffects[];
+  targeting?: { squares: ReadonlySet<Square>; onPick(square: Square): void; onCancel(): void };
+}
+
+function setup(overrides: Setup = {}) {
   const onMove = vi.fn();
   const onRefused = vi.fn();
   const view = render(
@@ -30,6 +38,8 @@ function setup(overrides: { context?: Partial<BoardContext>; orientation?: 'whit
       orientation={overrides.orientation ?? 'white'}
       lastMove={{ from: 'e2', to: 'e4' }}
       optimistic={overrides.optimistic ?? null}
+      effects={overrides.effects ?? []}
+      targeting={overrides.targeting ?? null}
       onMove={onMove}
       onRefused={onRefused}
     />,
@@ -102,6 +112,31 @@ describe('Board', () => {
     const { square } = setup({ optimistic: { from: 'e2', to: 'e4' } });
     expect(square('e2').getAttribute('aria-label')).toBe('e2');
     expect(square('e4').getAttribute('aria-label')).toBe('e4, pedone Bianco');
+  });
+
+  it('gli effetti del server diventano badge sul pezzo, con i turni residui', () => {
+    const { square } = setup({
+      effects: [{ square: 'e7', effects: [{ kind: 'freeze', remainingTurns: 2, sourceSpellId: 'frostbolt' }] }],
+    });
+    expect(square('e7').getAttribute('aria-label')).toBe('e7, pedone Nero, Congelato, ancora 2 turni');
+    expect(square('e7').querySelector('[data-effects]')?.textContent).toBe('2');
+    expect(square('e2').querySelector('[data-effects]')).toBeNull();
+  });
+
+  it('in targeting si scelgono solo i bersagli validi, e un tap fuori annulla', () => {
+    const onPick = vi.fn();
+    const onCancel = vi.fn();
+    const { onMove, square } = setup({ targeting: { squares: new Set<Square>(['e7', 'd7']), onPick, onCancel } });
+    expect(square('e7').dataset['castTarget']).toBe('true');
+    expect(square('e2').dataset['castTarget']).toBe('false');
+
+    fireEvent.click(square('e7'));
+    expect(onPick).toHaveBeenCalledWith('e7');
+    // Un proprio pezzo non si può nemmeno prendere: in targeting la scacchiera non muove.
+    fireEvent.click(square('e2'));
+    expect(onCancel).toHaveBeenCalled();
+    expect(onMove).not.toHaveBeenCalled();
+    expect(square('e2').dataset['selected']).toBe('false');
   });
 
   it('il re sotto scacco è evidenziato', () => {

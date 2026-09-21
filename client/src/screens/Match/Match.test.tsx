@@ -7,7 +7,9 @@ import { initI18n } from '../../i18n';
 import { createWebStorage } from '../../lib/storage';
 import { AuthProvider } from '../../store/AuthProvider';
 import { createAuth } from '../../store/authStore';
+import { CatalogProvider } from '../../spells/CatalogProvider';
 import { MatchProvider } from '../../store/MatchProvider';
+import { testCatalogStore } from '../../testing/catalog';
 import { ACCOUNT, data, fakeServer, memoryStorage } from '../../testing/fakes';
 import { testMatchSession } from '../../testing/session';
 import { Match } from './Match';
@@ -74,14 +76,16 @@ async function setup() {
 
   render(
     <AuthProvider auth={auth}>
-      <MatchProvider session={session}>
-        <MemoryRouter initialEntries={['/match']}>
-          <Routes>
-            <Route path="/match" element={<Match />} />
-            <Route path="/lobby" element={<h1>Lobby</h1>} />
-          </Routes>
-        </MemoryRouter>
-      </MatchProvider>
+      <CatalogProvider store={testCatalogStore()}>
+        <MatchProvider session={session}>
+          <MemoryRouter initialEntries={['/match']}>
+            <Routes>
+              <Route path="/match" element={<Match />} />
+              <Route path="/lobby" element={<h1>Lobby</h1>} />
+            </Routes>
+          </MemoryRouter>
+        </MatchProvider>
+      </CatalogProvider>
     </AuthProvider>,
   );
   const receive = (frame: object) => act(() => sockets.last().receive(frame));
@@ -136,6 +140,49 @@ describe('schermata di partita', () => {
     receive(gameState({ phase: 'main1' }));
     fireEvent.click(square('e2'));
     expect(await screen.findByText('Non è la fase della mossa.')).toBeTruthy();
+    expect(sent()).toEqual([]);
+  });
+
+  it('mano, targeting e cast: la carta apre la scelta del bersaglio e il frame parte con la casella scelta', async () => {
+    const { receive, expectSent, sent } = await setup();
+    receive(gameState({ phase: 'main1', white_mana: 3, white_max_mana: 5 }));
+    receive({ type: 'hand', payload: { hand: ['frostbolt', 'nova'], mana: 3, max_mana: 5, deck_size: 34 } });
+
+    // Il catalogo arriva in modo asincrono: prima le carte non ci sono.
+    const card = await waitFor(() => document.querySelector('[data-card="frostbolt"]') as HTMLButtonElement);
+    expect(card.textContent).toContain('Frost Bolt');
+    // Nova costa 5 e il mana è 3: resta visibile, disabilitata, col motivo.
+    const nova = document.querySelector('[data-card="nova"]') as HTMLButtonElement;
+    expect(nova.disabled).toBe(true);
+    expect(nova.textContent).toContain('Servono 5 mana');
+    fireEvent.click(card);
+
+    // Modalità targeting: la scacchiera evidenzia solo i pezzi avversari.
+    expect(screen.getAllByText('Bersaglio per Frost Bolt').length).toBeGreaterThan(0);
+    expect(square('e7').dataset['castTarget']).toBe('true');
+    expect(square('e2').dataset['castTarget']).toBe('false');
+    fireEvent.click(square('e7'));
+    await expectSent({ type: 'cast_spell', payload: { spell_id: 'frostbolt', targets: ['e7'] } });
+
+    // Mano e mana non cambiano finché non lo dice il server.
+    expect(document.querySelector('[data-card="frostbolt"]')).toBeTruthy();
+    receive({ type: 'spell_cast', payload: { player: 'white', spell_id: 'frostbolt', targets: ['e7'], effects_applied: [{ kind: 'freeze_piece', target: 'e7', remaining_turns: 2 }] } });
+    await waitFor(() => expect(document.querySelector('[data-card="frostbolt"]')).toBeNull());
+    expect(square('e7').getAttribute('aria-label')).toBe('e7, pedone Nero, Congelato, ancora 2 turni');
+    expect(screen.getAllByText('Hai lanciato Frost Bolt: Gelo').length).toBeGreaterThan(0);
+    expect(sent()).toHaveLength(1);
+  });
+
+  it('il targeting si annulla con Esc, senza disturbare il server', async () => {
+    const { receive, sent } = await setup();
+    receive(gameState({ phase: 'main1', white_mana: 5, white_max_mana: 5 }));
+    receive({ type: 'hand', payload: { hand: ['frostbolt'], mana: 5, max_mana: 5, deck_size: 35 } });
+    fireEvent.click(await waitFor(() => document.querySelector('[data-card="frostbolt"]') as HTMLButtonElement));
+    expect(screen.getAllByText('Bersaglio per Frost Bolt').length).toBeGreaterThan(0);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByText('Bersaglio per Frost Bolt')).toBeNull());
+    expect(square('e7').dataset['castTarget']).toBe('false');
     expect(sent()).toEqual([]);
   });
 

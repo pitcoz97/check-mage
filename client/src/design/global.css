@@ -36,6 +36,22 @@
 }
 
 @layer components {
+  /* Risoluzione di una magia: le caselle toccate pulsano una volta. La regola di riduzione del motion, sopra,
+     la spegne da sé. */
+  .spell-flash {
+    animation: spell-flash 600ms ease-out 2;
+  }
+
+  @keyframes spell-flash {
+    0%,
+    100% {
+      box-shadow: inset 0 0 0 0 transparent;
+    }
+    50% {
+      box-shadow: inset 0 0 0 100vmax var(--board-cast);
+    }
+  }
+
   /* Rispetta notch e barre di sistema su mobile (briefing §9). */
   .safe-area {
     padding-top: env(safe-area-inset-top);

@@ -12,6 +12,8 @@ import { Match } from '../src/screens/Match/Match';
 import { AuthProvider } from '../src/store/AuthProvider';
 import { createAuth } from '../src/store/authStore';
 import { createMatchSession } from '../src/store/matchSession';
+import { createCatalogStore } from '../src/spells/catalog';
+import { CatalogProvider } from '../src/spells/CatalogProvider';
 import { MatchProvider } from '../src/store/MatchProvider';
 import { memoryStorage } from '../src/testing/fakes';
 import type { SocketFactory } from '../src/ws/connection';
@@ -81,14 +83,17 @@ async function startMatch(scenario: string, name: string) {
 
   render(
     <AuthProvider auth={auth}>
-      <MatchProvider session={session}>
-        <MemoryRouter initialEntries={['/match']}>
-          <Routes>
-            <Route path="/match" element={<Match />} />
-            <Route path="/lobby" element={<h1>Lobby</h1>} />
-          </Routes>
-        </MemoryRouter>
-      </MatchProvider>
+      {/* Il catalogo arriva davvero da `GET /spells` del mock, come in produzione. */}
+      <CatalogProvider store={createCatalogStore({ api: auth.api, log: createLogger(() => undefined) })}>
+        <MatchProvider session={session}>
+          <MemoryRouter initialEntries={['/match']}>
+            <Routes>
+              <Route path="/match" element={<Match />} />
+              <Route path="/lobby" element={<h1>Lobby</h1>} />
+            </Routes>
+          </MemoryRouter>
+        </MatchProvider>
+      </CatalogProvider>
     </AuthProvider>,
   );
   await screen.findByRole('grid', { name: 'Scacchiera' }, { timeout: 10_000 });

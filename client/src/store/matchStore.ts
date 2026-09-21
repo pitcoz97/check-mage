@@ -11,6 +11,7 @@ import type {
   PerColor,
   ProtocolErrorInfo,
   PublicGameState,
+  SpellId,
   Square,
   SquareEffects,
   UserId,
@@ -37,6 +38,21 @@ export interface OptimisticMove {
   readonly from: Square;
   readonly to: Square;
   readonly at: number;
+}
+
+/** Cast mandato al server, in attesa di risposta: niente ottimismo, serve solo a non mandarlo due volte (G7). */
+export interface PendingCast {
+  readonly spellId: SpellId;
+  readonly at: number;
+}
+
+/** Ultima magia risolta, come l'ha dichiarata il server (`spell_cast`): il client la anima, non la ricalcola (G8). */
+export interface ResolvedSpell {
+  readonly player: Color;
+  readonly spellId: SpellId;
+  readonly targets: readonly Square[];
+  readonly effects: readonly AppliedEffect[];
+  readonly seq: number;
 }
 
 export interface GameOutcome {
@@ -66,6 +82,9 @@ export interface MatchState {
    * al `game_state` successivo — che può anche smentirla, se uno scudo assorbe la cattura — o su `error`.
    */
   readonly optimistic: OptimisticMove | null;
+  /** Cast in volo: la mano resta ferma finché il server non risponde. Mai un cambio di stato di gioco. */
+  readonly pendingCast: PendingCast | null;
+  readonly lastCast: ResolvedSpell | null;
   readonly outcome: GameOutcome | null;
   /** Numero di eventi applicati: rende distinguibili avvisi ed errori uguali e consecutivi. */
   readonly seq: number;
@@ -85,6 +104,8 @@ export function initialMatchState(selfId: UserId | null): MatchState {
     opponentConnected: true,
     lastError: null,
     optimistic: null,
+    pendingCast: null,
+    lastCast: null,
     outcome: null,
     seq: 0,
   };
@@ -193,6 +214,8 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
         },
         drawOffer: movedByMe ? { ...state.drawOffer, incoming: false } : state.drawOffer,
         optimistic: null,
+        // Valvola di sicurezza: uno stato nuovo vuol dire che il server ha già lavorato, il cast non è più in volo.
+        pendingCast: null,
       };
     }
 
@@ -253,7 +276,13 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
         const remainingTurns = 'remainingTurns' in effect ? effect.remainingTurns : 1;
         activeEffects = upsertEffect(activeEffects, effect.target, { kind, remainingTurns, sourceSpellId: event.spellId });
       }
-      return { ...base, hand, game: game === null ? game : { ...game, activeEffects } };
+      return {
+        ...base,
+        hand,
+        game: game === null ? game : { ...game, activeEffects },
+        pendingCast: event.player === state.myColor ? null : state.pendingCast,
+        lastCast: { player: event.player, spellId: event.spellId, targets: event.targets, effects: event.effects, seq },
+      };
     }
 
     case 'effect_expired':
@@ -279,8 +308,8 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
       };
 
     case 'error':
-      // Rifiuto del server: la mossa mostrata in anticipo torna indietro.
-      return { ...base, lastError: { info: event.error, seq }, optimistic: null };
+      // Rifiuto del server: la mossa mostrata in anticipo torna indietro e la carta torna giocabile.
+      return { ...base, lastError: { info: event.error, seq }, optimistic: null, pendingCast: null };
 
     case 'draw_offer':
       return { ...base, drawOffer: { ...state.drawOffer, incoming: true } };
@@ -310,6 +339,8 @@ export interface MatchStoreState extends MatchState {
   dispatch(event: ServerEvent, receivedAt?: number): void;
   /** Mostra subito la propria mossa, in attesa della conferma del server. */
   previewMove(from: Square, to: Square): void;
+  /** Segna il cast come partito: nessun effetto sullo stato di gioco, solo attesa della risposta. */
+  beginCast(spellId: SpellId): void;
   /** Nuova ricerca: stato pulito, in coda. */
   enterQueue(): void;
   /** Stato pulito (uscita dalla partita, cambio utente). */
@@ -324,6 +355,9 @@ export function createMatchStore(selfId: UserId | null, now: () => number = Date
     },
     previewMove(from, to) {
       set({ optimistic: { from, to, at: now() } });
+    },
+    beginCast(spellId) {
+      set({ pendingCast: { spellId, at: now() } });
     },
     enterQueue() {
       set({ ...initialMatchState(get().selfId), lifecycle: 'queued' });

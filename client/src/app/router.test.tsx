@@ -7,7 +7,9 @@ import { changeLanguage, initI18n } from '../i18n';
 import { createWebStorage } from '../lib/storage';
 import { AuthProvider } from '../store/AuthProvider';
 import { createAuth } from '../store/authStore';
+import { CatalogProvider } from '../spells/CatalogProvider';
 import { MatchProvider } from '../store/MatchProvider';
+import { testCatalogStore } from '../testing/catalog';
 import { testMatchSession } from '../testing/session';
 import { ACCOUNT, data, fakeServer, memoryStorage } from '../testing/fakes';
 import { routes } from './router';
@@ -29,9 +31,11 @@ async function renderAuthenticated(path: string) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
   const view = render(
     <AuthProvider auth={auth}>
-      <MatchProvider session={session}>
-        <RouterProvider router={router} />
-      </MatchProvider>
+      <CatalogProvider store={testCatalogStore()}>
+        <MatchProvider session={session}>
+          <RouterProvider router={router} />
+        </MatchProvider>
+      </CatalogProvider>
     </AuthProvider>,
   );
   return { router, view, session, sockets, storage };
@@ -71,7 +75,8 @@ describe('router e layout shell', () => {
 
   it('/match senza una partita in corso → lobby (aprire il socket metterebbe in coda)', async () => {
     const { router, sockets } = await renderAuthenticated('/match');
-    expect(await screen.findByRole('heading', { name: 'Pronto a giocare?' })).toBeTruthy();
+    // La schermata di partita è un chunk a parte: il primo import può prendersi il suo tempo.
+    expect(await screen.findByRole('heading', { name: 'Pronto a giocare?' }, { timeout: 5_000 })).toBeTruthy();
     expect(router.state.location.pathname).toBe('/lobby');
     expect(sockets.sockets).toHaveLength(0);
   });
@@ -127,7 +132,7 @@ describe('coda, partita e connessione', () => {
       sockets.last().open();
       sockets.last().receive(gameState());
     });
-    expect(await screen.findByRole('grid', { name: 'Scacchiera' })).toBeTruthy();
+    expect(await screen.findByRole('grid', { name: 'Scacchiera' }, { timeout: 5_000 })).toBeTruthy();
     expect(router.state.location.pathname).toBe('/match');
     const panel = (side: string) => (document.querySelector(`[data-player="${side}"]`) as HTMLElement).textContent ?? '';
     expect(panel('opponent')).toContain('luigi');

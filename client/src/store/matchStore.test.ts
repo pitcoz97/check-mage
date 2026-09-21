@@ -101,6 +101,35 @@ describe('applyServerEvent: aggiornamenti puntuali', () => {
     expect(state.game?.mana.white).toEqual({ current: 0, max: 1 });
   });
 
+  it('cast in volo: parte con beginCast, si chiude col proprio spell_cast, e un error lo libera', () => {
+    const store = createMatchStore('1');
+    for (const event of START) store.getState().dispatch(event);
+    store.getState().beginCast('frostbolt');
+    expect(store.getState().pendingCast?.spellId).toBe('frostbolt');
+
+    // Il cast dell'avversario non sblocca il mio.
+    store.getState().dispatch({ type: 'spell_cast', player: 'black', spellId: 'spark', targets: [], effects: [{ kind: 'noop' }] });
+    expect(store.getState().pendingCast).not.toBeNull();
+
+    store.getState().dispatch({
+      type: 'spell_cast',
+      player: 'white',
+      spellId: 'frostbolt',
+      targets: ['e7'],
+      effects: [{ kind: 'freeze_piece', target: 'e7', remainingTurns: 2 }],
+    });
+    expect(store.getState().pendingCast).toBeNull();
+    // L'ultima magia risolta resta a disposizione dell'animazione, con i bersagli e gli effetti del server.
+    expect(store.getState().lastCast).toMatchObject({ player: 'white', spellId: 'frostbolt', targets: ['e7'] });
+
+    store.getState().beginCast('nova');
+    store.getState().dispatch({
+      type: 'error',
+      error: { code: 'insufficient_mana', square: null, phase: null, needed: 5, available: 1, expected: null, received: null, king: null },
+    });
+    expect(store.getState().pendingCast).toBeNull();
+  });
+
   it('un freeze rinnovato sostituisce quello esistente; effect_expired lo toglie (anche lo scudo assorbito)', () => {
     const freeze = (turns: number): ServerEvent => ({
       type: 'spell_cast',
