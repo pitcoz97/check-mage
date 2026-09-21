@@ -39,6 +39,17 @@ export function setupScenario(name: ScenarioName, config: MockConfig): ScenarioS
           manaFloor: { black: 10 },
         },
       };
+    case 'spellbook':
+      return {
+        // Il bot muove pedoni tranquilli e non casta: la scacchiera resta prevedibile mentre il client lancia.
+        bot: { script: ['a7a6', 'b7b6', 'h7h6', 'g7g6', 'a6a5'] },
+        overrides: {
+          // Mano più larga delle 4 carte regolamentari: è uno scenario di prova, serve a coprire tutti gli effetti
+          // in due turni invece che in sei.
+          hand: { white: ['frostbolt', 'aegis', 'disintegrate', 'teleport', 'insight', 'channel', 'spark'] },
+          manaFloor: { white: 10 },
+        },
+      };
     case 'hostile':
       return { bot: {}, hostile: true };
   }

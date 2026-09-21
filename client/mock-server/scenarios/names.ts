@@ -15,6 +15,8 @@ export const SCENARIO_NAMES = [
   'draw',
   /** Mano e mazzo del bot preparati: casta tutti e sette i kind di effetto nei primi turni. */
   'spells',
+  /** Come sopra, ma è il **client** ad avere le carte e il mana: serve a lanciarle dalla UI. */
+  'spellbook',
   /** Partita valida intercalata da frame malformati, type sconosciuti e payload inattesi. */
   'hostile',
 ] as const;

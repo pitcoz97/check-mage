@@ -19,9 +19,11 @@ import { memoryStorage } from '../src/testing/fakes';
 import type { SocketFactory } from '../src/ws/connection';
 
 /**
- * Criteri di accettazione dello Step 4 contro il mock (porting di chess-server), con la schermata di gioco vera:
+ * Criteri di accettazione degli Step 4 e 5 contro il mock (porting di chess-server), con la schermata di gioco vera:
  * - una partita completa fino al matto, giocata cliccando sulle caselle;
- * - riconnessione a metà partita: la UI si ricostruisce dallo stato che rimanda il server.
+ * - riconnessione a metà partita: la UI si ricostruisce dallo stato che rimanda il server;
+ * - magie lanciate dalla mano in main1 e main2, con tutti i kind di effetto, targeting annullabile, carte
+ *   disabilitate col motivo, effetto che segue il pezzo e pickup rifiutato su un pezzo congelato.
  *
  * Le due schede in parallelo restano una prova manuale; qui l'avversario è il bot del mock.
  *
@@ -146,6 +148,19 @@ async function play(session: TestSession, move: string): Promise<void> {
   });
 }
 
+type Session = Awaited<ReturnType<typeof startMatch>>['session'];
+
+const cardOf = (spellId: string) => document.querySelector(`[data-card="${spellId}"]`) as HTMLButtonElement | null;
+const passButton = () => screen.getAllByRole('button', { name: 'Passa fase' })[0] as HTMLButtonElement;
+
+/** Lancia una magia dalla mano: tap sulla carta, tap sui bersagli, e si aspetta lo `spell_cast` del server. */
+async function cast(session: Session, spellId: string, targets: readonly string[]): Promise<void> {
+  await waitFor(() => expect(cardOf(spellId)?.disabled).toBe(false), { timeout: 10_000 });
+  fireEvent.click(cardOf(spellId) as HTMLButtonElement);
+  for (const target of targets) fireEvent.click(square(target));
+  await waitFor(() => expect(session.match.getState().lastCast?.spellId).toBe(spellId), { timeout: 10_000 });
+}
+
 describe('schermata di partita contro il mock', () => {
   it(
     'partita completa fino al matto, giocata dalla scacchiera',
@@ -179,6 +194,80 @@ describe('schermata di partita contro il mock', () => {
       expect((document.querySelector('[data-history]') as HTMLElement).textContent).toContain('e2e4');
       expect(square('e4').getAttribute('aria-label')).toBe('e4, pedone Bianco');
       expect(session.match.getState().outcome).toBeNull();
+    },
+    60_000,
+  );
+
+  it(
+    'magie dalla mano: tutti gli effetti, cast in main1 e main2, targeting annullabile, Teleport non avanza la fase',
+    async () => {
+      const { session } = await startMatch('spellbook', 'ui_spellbook');
+      const seen = new Set<string>();
+      session.match.subscribe((state) => state.lastCast?.effects.forEach((effect) => seen.add(effect.kind)));
+      await waitFor(() => expect(turnOf(session).phase).toBe('main1'), { timeout: 10_000 });
+
+      // Targeting annullabile: si apre la scelta del bersaglio e si annulla con Esc, senza mandare nulla.
+      await waitFor(() => expect(cardOf('teleport')?.disabled).toBe(false), { timeout: 10_000 });
+      fireEvent.click(cardOf('teleport') as HTMLButtonElement);
+      expect(screen.getAllByText('Bersaglio per Teleport').length).toBeGreaterThan(0);
+      fireEvent.keyDown(document, { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByText('Bersaglio per Teleport')).toBeNull());
+      expect(session.match.getState().lastCast).toBeNull();
+
+      // main1: congela, protegge, distrugge.
+      await cast(session, 'frostbolt', ['e7']);
+      await cast(session, 'aegis', ['e2']);
+      await cast(session, 'disintegrate', ['b8']);
+      expect(square('e7').getAttribute('aria-label')).toContain('Congelato');
+      expect(square('e2').getAttribute('aria-label')).toContain('Protetto');
+      expect(square('b8').getAttribute('aria-label')).toBe('b8');
+
+      // In fase di mossa le carte restano visibili, disabilitate col motivo.
+      fireEvent.click(passButton());
+      await waitFor(() => expect(turnOf(session).phase).toBe('move'), { timeout: 10_000 });
+      expect(cardOf('spark')?.disabled).toBe(true);
+      expect(cardOf('spark')?.textContent).toContain('Non puoi lanciare magie in questa fase');
+
+      // L'effetto segue il pezzo: lo scudo era su e2, il pedone va in e4.
+      fireEvent.click(square('e2'));
+      fireEvent.click(square('e4'));
+      await waitFor(() => expect(square('e4').getAttribute('aria-label')).toContain('Protetto'), { timeout: 10_000 });
+
+      // main2: si casta anche qui.
+      await waitFor(() => expect(turnOf(session).phase).toBe('main2'), { timeout: 10_000 });
+      await cast(session, 'spark', []);
+
+      // Turno successivo: Teleport sposta un pezzo senza consumare la mossa, quindi la fase resta main1.
+      fireEvent.click(passButton());
+      await waitFor(() => expect(turnOf(session).mine && turnOf(session).phase === 'main1').toBe(true), { timeout: 20_000 });
+      await cast(session, 'teleport', ['b1', 'a3']);
+      expect(turnOf(session).phase).toBe('main1');
+      expect(square('a3').getAttribute('aria-label')).toBe('a3, cavallo Bianco');
+      await cast(session, 'insight', []);
+      await cast(session, 'channel', []);
+
+      expect([...seen].sort()).toEqual(['destroy_piece', 'draw_card', 'freeze_piece', 'gain_mana', 'move_piece', 'noop', 'shield_piece']);
+    },
+    90_000,
+  );
+
+  it(
+    'un pezzo congelato dall’avversario rifiuta il pickup, col motivo',
+    async () => {
+      const { session } = await startMatch('spells', 'ui_frozen');
+      await play(session, 'g1f3');
+      await endTurn(session); // il bot gioca il suo turno e lancia le sue magie
+
+      const frozen = () => session.match.getState().game?.activeEffects.find((entry) => entry.effects.some((e) => e.kind === 'freeze'));
+      await waitFor(() => expect(frozen()).toBeDefined(), { timeout: 20_000 });
+      const target = frozen()?.square as string;
+      expect(square(target).getAttribute('aria-label')).toContain('Congelato');
+
+      // Nella propria fase di mossa il pezzo congelato non si prende: il motivo si vede prima di disturbare il server.
+      await toMovePhase(session);
+      fireEvent.click(square(target));
+      expect(screen.getAllByText('Il pezzo è congelato e non può muoversi.').length).toBeGreaterThan(0);
+      expect(square(target).dataset['selected']).toBe('false');
     },
     60_000,
   );
