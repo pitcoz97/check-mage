@@ -7,6 +7,8 @@ import { initI18n } from '../i18n';
 import { createWebStorage } from '../lib/storage';
 import { AuthProvider } from '../store/AuthProvider';
 import { createAuth } from '../store/authStore';
+import { MatchProvider } from '../store/MatchProvider';
+import { testMatchSession } from '../testing/session';
 import { ACCOUNT, data, fail, fakeServer, LOGIN, memoryStorage, type Handler } from '../testing/fakes';
 import { routes } from './router';
 
@@ -20,10 +22,13 @@ async function renderApp(path: string, serverRoutes: Record<string, Handler>, se
   if (session !== undefined) await storage.set('session', JSON.stringify(session));
   const server = fakeServer(serverRoutes);
   const auth = createAuth({ baseUrl: 'http://api', storage, fetchImpl: server.fetchImpl });
+  const { session: matchSession } = testMatchSession(auth, storage);
   const router = createMemoryRouter(routes, { initialEntries: [path] });
   render(
     <AuthProvider auth={auth}>
-      <RouterProvider router={router} />
+      <MatchProvider session={matchSession}>
+        <RouterProvider router={router} />
+      </MatchProvider>
     </AuthProvider>,
   );
   return { router, server, map, auth };

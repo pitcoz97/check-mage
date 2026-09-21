@@ -33,6 +33,8 @@ export function createWebStorage(backend: () => Storage | undefined = () => glob
 export const STORAGE_KEYS = {
   language: 'language',
   session: 'session',
+  /** Id dell'utente con una partita aperta, per riprenderla dopo un ricaricamento (ASSUMPTIONS C11). */
+  activeMatch: 'active-match',
 } as const;
 
 export const storage: KeyValueStorage = createWebStorage();

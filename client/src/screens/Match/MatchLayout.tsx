@@ -9,6 +9,8 @@ export interface MatchLayoutSlots {
   readonly actions: ReactNode;
   readonly self: ReactNode;
   readonly hand: ReactNode;
+  /** Avvisi a tutta larghezza sopra la partita (stato della connessione). */
+  readonly banner?: ReactNode;
 }
 
 /**
@@ -23,6 +25,7 @@ export function MatchLayout(slots: MatchLayoutSlots) {
   const { t } = useTranslation();
   return (
     <div className="safe-area flex min-h-full flex-col">
+      {slots.banner}
       <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-2 p-2 lg:grid lg:grid-cols-[minmax(0,1fr)_var(--side-column)] lg:grid-rows-[auto_minmax(0,1fr)_auto_auto] lg:gap-3 lg:p-4">
         <div data-region="opponent" className="lg:col-start-1 lg:row-start-1">
           {slots.opponent}
