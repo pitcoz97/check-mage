@@ -27,6 +27,14 @@ export interface SessionState {
   readonly connection: ConnectionStatus;
 }
 
+/**
+ * Ripresa dell'app dopo il background (mobile). La sorgente vera è `@capacitor/app`, ma la sessione non la conosce:
+ * gliela passa `main.tsx`, e i test ne iniettano una finta.
+ */
+export interface AppResumeEvents {
+  subscribe(onResume: () => void): () => void;
+}
+
 export interface MatchSession {
   readonly match: StoreApi<MatchStoreState>;
   readonly status: StoreApi<SessionState>;
@@ -56,6 +64,8 @@ export interface MatchSessionDeps {
   readonly extraParams?: Readonly<Record<string, string>>;
   /** Sorgente dell'evento `online` (di default la finestra, se c'è). */
   readonly onlineEvents?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'> | null;
+  /** Solo su dispositivo: ripresa dell'app dal background. */
+  readonly appEvents?: AppResumeEvents | null;
 }
 
 export function createMatchSession(deps: MatchSessionDeps): MatchSession {
@@ -102,6 +112,10 @@ export function createMatchSession(deps: MatchSessionDeps): MatchSession {
   const onOnline = () => connection.nudge();
   online?.addEventListener('online', onOnline);
   unsubscribers.push(() => online?.removeEventListener('online', onOnline));
+
+  // Al rientro dal background il socket è quasi sempre morto senza che sia arrivato un `onclose`: si riparte.
+  const appEvents = deps.appEvents ?? null;
+  if (appEvents !== null) unsubscribers.push(appEvents.subscribe(() => connection.wake()));
 
   return {
     match,

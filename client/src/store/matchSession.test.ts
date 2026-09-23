@@ -27,6 +27,8 @@ async function setup() {
   await auth.store.getState().bootstrap();
   const sockets = fakeSockets();
   const online = new EventTarget();
+  // Ripresa dell'app dal background, come la manderebbe `@capacitor/app` su dispositivo.
+  const resumeListeners = new Set<() => void>();
   const session = createMatchSession({
     wsBaseUrl: 'ws://api/ws',
     tickets: auth.api,
@@ -35,8 +37,15 @@ async function setup() {
     createSocket: sockets.factory,
     log: createLogger(() => undefined),
     onlineEvents: online,
+    appEvents: {
+      subscribe(onResume) {
+        resumeListeners.add(onResume);
+        return () => resumeListeners.delete(onResume);
+      },
+    },
   });
-  return { session, sockets, auth, map, online, server };
+  const resume = () => resumeListeners.forEach((listener) => listener());
+  return { session, sockets, auth, map, online, server, resume, resumeListeners };
 }
 
 /** `game_state` in cui l'utente di `ACCOUNT` (id 7) gioca con il bianco. */
@@ -109,6 +118,24 @@ describe('sessione di partita', () => {
     await flush();
     expect(sockets.sockets).toHaveLength(2);
     expect(sockets.last().url).toBe('ws://api/ws?ticket=t2');
+  });
+
+  it('ripresa dell’app: il socket riparte e lo stato arriva dal server', async () => {
+    const { session, sockets, resume } = await setup();
+    session.findMatch();
+    await flush();
+    sockets.last().open();
+    sockets.last().receive(gameState());
+    expect(session.match.getState().lifecycle).toBe('playing');
+
+    // L'app torna in primo piano: il socket di prima è morto in background senza dirlo.
+    resume();
+    await flush();
+    expect(sockets.sockets).toHaveLength(2);
+    expect(sockets.sockets[0]?.closedWith).toBe(1000);
+    sockets.last().open();
+    sockets.last().receive(gameState());
+    expect(session.match.getState().lifecycle).toBe('playing');
   });
 
   it('logout: connessione chiusa e stato azzerato', async () => {

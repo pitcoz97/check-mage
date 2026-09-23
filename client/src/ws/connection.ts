@@ -127,8 +127,14 @@ export interface Connection {
   open(): void;
   /** Chiusura voluta: nessuna riconnessione. */
   close(): void;
-  /** Se sta aspettando il prossimo tentativo, lo anticipa (evento `online`, `resume` su mobile). */
+  /** Se sta aspettando il prossimo tentativo, lo anticipa (evento `online`). */
   nudge(): void;
+  /**
+   * Ripresa dell'app dopo il background (Android chiude il socket senza avvisare, briefing §8): se la connessione
+   * non è ferma per scelta, si riparte subito con un ticket nuovo invece di fidarsi di un socket che potrebbe
+   * essere già morto. Il server rimanda lo stato completo a chi rientra entro la finestra (G5).
+   */
+  wake(): void;
   /** In partita il traffico è continuo (`timer_update`): attiva il controllo del silenzio. */
   expectTraffic(expected: boolean): void;
   /** Invia un intento; `false` se il socket non è aperto (l'azione non parte). */
@@ -272,6 +278,16 @@ export function createConnection(deps: ConnectionDeps): Connection {
     nudge() {
       if (status.kind !== 'reconnecting') return;
       retryTimer = clearTimer(retryTimer);
+      void connect();
+    },
+
+    wake() {
+      // Ferma per scelta (mai aperta, chiusa, sessione scaduta, sostituita da un'altra scheda): non si tocca.
+      if (status.kind === 'idle' || status.kind === 'closed' || status.kind === 'unauthorized' || status.kind === 'replaced') return;
+      generation++;
+      retryTimer = clearTimer(retryTimer);
+      dropSocket(CLOSE_NORMAL);
+      attempt = 0;
       void connect();
     },
 

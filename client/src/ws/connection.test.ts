@@ -178,6 +178,37 @@ describe('connessione', () => {
     expect(sockets.sockets).toHaveLength(5);
   });
 
+  it('wake: alla ripresa dell’app la connessione riparte con un ticket nuovo', async () => {
+    const { connection, sockets } = setup();
+    connection.open();
+    await flush();
+    sockets.last().open();
+    expect(connection.getStatus()).toEqual({ kind: 'open' });
+
+    // Android ha chiuso il socket in background senza che arrivasse un `onclose`.
+    connection.wake();
+    await flush();
+    expect(sockets.sockets).toHaveLength(2);
+    expect(sockets.sockets[0]?.closedWith).toBe(1000);
+    expect(sockets.last().url).toBe('ws://mock/ws?ticket=t2');
+  });
+
+  it('wake: non risveglia una connessione ferma per scelta', async () => {
+    const { connection, sockets } = setup();
+    connection.wake(); // mai aperta
+    await flush();
+    expect(sockets.sockets).toHaveLength(0);
+
+    connection.open();
+    await flush();
+    sockets.last().open();
+    connection.close();
+    connection.wake();
+    await flush();
+    expect(sockets.sockets).toHaveLength(1);
+    expect(connection.getStatus()).toEqual({ kind: 'closed' });
+  });
+
   it('heartbeat (C10): in partita un silenzio oltre silenceMs chiude e riconnette', async () => {
     const { connection, sockets } = setup({ silenceMs: 5_000 });
     connection.open();

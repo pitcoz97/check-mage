@@ -10,6 +10,7 @@ import { appEnv } from './config/env';
 import { initI18n } from './i18n';
 import { consoleSink, setLogSink } from './lib/log';
 import { storage } from './lib/storage';
+import { initNativeShell, isNative, nativeAppEvents } from './platform/native';
 import { createCatalogStore } from './spells/catalog';
 import { CatalogProvider } from './spells/CatalogProvider';
 import { AuthProvider } from './store/AuthProvider';
@@ -26,7 +27,14 @@ if (import.meta.env.DEV) setLogSink(consoleSink);
 await initI18n();
 const env = appEnv();
 const auth = createAuth({ baseUrl: env.apiBaseUrl, storage });
-const session = createMatchSession({ wsBaseUrl: env.wsUrl, tickets: auth.api, auth: auth.store, storage });
+const session = createMatchSession({
+  wsBaseUrl: env.wsUrl,
+  tickets: auth.api,
+  auth: auth.store,
+  storage,
+  // Su dispositivo il socket muore in background: si riparte alla ripresa (briefing §9).
+  appEvents: isNative() ? nativeAppEvents() : null,
+});
 const catalog = createCatalogStore({ api: auth.api });
 
 createRoot(container).render(
@@ -40,3 +48,6 @@ createRoot(container).render(
     </AuthProvider>
   </StrictMode>,
 );
+
+// Interfaccia montata: si può togliere lo splash e sistemare la barra di stato (no-op sul web).
+void initNativeShell();
