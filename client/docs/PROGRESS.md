@@ -3,9 +3,10 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Step 7 — Integrazione: preparata, in attesa di un server raggiungibile.** Le patch P0 sono già nel branch e il
-client è allineato: resta solo la verifica a runtime, che qui non si può fare. Un comando la esegue tutta:
-`npm run verify:server -- --http … --ws …` (procedura in `docs/INTEGRAZIONE.md`).
+**Step 7 — Integrazione: verificata contro il server reale, in attesa di review.** Il 23 settembre 2026 la suite ha
+girato contro `http://192.168.222.128:8080`: **47 voci verificate, 0 divergenze** (esito in `ASSUMPTIONS.md` §6).
+Ha trovato un bug del client, corretto. Resta aperto solo ciò che dipende dal server (P2-14) o che non è
+automatizzabile.
 **Step 6 — Build Android: preparato, in attesa dell'APK** (`docs/ANDROID.md`). Qui non ci sono JDK, Android SDK né
 Android Studio; il progetto nativo resta allineato a ogni modifica (`npm run android:sync`).
 Server: `C:\Projects\chess-server` (sola lettura, qui non eseguibile), branch `fix/backend-requests` (`62475c9`),
@@ -41,21 +42,29 @@ non ancora unito in `main`.
   - `src/platform/native.ts`: unico posto che conosce Capacitor, con import dinamici (il bundle web non cresce);
   - `connection.wake()`: alla ripresa dal background il socket riparte con un ticket nuovo;
   - la mano non finisce più sotto la barra di navigazione (`sticky-bottom-safe`).
-- **Step 7 (la parte che si può fare qui):**
+- **Step 7:**
   - `npm run verify:server`: due account reali, una partita vera, un rapporto per voce di ASSUMPTIONS. Senza
     indirizzi gira contro il mock (45 verificate, 0 divergenti), con `--http/--ws` contro il server vero, `--slow`
     aggiunge heartbeat e rate limit, `--json` produce il rapporto da allegare;
   - `docs/INTEGRAZIONE.md`: procedura di passaggio, lettura del rapporto, regola delle correzioni (solo `adapter.ts`
     o `connection.ts`, poi il mock);
   - `src/config/env.ts`: gli indirizzi sbagliati falliscono all'avvio col motivo, non dentro la connessione;
-  - trovata C15 (il mazzo avversario resta indietro fra un `game_state` e l'altro): stessa causa di C13, P2-14.
-- **Verifica:** typecheck, lint e build puliti; 346 test verdi; e2e 10/10; `verify:server` 45/0 contro il mock;
-  `cap sync android` pulito. Bundle: 519 kB iniziali (162 kB gzip, due chunk) più 66 kB per la partita; i pacchetti
-  Capacitor restano fuori dal caricamento iniziale del web; `/dev/cards` non esiste nella build di produzione.
+  - trovata C15 (il mazzo avversario resta indietro fra un `game_state` e l'altro): stessa causa di C13, P2-14;
+  - **verifica contro il server reale:** 47 voci ok, comprese quelle lente (heartbeat, rate limit) e il CORS dal
+    browser vero; C13 e C15 confermate sul campo;
+  - **bug trovato e corretto:** un upgrade WebSocket rifiutato (429 del limite per IP, 401 da ticket scaduto) in Node
+    emette solo `error` e non `close`, e la connessione restava ferma in "connecting" senza riprovare
+    (`nativeSocketFactory`);
+  - P2-16 nuova: quando il server accenderà il controllo dell'origine sul WebSocket, deve ammettere anche
+    `https://localhost` (WebView Android).
+- **Verifica:** typecheck, lint e build puliti; 349 test verdi; e2e 10/10; `verify:server` 45/0 contro il mock e
+  47/0 contro il server reale; `cap sync android` pulito. Bundle: 519 kB iniziali (162 kB gzip, due chunk) più 66 kB
+  per la partita; i pacchetti Capacitor restano fuori dal caricamento iniziale del web; `/dev/cards` non esiste
+  nella build di produzione.
 
 ## Prossima azione concreta
-Quando il server è raggiungibile: `npm run verify:server -- --http … --ws …` e si correggono le divergenze (solo
-`adapter.ts`, `connection.ts` e il mock). In parallelo, quando vuoi, l'APK di `docs/ANDROID.md`.
+Review dello Step 7. Poi, quando vuoi, l'APK di `docs/ANDROID.md` e la prova sul telefono contro questo stesso
+server. La suite va rilanciata a ogni cambiamento del server.
 
 ## Decisioni prese
 - React 19 + Router 8, i18n tipizzato, font self-hosted. Token in `localStorage` sul web (C7), in
@@ -71,21 +80,23 @@ Quando il server è raggiungibile: `npm run verify:server -- --http … --ws …
 - **Licenza del progetto**: serve, il repo contiene grafica originale (CREDITS.md).
 - **Icona dell'app**: oggi è il nostro re, riportato dal set dei pezzi. Se vuoi un logo vero, è lì che si cambia.
 - Merge di `fix/backend-requests` in `main` e deploy (lato server). P2-1 (cadenze, UI lobby) da decidere insieme.
-  P2-11 sospesa. Aperte anche P2-12, P2-13, P2-14, P2-15.
+  P2-11 sospesa. Aperte anche P2-12, P2-13, P2-14 (confermata necessaria dalla verifica), P2-15 e P2-16.
 
 ## Da ricordare negli Step successivi
 - **Step 6, quello che manca:** APK costruito e provato sul telefono (`docs/ANDROID.md`). Qui non c'è il toolchain
   Android, quindi la build non è mai stata eseguita: se Gradle si lamenta di una risorsa, il punto da guardare sono
   le modifiche in `android/app/src/main/res/`.
-- **Step 7, quello che manca:** lanciare `verify:server` contro il server vero (tabella delle voci in ASSUMPTIONS §6)
-  su un server tranquillo: i due client si accoppiano dalla coda e un terzo giocatore in attesa falsa la partita.
-  Il comando registra due account usa-e-getta, oppure usa i tuoi con `--users`.
+- **Step 7, quello che resta:** rilanciare `verify:server` a ogni cambiamento del server (su un server tranquillo:
+  i due client si accoppiano dalla coda). Restano fuori dall'automazione lo scudo sull'en passant e le posizioni
+  costruite, coperte dal mock.
 - B16: con soli pezzi congelati non ci sono mosse da evidenziare e resta la resa, sempre abilitata.
 - iOS non è mai stato aggiunto: `src/platform/native.ts` e `capacitor.config.ts` sono già scritti per reggerlo.
 
 ## Note d'ambiente
 - La shell dello strumento non vede Node nel PATH: prima dei comandi npm va ricaricato il PATH di Machine e User.
 - Niente JDK, Android SDK o Android Studio su questa macchina: `cap sync` funziona, `gradlew` no.
+- Server reale di prova: `http://192.168.222.128:8080` (VM). `.env` punta lì; per tornare al mock bastano
+  `localhost:8080` e `npm run mock`.
 - `.env` locale da `.env.example` (ignorato da git). `.claude/launch.json`: `dev` (5173), `mock` (8080).
 - `tests/match-ui.test.tsx` usa la libreria `ws` come socket: il `WebSocket` di jsdom e quello di Node litigano.
 - `tests/auth-flow.test.ts` fa scadere un token vero aspettando 2,1 s: con la macchina carica ha fallito una volta

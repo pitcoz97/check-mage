@@ -4,8 +4,10 @@ Registro di ciò che il client assume sul server Go.
 
 **Fonte:** il codice in `C:\Projects\chess-server`, consultabile in sola lettura, branch `fix/backend-requests`
 (commit `62475c9`, costruito su `7f817e5`, non ancora unito in `main`). I riferimenti sono `file.go:riga`, relativi a
-`internal/`; dove è indicato `7f817e5` si riferiscono al codice precedente. Il server qui non è eseguibile: la verifica
-a runtime resta allo Step 7.
+`internal/`; dove è indicato `7f817e5` si riferiscono al codice precedente.
+
+**Verifica a runtime:** eseguita il 23 settembre 2026 contro il server reale (§6), 47 voci verificate e nessuna
+divergenza. Va rilanciata a ogni cambiamento del server con `npm run verify:server`.
 
 > **Stato del client.** Dallo Step 2-bis adapter, mock e test implementano il contratto di §2 e le regole di §5.
 > Il mock non replica più il contratto di `7f817e5`.
@@ -125,9 +127,9 @@ coda (`game/manager.go:52`).
 | C10 | Durante una partita il client considera morta la connessione dopo 5s senza frame (arriva un `timer_update` al secondo), la chiude e riconnette. In coda non c'è traffico: vale solo `onclose`. Il client **non** manda ping applicativi: un `type` sconosciuto riceve `unknown_message_type` e consuma il rate limit. | Il browser non espone i ping WS; il server rileva i socket morti solo dopo 60s. | `src/ws/connection.ts` (`DEFAULT_SILENCE_MS`, `expectTraffic`) | — |
 | C11 | Per riprendere una partita dopo un ricaricamento il client ricorda, in `storage.ts` (`active-match`), l'id dell'utente con una partita aperta: scritto al primo `game_state`, cancellato a `game_over` o all'uscita. `/match` riapre il socket solo con questo flag; se entro 4s non arriva un `game_state` la partita non esiste più (il server ha messo l'utente in coda), quindi si chiude e si torna in lobby. | Il server non dice se c'è una partita in corso senza aprire il socket, e aprirlo senza partita mette in coda (`game/manager.go:31-101`). | `src/store/matchSession.ts`, `src/screens/Match/Match.tsx` | P2-13 |
 | C12 | La finestra di rientro è di 30s (`RECONNECT_TIMEOUT`, default in `config/config.go:68`): serve solo al countdown del banner, contato dall'inizio della disconnessione vista dal client. | Il server non la espone e la configurazione può cambiarla. | `src/store/matchSession.ts` (`RECONNECT_WINDOW_MS`) | P2-12 |
-| C13 | I turni residui degli effetti (`remaining_turns`) sono esatti solo nell'ultimo `game_state`: il server li decrementa al cambio di turno (`game/room.go:858-866`) senza comunicarlo quando il cambio avviene con un `pass_phase` o un cast, perché lì non manda `game_state`. Il client non ricalcola il decremento (sarebbe logica di gioco). | Nessun evento porta il decremento. | `src/store/matchStore.ts` | P2-14 |
+| C13 | **Confermata a runtime.** I turni residui degli effetti (`remaining_turns`) sono esatti solo nell'ultimo `game_state`: il server li decrementa al cambio di turno (`game/room.go:858-866`) senza comunicarlo quando il cambio avviene con un `pass_phase` o un cast, perché lì non manda `game_state`. Il client non ricalcola il decremento (sarebbe logica di gioco). | Nessun evento porta il decremento. | `src/store/matchStore.ts` | P2-14 |
 | C14 | Una carta in mano con uno `spell_id` che il catalogo non contiene si disegna comunque (id come nome, costo ignoto, cornice neutra) ma resta **non lanciabile**, col motivo scritto sulla carta: senza `target_type` il client non sa quante caselle mandare. Stessa regola per un `target_type` sconosciuto. Un **effetto** sconosciuto invece non blocca nulla: la carta resta lanciabile e l'effetto si mostra neutro (briefing §5.1.6). | Il catalogo si carica a inizio partita dallo stesso server, quindi succede solo con la riserva `fallback.json` contro un server più nuovo. | `src/spells/playability.ts`, `src/game/hand/SpellCard.tsx` | — |
-| C15 | La dimensione del mazzo **avversario** è esatta solo nell'ultimo `game_state`: la pesca del rollover produce `card_drawn` (solo a chi pesca) e `hand_size_changed` (a entrambi), ma nessun evento porta il mazzo dell'altro. Il proprio resta sempre esatto. Il client non lo ricalcola. | Stessa causa di C13: al rollover non arriva `game_state`. | `src/store/matchStore.ts`, `scripts/e2e/client.ts` (escluso dal confronto) | P2-14 |
+| C15 | **Confermata a runtime.** La dimensione del mazzo **avversario** è esatta solo nell'ultimo `game_state`: la pesca del rollover produce `card_drawn` (solo a chi pesca) e `hand_size_changed` (a entrambi), ma nessun evento porta il mazzo dell'altro. Il proprio resta sempre esatto. Il client non lo ricalcola. | Stessa causa di C13: al rollover non arriva `game_state`. | `src/store/matchStore.ts`, `scripts/e2e/client.ts` (escluso dal confronto) | P2-14 |
 
 ---
 
@@ -172,31 +174,38 @@ Porting 1:1, senza scelte del mock, salvo C6 (e gli scenari con bot, che sono un
 
 ## 6. Verifica a runtime (Step 7)
 
-Il contratto è verificato **sul codice** del branch `fix/backend-requests`. La verifica **a runtime** non è mai stata
-eseguita: il server non gira su questa macchina. Quando sarà raggiungibile, un comando solo produce l'esito di tutte
-le voci qui sotto (procedura completa in `docs/INTEGRAZIONE.md`):
+**Eseguita il 23 settembre 2026** contro il server reale su `http://192.168.222.128:8080` (branch
+`fix/backend-requests`), con:
 
 ```bash
-npm run verify:server -- --http https://… --ws wss://… [--slow] [--json]
+npm run verify:server -- --http http://192.168.222.128:8080 --ws ws://192.168.222.128:8080/ws --slow
 ```
 
-| Voci | Cosa controlla il comando | Stato |
+**Esito: 47 voci verificate, 0 divergenze.** Il comando va rilanciato dopo ogni cambiamento del server; la procedura
+e la lettura del rapporto sono in `docs/INTEGRAZIONE.md`.
+
+| Voci | Cosa è stato verificato | Esito |
 |---|---|---|
-| A11, A12, B3 | registrazione, login, refresh, `/me`, refresh token rifiutato come access | da eseguire |
-| C4 | testi d'errore REST riconosciuti, 404/405 in JSON | da eseguire |
-| C9 | `password-policy` esposta e regex compilabile in JavaScript | da eseguire |
-| C3, G10 | `GET /spells` contro lo schema del client, e deriva rispetto a `fallback.json` | da eseguire |
-| P0-1 | ticket con Bearer, ticket inventato rifiutato, ticket valido una volta sola | da eseguire |
-| C1, P0-5, G2, G4, A13, P2-9 | colore dai giocatori, mano privata, avvio senza `game_start`, time control | da eseguire |
-| G6, A15 | rifiuti con `code` e `details`: fuori turno, fuori fase, mossa illegale, mana insufficiente | da eseguire |
-| C10 | `timer_update` circa una volta al secondo (il rilevamento del socket morto a 5s dipende da questo) | da eseguire |
-| G8 | `spell_cast` con gli effetti dichiarati, e quali kind escono dalle mani pescate | da eseguire |
-| C13, C15 | se al rollover arriva un `game_state` (cioè se P2-14 è stata applicata) | da eseguire |
-| G5 | riconnessione con stato completo, uguale a quello del reducer | da eseguire |
-| A17 | patta offerta, rifiutata e decaduta per mossa | da eseguire |
-| B2 | seconda connessione dello stesso utente: 4001 e ripresa | da eseguire |
-| B1 | resa, status terminale nell'ultimo `game_state`, `game_over` unico | da eseguire |
-| C10 (`--slow`) | socket vivo oltre un minuto di silenzio; rate limit su `/auth` | da eseguire |
+| A11, A12, B3 | registrazione, login, refresh, `/me`, refresh token rifiutato come access (401) | verificata |
+| C4 | testi d'errore REST riconosciuti (`Credenziali non valide` → `invalid_credentials`), 404 e 405 in JSON | verificata |
+| C9 | `password-policy` esposta, 7 requisiti, regex compilata anche in JavaScript | verificata |
+| C3, G10 | `GET /spells`: 11 magie, nessuna scartata, identiche a `fallback.json` | verificata |
+| P0-1 | ticket solo col Bearer, ticket inventato rifiutato, **ticket valido una volta sola**, durata 30s | verificata |
+| C1, P0-5, G2, G4, A13, P2-9 | colori dai giocatori, mano privata di 4 carte, `game_state` → `hand` → `phase_changed` (nessun `game_start`), time control 10'+5", primo turno al bianco | verificata |
+| G6, A15 | `not_your_turn`, `wrong_phase` con la fase, `illegal_move` con la mossa, `insufficient_mana` con i numeri | verificata |
+| C10 | `timer_update` 4 volte in 3,5s; socket vivo oltre 70s di silenzio (ping/pong) | verificata |
+| G8 | `spell_cast` con gli effetti dichiarati | verificata |
+| C13, C15 | **confermate**: alla chiusura del turno non arriva `game_state`, quindi turni residui e mazzo avversario restano indietro (P2-14 non ancora applicata) | verificata |
+| G5 | riconnessione con stato completo: nessuna differenza fra reducer e server, `reconnected: true` | verificata |
+| A17 | patta offerta, rifiutata (`declined`) e decaduta per mossa (`move_played`) | verificata |
+| B2 | seconda connessione: `replaced_by_new_connection` + 4001, la nuova riprende la partita | verificata |
+| B1 | resa: status `resigned` nell'ultimo `game_state`, `game_over` con vincitore, azioni successive rifiutate | verificata |
+| A12 (limiti) | rate limit su `/auth`: 429 dopo pochi tentativi ravvicinati | verificata |
+| — | **CORS dal browser vero** (origine `http://localhost:5173`): `GET /spells` dall'app, POST con preflight su `/auth/login`, header `Authorization` su `/ws/ticket` | verificata |
+
+**Trovato dalla verifica:** l'upgrade del WebSocket è limitato a **1/s per IP** (`RATE_WS`), e un upgrade rifiutato
+(429 o 401) in Node emette solo `error`, senza `close`. Il client restava in attesa per sempre invece di riprovare:
+corretto in `src/ws/connection.ts` (`nativeSocketFactory`).
 
 **Non verificabile in automatico:** scudo sull'en passant e posizioni costruite (servono mazzi pilotati, coperti da
 `mock-server/game/room.test.ts`), C11 e C12 (scelte del client, non comportamenti del server).

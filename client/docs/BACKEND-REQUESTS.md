@@ -93,12 +93,22 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
   servisse più preciso di quello generato) e `flavor` (ambientazione). Il client li mostra se ci sono, altrimenti
   continua a generare il testo dagli effetti.
 
+### P2-16 — Origini ammesse sull'handshake del WebSocket
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** oggi l'upgrader accetta qualunque origine (`handlers/ws.go:16-18`, `CheckOrigin` restituisce `true` con
+  il commento "In prod controlla origine"). Va benissimo adesso, ma quando il controllo verrà acceso l'elenco deve
+  includere le stesse origini del CORS REST, **compresa quella della WebView Android** (`https://localhost`) e,
+  in sviluppo, `http://localhost:5173`. Con il solo dominio del sito web, la build Android smetterebbe di collegarsi.
+- **Contratto proposto:** `CheckOrigin` che legge la stessa lista di `AllowedOrigins` usata dal CORS
+  (`config/config.go:74-75`), invece di una lista separata.
+
 ---
 
 ## Applicate in `fix/backend-requests`
 
-Da verificare a runtime allo Step 7: il server le ha testate senza Stockfish né PostgreSQL. Dallo Step 2-bis il mock
-le replica tutte (`mock-server/`, test in `room.test.ts`, `rest.test.ts` e nell'e2e).
+**Verificate a runtime il 23 settembre 2026** contro il server reale (`npm run verify:server`, esito in
+`ASSUMPTIONS.md` §6): 47 voci, nessuna divergenza. Dallo Step 2-bis il mock le replica tutte (`mock-server/`, test in
+`room.test.ts`, `rest.test.ts` e nell'e2e).
 
 | Id | Voce | Cosa fa ora il server | Rif. |
 |---|---|---|---|
