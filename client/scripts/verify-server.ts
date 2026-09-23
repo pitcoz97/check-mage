@@ -82,10 +82,16 @@ interface Ctx {
 
 /** Una sezione non deve poter fermare le altre: un'eccezione diventa una voce `diverso`. */
 async function section(ledger: Ledger, ids: string, what: string, run: () => Promise<void>): Promise<void> {
+  await sectionValue(ledger, ids, what, run);
+}
+
+/** Come `section`, ma restituisce il risultato (`null` se la sezione è fallita). */
+async function sectionValue<T>(ledger: Ledger, ids: string, what: string, run: () => Promise<T>): Promise<T | null> {
   try {
-    await run();
+    return await run();
   } catch (error) {
     ledger.failed(ids, what, error);
+    return null;
   }
 }
 
@@ -194,7 +200,10 @@ async function verifyCatalog(ctx: Ctx, client: E2EClient): Promise<void> {
 }
 
 /** Prova ad aprire davvero il WebSocket con un ticket: `true` se il server completa l'handshake. */
-function handshake(wsUrl: string, ticket: string): Promise<{ opened: boolean; socket: WebSocket | null }> {
+async function handshake(ctx: Ctx, ticket: string): Promise<{ opened: boolean; socket: WebSocket | null }> {
+  // L'upgrade è limitato a 1/s per IP: senza distanza il quarto handshake della suite riceverebbe 429.
+  await ctx.pacer.ws();
+  const wsUrl = ctx.wsUrl;
   return new Promise((resolve) => {
     const url = new URL(wsUrl);
     url.searchParams.set('ticket', ticket);
@@ -221,13 +230,13 @@ async function verifyTickets(ctx: Ctx, client: E2EClient): Promise<void> {
   const withoutToken = await client.raw('GET', '/ws/ticket', { authorization: null });
   ledger.check('P0-1', 'il ticket richiede il Bearer', withoutToken.status === 401, `→ ${withoutToken.status}`);
 
-  const invented = await handshake(ctx.wsUrl, 'ticket-inventato');
+  const invented = await handshake(ctx, 'ticket-inventato');
   ledger.check('P0-1', 'un ticket inventato non apre il WebSocket', !invented.opened);
   invented.socket?.close();
 
   // Monouso: il primo handshake consuma il ticket, il secondo con lo stesso deve fallire.
-  const first = await handshake(ctx.wsUrl, ticket.value.ticket);
-  const second = await handshake(ctx.wsUrl, ticket.value.ticket);
+  const first = await handshake(ctx, ticket.value.ticket);
+  const second = await handshake(ctx, ticket.value.ticket);
   ledger.check('P0-1', 'il ticket vale una volta sola', first.opened && !second.opened, `primo ${first.opened ? 'aperto' : 'rifiutato'}, secondo ${second.opened ? 'aperto' : 'rifiutato'}`);
   first.socket?.close();
   second.socket?.close();
@@ -410,28 +419,33 @@ async function verifyCasting(ctx: Ctx, client: E2EClient): Promise<void> {
 async function verifyRollover(ctx: Ctx, client: E2EClient): Promise<void> {
   const { ledger } = ctx;
   await waitMyTurn(client);
-  // Si arriva alla mossa, la si gioca, e si resta in main2: è lì che il turno si chiude.
   while (client.isMyTurn && isMain(client) && client.phase !== 'move' && client.gameOver === null) {
     const phase = client.phase;
     client.send({ type: 'pass_phase' });
     await client.until(() => client.phase !== phase || !client.isMyTurn || client.gameOver !== null, `uscita da ${String(phase)}`);
   }
-  if (client.phase === 'move' && client.isMyTurn) {
-    const move = client.pickMove(new Set());
-    if (move !== null) await tryMove(client, move);
+  if (!client.isMyTurn || client.phase !== 'move') {
+    ledger.skip('C13', 'game_state alla chiusura del turno', `il turno non è arrivato alla mossa (fase ${String(client.phase)})`);
+    return;
   }
-  await client.until(() => !client.isMyTurn || client.phase === 'main2' || client.gameOver !== null, 'main2 dopo la mossa');
-  if (!client.isMyTurn || client.phase !== 'main2') {
-    ledger.skip('C13', 'game_state alla chiusura del turno', `il server non si è fermato in main2 (fase ${String(client.phase)})`);
+  const turn = client.state?.turnNumber ?? 0;
+  const move = client.pickMove(new Set());
+  if (move === null || (await tryMove(client, move)) !== 'ok') {
+    ledger.skip('C13', 'game_state alla chiusura del turno', 'nessuna mossa giocabile');
     return;
   }
 
-  const from = client.events.length;
-  const turn = client.state?.turnNumber ?? 0;
-  client.send({ type: 'pass_phase' });
+  /**
+   * La finestra da guardare comincia **dopo** il `game_state` della mossa e finisce quando il turno passa
+   * all'avversario: lì il server decrementa gli effetti e fa pescare. Il turno può chiudersi da solo
+   * (auto-avanzamento di main2, R4) oppure con un `pass_phase`: vanno bene entrambi.
+   */
+  const afterMove = client.events.findLastIndex(isType('game_state')) + 1;
+  // `isMain` invece del confronto diretto: dopo la mossa la fase è cambiata, e TypeScript non lo sa.
+  if (client.isMyTurn && isMain(client)) client.send({ type: 'pass_phase' });
   await client.until(() => !client.isMyTurn || client.gameOver !== null, 'chiusura del turno');
-  await sleep(300);
-  const state = client.events.slice(from).some(isType('game_state'));
+  await sleep(400);
+  const state = client.events.slice(afterMove).some(isType('game_state'));
   if (state) ledger.note('C13, C15, P2-14', 'il server manda game_state anche alla chiusura del turno: le note su remaining_turns e deck_size si possono togliere', `turno ${turn}`);
   else ledger.check('C13, C15', 'alla chiusura del turno non arriva game_state: effetti e mazzo avversario restano indietro', true, `turno ${turn}`);
 }
@@ -540,7 +554,8 @@ export interface VerifyOptions {
 
 export async function verifyServer(options: VerifyOptions = {}): Promise<CheckEntry[]> {
   const ledger = new Ledger();
-  const pacer = createPacer();
+  // Contro un server vero gli upgrade vanno distanziati (1/s per IP); contro il mock no, ha limiti rilassati.
+  const pacer = createPacer(options.httpUrl === undefined ? {} : { wsSpacingMs: 1_200 });
   let mock: MockServerHandle | null = null;
   if (options.httpUrl === undefined) {
     mock = await startMockServer({ port: 0, quiet: true, rateLimits: { general: { rate: 200, burst: 400 }, auth: { rate: 100, burst: 100 }, ws: { rate: 100, burst: 100 }, wsMessages: { rate: 5, burst: 10 } } });
@@ -575,9 +590,10 @@ export async function verifyServer(options: VerifyOptions = {}): Promise<CheckEn
     await section(ledger, 'C3, G10', 'catalogo', () => verifyCatalog(ctx, a));
     await section(ledger, 'P0-1', 'ticket WebSocket', () => verifyTickets(ctx, a));
 
-    const pair = await pairUp(a, b);
+    // L'accoppiamento non deve poter far saltare il rapporto: se non riesce, il resto è già stato misurato.
+    const pair = await sectionValue(ledger, 'C1', 'accoppiamento dei due client dalla coda', () => pairUp(a, b));
     if (pair === null) {
-      ledger.skip('C1', 'partita fra i due account di prova', 'il server ha accoppiato un altro giocatore: riprova su un server tranquillo');
+      ledger.skip('C1', 'controlli di partita', 'senza i due client nella stessa partita non si possono eseguire');
     } else {
       const { white, black } = pair;
       await section(ledger, 'C1, G2, G4', 'avvio della partita', () => verifyMatchStart(ctx, white, black));

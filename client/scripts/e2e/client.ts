@@ -36,14 +36,26 @@ import type { StoreApi } from 'zustand/vanilla';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const silent = createLogger(() => undefined);
 
-/** Rispetta il rate limit auth (3/s, burst 5, per IP: condiviso da tutti i client dello script) invece di farsi rifiutare. */
-export function createPacer() {
-  let last = 0;
+/**
+ * Rispetta i limiti per IP invece di farsi rifiutare: auth 3/s (burst 5) e, contro un server vero, l'upgrade del
+ * WebSocket, che è **1/s con burst 3** (`middleware/ratelimit.go:158`). Il quarto handshake ravvicinato riceve 429.
+ * Contro il mock la distanza fra gli upgrade è zero: i suoi limiti sono rilassati apposta.
+ */
+export function createPacer(options: { wsSpacingMs?: number } = {}) {
+  const wsSpacing = options.wsSpacingMs ?? 0;
+  let lastAuth = 0;
+  let lastWs = 0;
   return {
     auth: async () => {
-      const delta = Date.now() - last;
+      const delta = Date.now() - lastAuth;
       if (delta < 400) await sleep(400 - delta);
-      last = Date.now();
+      lastAuth = Date.now();
+    },
+    ws: async () => {
+      if (wsSpacing === 0) return;
+      const delta = Date.now() - lastWs;
+      if (delta < wsSpacing) await sleep(wsSpacing - delta);
+      lastWs = Date.now();
     },
   };
 }
@@ -227,6 +239,7 @@ export class E2EClient {
         if (next.lifecycle !== previous.lifecycle) this.connection?.expectTraffic(next.lifecycle === 'playing');
       });
     }
+    await this.pacer.ws();
     this.connection.open();
     await this.until(() => this.connected, 'apertura del socket');
   }
