@@ -51,8 +51,9 @@ export type Pacer = ReturnType<typeof createPacer>;
 
 /**
  * Fotografia dello stato accumulato dal reducer, confrontabile con quella ricostruita dal server al rientro.
- * Esclusi gli orologi (scorrono) e i turni residui degli effetti: il server li decrementa al cambio di turno
- * senza comunicarlo (ASSUMPTIONS C13, BACKEND-REQUESTS P2-14).
+ * Esclusi gli orologi (scorrono), i turni residui degli effetti e la dimensione del mazzo **avversario**: il server
+ * li aggiorna al cambio di turno senza comunicarlo, perché lì non manda `game_state` (ASSUMPTIONS C13 e C15,
+ * BACKEND-REQUESTS P2-14). Il proprio mazzo invece arriva in `card_drawn` e resta esatto.
  */
 function snapshotOf(state: MatchState) {
   const game = state.game;
@@ -67,7 +68,6 @@ function snapshotOf(state: MatchState) {
     moves: game?.moves,
     mana: game?.mana,
     handSizes: game?.handSizes,
-    deckSizes: game?.deckSizes,
     effects: [...(game?.activeEffects ?? [])]
       .map((e) => ({ square: e.square, kinds: e.effects.map((x) => `${x.kind}:${String(x.sourceSpellId)}`).sort() }))
       .sort((a, b) => a.square.localeCompare(b.square)),
@@ -105,6 +105,23 @@ export class E2EClient {
     const outcome = interpretHttpResponse(res.status, await res.text());
     this.warnings.push(...outcome.warnings);
     return outcome;
+  }
+
+  /**
+   * Richiesta grezza, senza passare dall'adapter: serve ai controlli sull'involucro delle risposte, su 404/405 e
+   * su header di autorizzazione diversi da quello della sessione (`authorization: null` = nessun header).
+   */
+  async raw(
+    method: 'GET' | 'POST',
+    path: string,
+    options: { body?: string; authorization?: string | null } = {},
+  ): Promise<{ status: number; body: string }> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const token = options.authorization === undefined ? (this.tokens?.accessToken ?? null) : options.authorization;
+    if (token !== null && token !== '') headers['Authorization'] = `Bearer ${token}`;
+    const init = options.body === undefined ? { method, headers } : { method, headers, body: options.body };
+    const res = await fetch(`${this.httpUrl}${path}`, init);
+    return { status: res.status, body: await res.text() };
   }
 
   private unwrap<T>(label: string, normalized: Normalized<T>): T {

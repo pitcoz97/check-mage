@@ -16,7 +16,8 @@
     "android:open": "cap open android",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.node.json && tsc -p mock-server/tsconfig.json",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "verify:server": "tsx scripts/verify-server.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
