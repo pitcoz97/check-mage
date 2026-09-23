@@ -7,5 +7,5 @@
     // Alcuni test d'integrazione montano i componenti (tests/*.test.tsx).
     "jsx": "react-jsx"
   },
-  "include": ["scripts", "tests", "vite.config.ts", "vitest.config.ts"]
+  "include": ["scripts", "tests", "vite.config.ts", "vitest.config.ts", "capacitor.config.ts"]
 }

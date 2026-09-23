@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copie native dei token di `src/design/tokens.css`: il lato Android non legge il CSS.
+  Se cambiano lì, vanno cambiate anche qui e in `capacitor.config.ts`.
+-->
+<resources>
+    <!-- --bg-app -->
+    <color name="colorPrimary">#302e2b</color>
+    <!-- --bg-panel -->
+    <color name="colorPrimaryDark">#262421</color>
+    <!-- --accent -->
+    <color name="colorAccent">#81b64c</color>
+    <!-- --bg-app: sfondo della finestra e dello splash, così non lampeggia bianco all'avvio -->
+    <color name="appBackground">#302e2b</color>
+</resources>
