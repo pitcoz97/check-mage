@@ -54,9 +54,18 @@
 
   /* Rispetta notch e barre di sistema su mobile (briefing §9). */
   .safe-area {
-    padding-top: env(safe-area-inset-top);
-    padding-right: env(safe-area-inset-right);
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+
+  /*
+   * Elemento ancorato in basso (la mano): `sticky` si aggancia al bordo della finestra, non al padding del
+   * contenitore, quindi il margine di sicurezza va messo qui o la mano finisce sotto la barra di navigazione.
+   */
+  .sticky-bottom-safe {
+    position: sticky;
+    bottom: env(safe-area-inset-bottom, 0px);
   }
 }

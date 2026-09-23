@@ -59,7 +59,7 @@ export function MatchLayout(slots: MatchLayoutSlots) {
           <div className="lg:hidden">{slots.actions}</div>
         </div>
 
-        <div data-region="hand" className="sticky bottom-0 lg:static lg:col-start-1 lg:row-start-4">
+        <div data-region="hand" className="sticky-bottom-safe lg:static lg:col-start-1 lg:row-start-4">
           {slots.hand}
         </div>
       </div>
