@@ -63,10 +63,11 @@ npm run verify:server -- --http … --ws … --slow
 aggiunge i controlli lenti: sopravvivenza del socket oltre il minuto (heartbeat) e rate limit per IP su `/auth`;
 
 ```bash
-npm run verify:server -- --http … --ws … --json > rapporto.json
+npm run --silent verify:server -- --http … --ws … --json > rapporto.json
 ```
 
-produce il rapporto in JSON, da allegare ad `ASSUMPTIONS.md`.
+produce il rapporto in JSON, da allegare ad `ASSUMPTIONS.md` (il riepilogo finale esce sull'errore standard, così il
+file contiene solo JSON; `--silent` toglie anche l'intestazione di npm).
 
 **Prima di lanciarlo:** il server deve essere tranquillo. I due client si accoppiano dalla coda di matchmaking, e
 se un terzo giocatore è in attesa lo strumento se ne accorge e salta la parte di partita invece di dare esiti falsi.

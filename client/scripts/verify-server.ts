@@ -684,7 +684,9 @@ if (isEntry) {
     }
   }
   const diverse = entries.filter((e) => e.status === 'diverso');
-  out.write(
+  // Con `--json` su stdout esce solo JSON: il riepilogo va sull'errore standard, così il file resta leggibile.
+  const summary = process[json ? 'stderr' : 'stdout'];
+  summary.write(
     `\n${entries.filter((e) => e.status === 'ok').length} verificate · ${diverse.length} divergenti · ` +
       `${entries.filter((e) => e.status === 'saltato').length} saltate · ${entries.filter((e) => e.status === 'nota').length} note\n`,
   );
