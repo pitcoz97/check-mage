@@ -127,6 +127,7 @@ coda (`game/manager.go:52`).
 | C12 | La finestra di rientro è di 30s (`RECONNECT_TIMEOUT`, default in `config/config.go:68`): serve solo al countdown del banner, contato dall'inizio della disconnessione vista dal client. | Il server non la espone e la configurazione può cambiarla. | `src/store/matchSession.ts` (`RECONNECT_WINDOW_MS`) | P2-12 |
 | C13 | I turni residui degli effetti (`remaining_turns`) sono esatti solo nell'ultimo `game_state`: il server li decrementa al cambio di turno (`game/room.go:858-866`) senza comunicarlo quando il cambio avviene con un `pass_phase` o un cast, perché lì non manda `game_state`. Il client non ricalcola il decremento (sarebbe logica di gioco). | Nessun evento porta il decremento. | `src/store/matchStore.ts` | P2-14 |
 | C14 | Una carta in mano con uno `spell_id` che il catalogo non contiene si disegna comunque (id come nome, costo ignoto, cornice neutra) ma resta **non lanciabile**, col motivo scritto sulla carta: senza `target_type` il client non sa quante caselle mandare. Stessa regola per un `target_type` sconosciuto. Un **effetto** sconosciuto invece non blocca nulla: la carta resta lanciabile e l'effetto si mostra neutro (briefing §5.1.6). | Il catalogo si carica a inizio partita dallo stesso server, quindi succede solo con la riserva `fallback.json` contro un server più nuovo. | `src/spells/playability.ts`, `src/game/hand/SpellCard.tsx` | — |
+| C15 | La dimensione del mazzo **avversario** è esatta solo nell'ultimo `game_state`: la pesca del rollover produce `card_drawn` (solo a chi pesca) e `hand_size_changed` (a entrambi), ma nessun evento porta il mazzo dell'altro. Il proprio resta sempre esatto. Il client non lo ricalcola. | Stessa causa di C13: al rollover non arriva `game_state`. | `src/store/matchStore.ts`, `scripts/e2e/client.ts` (escluso dal confronto) | P2-14 |
 
 ---
 
@@ -166,3 +167,36 @@ Porting 1:1, senza scelte del mock, salvo C6 (e gli scenari con bot, che sono un
 | R10 | Patta: una sola offerta pendente, rispondibile solo da chi l'ha ricevuta. Accettata → `agreement`; rifiutata → `draw_declined {reason:"declined"}`; decade con `draw_declined {reason:"move_played"}` se chi l'ha ricevuta muove. | `game/room.go:503-508,1413-1501` |
 | R11 | Disconnessione (solo a partita attiva e solo per la connessione registrata) → `opponent_disconnected` → dopo 30s status `abandoned`, `game_state` + `game_over` `abandonment`. Il rientro annulla il timer e chiude con 4001 un'eventuale connessione precedente ancora aperta. | `game/room.go:1031-1149` |
 | R12 | Fine partita unica (`finishLocked`): status terminale, timer e offerte chiusi, un solo `game_over` e un solo salvataggio; azioni successive → `error` `game_over`; PGN UCI numerato con `--` per `0000`; `time_control "10+5"`; ELO FIDE K=32. | `game/room.go:1176-1271`, `db/db.go` |
+
+---
+
+## 6. Verifica a runtime (Step 7)
+
+Il contratto è verificato **sul codice** del branch `fix/backend-requests`. La verifica **a runtime** non è mai stata
+eseguita: il server non gira su questa macchina. Quando sarà raggiungibile, un comando solo produce l'esito di tutte
+le voci qui sotto (procedura completa in `docs/INTEGRAZIONE.md`):
+
+```bash
+npm run verify:server -- --http https://… --ws wss://… [--slow] [--json]
+```
+
+| Voci | Cosa controlla il comando | Stato |
+|---|---|---|
+| A11, A12, B3 | registrazione, login, refresh, `/me`, refresh token rifiutato come access | da eseguire |
+| C4 | testi d'errore REST riconosciuti, 404/405 in JSON | da eseguire |
+| C9 | `password-policy` esposta e regex compilabile in JavaScript | da eseguire |
+| C3, G10 | `GET /spells` contro lo schema del client, e deriva rispetto a `fallback.json` | da eseguire |
+| P0-1 | ticket con Bearer, ticket inventato rifiutato, ticket valido una volta sola | da eseguire |
+| C1, P0-5, G2, G4, A13, P2-9 | colore dai giocatori, mano privata, avvio senza `game_start`, time control | da eseguire |
+| G6, A15 | rifiuti con `code` e `details`: fuori turno, fuori fase, mossa illegale, mana insufficiente | da eseguire |
+| C10 | `timer_update` circa una volta al secondo (il rilevamento del socket morto a 5s dipende da questo) | da eseguire |
+| G8 | `spell_cast` con gli effetti dichiarati, e quali kind escono dalle mani pescate | da eseguire |
+| C13, C15 | se al rollover arriva un `game_state` (cioè se P2-14 è stata applicata) | da eseguire |
+| G5 | riconnessione con stato completo, uguale a quello del reducer | da eseguire |
+| A17 | patta offerta, rifiutata e decaduta per mossa | da eseguire |
+| B2 | seconda connessione dello stesso utente: 4001 e ripresa | da eseguire |
+| B1 | resa, status terminale nell'ultimo `game_state`, `game_over` unico | da eseguire |
+| C10 (`--slow`) | socket vivo oltre un minuto di silenzio; rate limit su `/auth` | da eseguire |
+
+**Non verificabile in automatico:** scudo sull'en passant e posizioni costruite (servono mazzi pilotati, coperti da
+`mock-server/game/room.test.ts`), C11 e C12 (scelte del client, non comportamenti del server).

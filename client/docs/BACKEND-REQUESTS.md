@@ -72,11 +72,14 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
   ricorda da sé la partita aperta (ASSUMPTIONS C11), ma non può saperlo da un altro dispositivo.
 - **Contratto proposto:** `GET /me/match` (Bearer) → `{room_id, color}` oppure `data: null`.
 
-### P2-14 — Turni residui degli effetti dopo il cambio di turno
+### P2-14 — Stato di gioco dopo il cambio di turno
 - **Stato:** aperta · **Priorità:** P2
 - **Perché:** `tickEffectsOnNewTurn` (`game/room.go:858-866`) decrementa `remaining_turns` al rollover, ma dopo un `pass_phase` o
   un cast che chiude il turno non parte un `game_state`: il client mostra il valore vecchio fino alla mossa successiva
   (ASSUMPTIONS C13). Emerso dal confronto reducer/server nell'e2e.
+- **Stessa causa, secondo effetto (ASSUMPTIONS C15):** al rollover si pesca, e la dimensione del mazzo **avversario**
+  non arriva da nessun evento — `card_drawn` va solo a chi pesca e `hand_size_changed` porta la mano, non il mazzo.
+  Emerso dalla suite di verifica del contratto (`npm run verify:server`).
 - **Contratto proposto:** `game_state` anche quando il rollover decrementa degli effetti, oppure un evento `effects_ticked`
   con `active_effects`.
 

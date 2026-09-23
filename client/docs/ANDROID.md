@@ -94,6 +94,32 @@ Lo trovi in `android/app/build/outputs/apk/debug/app-debug.apk` e lo installi co
 
 ---
 
+## 4-bis. Costruire contro il server vero
+
+Quando il server Go è raggiungibile, cambiano solo due cose.
+
+Le variabili puntano al dominio, in HTTPS (la procedura completa è in `docs/INTEGRAZIONE.md`):
+
+```bash
+VITE_API_BASE_URL=https://api.checkmage.it
+```
+
+```bash
+VITE_WS_URL=wss://api.checkmage.it/ws
+```
+
+E serve una build di **release**, non di debug: il permesso per il traffico in chiaro vale solo in debug, e contro
+il server vero non deve esistere. In Android Studio si sceglie la variante `release` (Build → Select Build Variant),
+oppure da riga di comando:
+
+```bash
+cd android && ./gradlew assembleRelease
+```
+
+Per installarla sul telefono l'APK va firmato: per le prove basta una chiave di debug locale, per il Play Store
+serve una chiave vera, da tenere fuori dal repository. L'origine della WebView resta `https://localhost`, che il
+CORS del server deve accettare.
+
 ## 5. Quando qualcosa non va
 
 | Sintomo | Causa probabile |
