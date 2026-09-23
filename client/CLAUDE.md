@@ -14,7 +14,8 @@ npm run build
 npm run test
 npm run lint
 npm run typecheck
-npx cap sync android && npx cap open android   # dallo Step 6
+npm run android:sync   # build del client + copia nel progetto nativo (dallo Step 6)
+npm run android:open   # apre il progetto in Android Studio (l'APK si costruisce da lì, vedi docs/ANDROID.md)
 ```
 
 Serve sempre `npm run mock` in parallelo a `npm run dev`: senza, il client non ha backend.
