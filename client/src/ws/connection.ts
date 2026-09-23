@@ -50,6 +50,8 @@ export async function resolveSocketUrl(source: TicketSource, wsBaseUrl: string):
 /** Codice di chiusura di una connessione sostituita (`game/client.go:28`). */
 export const CLOSE_REPLACED = 4001;
 const CLOSE_NORMAL = 1000;
+/** Chiusura senza saluti: handshake rifiutato o connessione caduta (lo stesso codice che usa il browser). */
+const CLOSE_ABNORMAL = 1006;
 
 export interface SocketHandlers {
   onOpen(): void;
@@ -64,17 +66,34 @@ export interface SocketHandle {
 
 export type SocketFactory = (url: string, handlers: SocketHandlers) => SocketHandle;
 
-/** `WebSocket` standard: il browser e Node 22 (nativo) espongono la stessa API. `onerror` è sempre seguito da `onclose`. */
+/**
+ * `WebSocket` standard: browser e Node espongono la stessa API, ma **non** gli stessi eventi quando l'handshake
+ * viene rifiutato. Il browser emette `error` e poi `close`; Node (undici) emette solo `error` e lascia il socket in
+ * `CONNECTING`. Succede davvero: il server rifiuta l'upgrade con 401 (ticket scaduto) o 429 (limite per IP sul
+ * `/ws`), e senza `onerror` la connessione resterebbe in attesa per sempre invece di riprovare.
+ *
+ * Qui i due casi diventano uno solo: la prima fine, comunque arrivi, viene riportata una volta sola.
+ */
 export const nativeSocketFactory: SocketFactory = (url, handlers) => {
   const ws = new WebSocket(url);
+  let ended = false;
+  const end = (code: number) => {
+    if (ended) return;
+    ended = true;
+    handlers.onClose(code);
+  };
   ws.onopen = () => handlers.onOpen();
   ws.onmessage = (event: MessageEvent) => {
     if (typeof event.data === 'string') handlers.onMessage(event.data);
   };
-  ws.onclose = (event: CloseEvent) => handlers.onClose(event.code);
+  ws.onclose = (event: CloseEvent) => end(event.code);
+  ws.onerror = () => end(CLOSE_ABNORMAL);
   return {
     send: (data) => ws.send(data),
-    close: (code = CLOSE_NORMAL) => ws.close(code),
+    close: (code = CLOSE_NORMAL) => {
+      ended = true; // chiusura voluta: la macchina a stati la conosce già
+      ws.close(code);
+    },
   };
 };
 

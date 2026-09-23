@@ -9,6 +9,7 @@ import {
   backoffDelay,
   CLOSE_REPLACED,
   createConnection,
+  nativeSocketFactory,
   SEND_SPACING_MS,
   type ConnectionDeps,
   type ConnectionStatus,
@@ -246,5 +247,88 @@ describe('connessione', () => {
     connection.open();
     await flush();
     expect(sockets.last().url).toBe('ws://mock/ws?ticket=t1&scenario=spells');
+  });
+});
+
+/**
+ * La factory vera, quella che usa il `WebSocket` della piattaforma. Il browser, quando l'handshake viene rifiutato,
+ * emette `error` e poi `close`; Node solo `error`. Verificato contro il server reale: un upgrade rifiutato con 429
+ * (limite per IP) lasciava la connessione ferma in `connecting` per sempre.
+ */
+describe('nativeSocketFactory', () => {
+  class StubSocket {
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: unknown }) => void) | null = null;
+    onclose: ((event: { code: number }) => void) | null = null;
+    onerror: (() => void) | null = null;
+    closedWith: number | null = null;
+    constructor(readonly url: string) {}
+    close(code?: number) {
+      this.closedWith = code ?? 1000;
+    }
+    send() {
+      /* non serve qui */
+    }
+  }
+
+  function withStub(run: (socket: StubSocket, onClose: ReturnType<typeof vi.fn>) => void): void {
+    const original = globalThis.WebSocket;
+    const created: StubSocket[] = [];
+    // @ts-expect-error -- stub minimo al posto del WebSocket della piattaforma
+    globalThis.WebSocket = class extends StubSocket {
+      constructor(url: string) {
+        super(url);
+        created.push(this);
+      }
+    };
+    try {
+      const onClose = vi.fn();
+      const handle = nativeSocketFactory('ws://server/ws?ticket=t1', { onOpen: vi.fn(), onMessage: vi.fn(), onClose });
+      const socket = created[0] as StubSocket;
+      void handle;
+      run(socket, onClose);
+    } finally {
+      globalThis.WebSocket = original;
+    }
+  }
+
+  it('un handshake rifiutato che emette solo error vale come chiusura anomala', () => {
+    withStub((socket, onClose) => {
+      socket.onerror?.();
+      expect(onClose).toHaveBeenCalledWith(1006);
+    });
+  });
+
+  it('error seguito da close (il caso del browser) riporta una sola fine', () => {
+    withStub((socket, onClose) => {
+      socket.onerror?.();
+      socket.onclose?.({ code: 1006 });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('una chiusura normale passa con il suo codice, e la chiusura voluta non rimbalza indietro', () => {
+    withStub((socket, onClose) => {
+      socket.onclose?.({ code: 4001 });
+      expect(onClose).toHaveBeenCalledWith(4001);
+    });
+    const original = globalThis.WebSocket;
+    const created: StubSocket[] = [];
+    // @ts-expect-error -- come sopra
+    globalThis.WebSocket = class extends StubSocket {
+      constructor(url: string) {
+        super(url);
+        created.push(this);
+      }
+    };
+    try {
+      const onClose = vi.fn();
+      const handle = nativeSocketFactory('ws://server/ws', { onOpen: vi.fn(), onMessage: vi.fn(), onClose });
+      handle.close();
+      created[0]?.onclose?.({ code: 1000 });
+      expect(onClose).not.toHaveBeenCalled();
+    } finally {
+      globalThis.WebSocket = original;
+    }
   });
 });
