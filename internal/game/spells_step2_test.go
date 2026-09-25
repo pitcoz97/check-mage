@@ -224,7 +224,7 @@ func TestGraveyard_DestroyAndCapture(t *testing.T) {
 	// Cattura en passant: il pedone catturato è in d5, non nella casa d'arrivo.
 	const ep = "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1"
 	r = richRoom(ep)
-	owner, ok := r.buryCaptured(captureSquare(ep, "e5", "d6"))
+	owner, ok := r.buryCaptured(effects.CaptureSquare(ep, "e5", "d6"))
 	if !ok || owner != match.PlayerBlack || len(r.Match.Black.Graveyard) != 1 {
 		t.Errorf("en passant: %v %v %v", owner, ok, r.Match.Black.Graveyard)
 	}

@@ -221,14 +221,14 @@ func TestPublicState_PlayersAndTimeControl(t *testing.T) {
 // B11: la casella catturata en passant è quella del pedone, non quella d'arrivo.
 func TestCaptureSquare(t *testing.T) {
 	const epFEN = "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1"
-	if got := captureSquare(epFEN, "e5", "d6"); got != "d5" {
+	if got := effects.CaptureSquare(epFEN, "e5", "d6"); got != "d5" {
 		t.Errorf("en passant: %q, atteso d5", got)
 	}
-	if got := captureSquare(startFEN, "e2", "e4"); got != "" {
+	if got := effects.CaptureSquare(startFEN, "e2", "e4"); got != "" {
 		t.Errorf("mossa senza cattura: %q", got)
 	}
 	const capFEN = "4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1"
-	if got := captureSquare(capFEN, "e4", "d5"); got != "d5" {
+	if got := effects.CaptureSquare(capFEN, "e4", "d5"); got != "d5" {
 		t.Errorf("cattura normale: %q, atteso d5", got)
 	}
 }

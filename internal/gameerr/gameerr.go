@@ -28,6 +28,7 @@ const (
 	// Mosse
 	IllegalMove Code = "illegal_move" // details: move
 	PieceFrozen Code = "piece_frozen" // details: square
+	MoveBlocked Code = "move_blocked" // uno stato della casa vieta la mossa; details: square, reason (wall, no_capture)
 
 	// Magie
 	UnknownSpell       Code = "unknown_spell"        // details: spell_id

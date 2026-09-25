@@ -183,28 +183,31 @@ type roomSnapshot struct {
 	Match       match.Snapshot            `json:"match"`
 	Effects     []effects.PieceEffectInfo `json:"effects"`
 	PosCounts   map[string]int            `json:"pos_counts"`
+	// Stati delle case; assenti negli snapshot precedenti allo Step 3.
+	SquareEffects []effects.SquareEffectInfo `json:"square_effects,omitempty"`
 }
 
 // buildSnapshot cattura lo stato corrente. Va invocata con r.mu tenuto (o in
 // fase di init).
 func (r *Room) buildSnapshot() roomSnapshot {
 	return roomSnapshot{
-		RoomID:      r.ID,
-		WhiteID:     r.White.UserID,
-		BlackID:     r.Black.UserID,
-		WhiteName:   r.White.Username,
-		BlackName:   r.Black.Username,
-		FEN:         r.Board.FEN,
-		Moves:       r.Board.Moves,
-		Turn:        r.Board.Turn,
-		Status:      r.Board.Status,
-		WhiteTimeMs: r.WhiteTime.Milliseconds(),
-		BlackTimeMs: r.BlackTime.Milliseconds(),
-		BaseTimeMs:  r.BaseTime.Milliseconds(),
-		IncrementMs: r.Increment.Milliseconds(),
-		Match:       r.Match.Snapshot(),
-		Effects:     r.Tracker.ActiveEffects(),
-		PosCounts:   r.posCounts,
+		RoomID:        r.ID,
+		WhiteID:       r.White.UserID,
+		BlackID:       r.Black.UserID,
+		WhiteName:     r.White.Username,
+		BlackName:     r.Black.Username,
+		FEN:           r.Board.FEN,
+		Moves:         r.Board.Moves,
+		Turn:          r.Board.Turn,
+		Status:        r.Board.Status,
+		WhiteTimeMs:   r.WhiteTime.Milliseconds(),
+		BlackTimeMs:   r.BlackTime.Milliseconds(),
+		BaseTimeMs:    r.BaseTime.Milliseconds(),
+		IncrementMs:   r.Increment.Milliseconds(),
+		Match:         r.Match.Snapshot(),
+		Effects:       r.Tracker.ActiveEffects(),
+		SquareEffects: r.Tracker.SquareEffects(),
+		PosCounts:     r.posCounts,
 	}
 }
 
@@ -338,6 +341,9 @@ func roomFromSnapshot(snap roomSnapshot) *Room {
 	for _, e := range snap.Effects {
 		room.Tracker.RestoreEffect(e.Square, e.Effects)
 	}
+	for _, s := range snap.SquareEffects {
+		room.Tracker.RestoreSquareEffects(s.Square, s.Effects)
+	}
 	room.White.Room = room
 	room.Black.Room = room
 	return room
@@ -419,19 +425,6 @@ func (r *Room) HandleMessage(sender *Client, msg models.WSMessage) {
 	}
 }
 
-// captureSquare restituisce la casella del pezzo catturato dalla mossa (già
-// validata come legale), oppure "" se la mossa non cattura. Per l'en passant è
-// la casella del pedone catturato, non quella d'arrivo.
-func captureSquare(fen, from, to string) string {
-	if p, err := effects.PieceAt(fen, to); err == nil && p != 0 {
-		return to
-	}
-	if p, err := effects.PieceAt(fen, from); err == nil && (p == 'P' || p == 'p') && from[0] != to[0] {
-		return string(to[0]) + string(from[1])
-	}
-	return ""
-}
-
 func (r *Room) handleMove(sender *Client, move string) {
 	r.mu.Lock()
 
@@ -470,13 +463,22 @@ func (r *Room) handleMove(sender *Client, move string) {
 		return
 	}
 
+	// Stati delle case: un muro sul percorso o una cattura su un santuario.
+	// Prima dello scudo: una mossa bloccata non lo consuma.
+	if square, reason := effects.MoveBlock(r.Board.FEN, r.Tracker, move); reason != "" {
+		r.mu.Unlock()
+		sender.sendErr(gameerr.Newf(gameerr.MoveBlocked, "La mossa %s è bloccata in %s", move, square).
+			With("square", square).With("reason", reason))
+		return
+	}
+
 	// Effetto shield: se la mossa cattura un pezzo protetto (anche en passant),
 	// lo scudo assorbe il colpo — il pezzo sopravvive — ma la mossa
 	// dell'attaccante è comunque consumata (il turno passa). Nessun pezzo si
 	// sposta. Eccezione: se la mossa nulla lascerebbe sotto scacco il re
 	// dell'attaccante (la cattura era l'unico modo di uscire dallo scacco), la
 	// posizione sarebbe illegale, quindi lo scudo si rompe e la cattura avviene.
-	captured := captureSquare(r.Board.FEN, from, to)
+	captured := effects.CaptureSquare(r.Board.FEN, from, to)
 	var graveyards []graveyardUpdate
 	shieldAbsorbed := captured != "" && r.Tracker.HasShield(captured)
 	if shieldAbsorbed && effects.IsKingAttacked(effects.PassTurn(r.Board.FEN), effects.Color(senderColor)) {
@@ -543,6 +545,7 @@ func (r *Room) handleMove(sender *Client, move string) {
 	var end *gameEnd
 	var results []match.AdvanceResult
 	var expired []effects.ExpiredEffect
+	var squares []effects.SquareEffectInfo
 	switch status {
 	case engine.StatusCheckmate:
 		result := models.ResultWhiteWins
@@ -559,7 +562,7 @@ func (r *Room) handleMove(sender *Client, move string) {
 		// auto-avanza (main2/draw/main1 si saltano da soli se non richiedono
 		// input). Snapshot dei passaggi sotto lock, broadcast dopo.
 		results = append([]match.AdvanceResult{r.Match.Advance()}, r.Match.AutoAdvance()...)
-		expired = r.tickEffectsOnNewTurn(results)
+		expired, squares = r.tickEffectsOnNewTurn(results)
 		r.persist()
 	}
 	r.mu.Unlock()
@@ -586,6 +589,7 @@ func (r *Room) handleMove(sender *Client, move string) {
 		r.applyAdvanceBroadcasts(res)
 	}
 	r.broadcastExpired(expired)
+	r.broadcastSquareEffects(squares)
 	r.announceEnd(end)
 }
 
@@ -615,7 +619,7 @@ func (r *Room) handlePassPhase(sender *Client) {
 
 	// Passa la fase, poi auto-avanza le fasi che non richiedono input.
 	results := append([]match.AdvanceResult{r.Match.Advance()}, r.Match.AutoAdvance()...)
-	expired := r.tickEffectsOnNewTurn(results)
+	expired, squares := r.tickEffectsOnNewTurn(results)
 	end := r.checkRolloverGameEnd(results)
 	if end == nil {
 		r.persist()
@@ -633,6 +637,7 @@ func (r *Room) handlePassPhase(sender *Client) {
 		r.applyAdvanceBroadcasts(res)
 	}
 	r.broadcastExpired(expired)
+	r.broadcastSquareEffects(squares)
 	if end != nil {
 		r.broadcastState()
 	}
@@ -673,13 +678,19 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string,
 	// Dopo il cast il giocatore potrebbe essere rimasto senza mana/carte: la
 	// fase main si auto-avanza di conseguenza.
 	autoResults := r.Match.AutoAdvance()
-	expired := r.tickEffectsOnNewTurn(autoResults)
+	// Gli stati delle case creati dal cast partono prima delle scadenze del
+	// rollover: il client applica le liste nell'ordine in cui arrivano.
+	var castSquares []effects.SquareEffectInfo
+	if outcome.squares {
+		castSquares = r.Tracker.SquareEffects()
+	}
+	expired, squares := r.tickEffectsOnNewTurn(autoResults)
 	// Se il cast chiude il turno, verifica la posizione del nuovo giocatore
 	// attivo (una magia può avergli tolto le mosse). Se invece chi lancia ha
-	// ancora il tratto (main1) e la scacchiera è cambiata, verifica la sua: un
-	// Patto di sangue può lasciarlo senza mosse.
+	// ancora il tratto (main1) e la scacchiera o le case sono cambiate, verifica
+	// la sua: un Patto di sangue o un muro possono lasciarlo senza mosse.
 	end := r.checkRolloverGameEnd(autoResults)
-	if end == nil && boardChanged && sideToMove(r.Board.FEN) == string(r.Match.ActivePlayer) {
+	if end == nil && (boardChanged || outcome.squares) && sideToMove(r.Board.FEN) == string(r.Match.ActivePlayer) {
 		end = r.checkActivePlayerEnd()
 	}
 	if end == nil {
@@ -733,10 +744,12 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string,
 		r.broadcastState()
 	}
 	r.broadcastGraveyards(graveyards)
+	r.broadcastSquareEffects(castSquares)
 	for _, ar := range autoResults {
 		r.applyAdvanceBroadcasts(ar)
 	}
 	r.broadcastExpired(expired)
+	r.broadcastSquareEffects(squares)
 	if end != nil && !boardChanged {
 		r.broadcastState()
 	}
@@ -773,6 +786,7 @@ type spellOutcome struct {
 	changed bool
 	drawn   []match.DrawResult
 	graves  []match.Player
+	squares bool // gli stati delle case sono cambiati
 }
 
 // applySpellEffects esegue gli effetti di una magia. Un errore annulla il cast
@@ -796,7 +810,7 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 		match.PlayerBlack: r.Match.Black.CopyGraveyard(),
 	}
 	gravesChanged := map[match.Player]bool{}
-	changed := false
+	changed, squaresChanged := false, false
 	applied := make([]interface{}, 0, len(def.Effects))
 	var deferred []func() // pesca e mana: dopo che la scacchiera è convalidata
 	var drawn []match.DrawResult
@@ -838,6 +852,14 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 			sq, err := target()
 			if err != nil {
 				return spellOutcome{}, err
+			}
+			// Santuario: nessun pezzo nemico sparisce da quella casa (il sacrificio
+			// di un proprio pezzo resta ammesso).
+			if tracker.HasSquareEffect(sq, effects.KindNoCapture) {
+				if p, _ := effects.PieceAt(fen, sq); p != 0 && effects.ColorOf(p) != casterColor {
+					return spellOutcome{}, gameerr.Newf(gameerr.InvalidTarget, "%s è su una casa dove non si cattura", sq).
+						With("index", 0).With("reason", effects.ReasonNoCapture).With("square", sq)
+				}
 			}
 			bury(sq) // to_graveyard: ogni pezzo distrutto va nel cimitero
 			newFEN, destroyed, err := effects.DestroyPiece(fen, sq)
@@ -925,6 +947,10 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 			from, to, err := moveEndpoints(fen, eff.Params, targets, casterColor)
 			if err != nil {
 				return spellOutcome{}, err
+			}
+			if tracker.HasSquareEffect(to, effects.KindWall) {
+				return spellOutcome{}, gameerr.Newf(gameerr.InvalidTarget, "in %s c'è un muro", to).
+					With("index", 0).With("reason", effects.ReasonWall).With("square", to)
 			}
 			newFEN, err := effects.MovePieceFEN(fen, from, to, casterColor)
 			if err != nil {
@@ -1037,6 +1063,24 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 			}
 			fen, changed = newFEN, true
 
+		case spells.EffectCreateWall, spells.EffectCreateSquareEffect:
+			sq, err := target()
+			if err != nil {
+				return spellOutcome{}, err
+			}
+			kind := effects.KindWall
+			if eff.Kind == spells.EffectCreateSquareEffect {
+				kind, _ = eff.Params["effect"].(string)
+				if kind != effects.KindNoCapture {
+					return spellOutcome{}, gameerr.Newf(gameerr.Internal, "stato della casa non supportato: %q (%s)", kind, def.ID)
+				}
+				entry["effect"] = kind
+			}
+			duration := paramInt(eff.Params, "duration", 1)
+			tracker.AddSquareEffect(sq, kind, duration, def.ID, casterColor)
+			squaresChanged = true
+			entry["target"], entry["remaining_turns"] = sq, duration
+
 		case spells.EffectSummonPawn:
 			sq, err := target()
 			if err != nil {
@@ -1083,7 +1127,7 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 	for _, apply := range deferred {
 		apply()
 	}
-	return spellOutcome{applied: applied, changed: changed, drawn: drawn, graves: gravesOut}, nil
+	return spellOutcome{applied: applied, changed: changed, drawn: drawn, graves: gravesOut, squares: squaresChanged}, nil
 }
 
 // playerState restituisce le risorse del giocatore dato.
@@ -1140,6 +1184,23 @@ func (r *Room) broadcastGraveyards(updates []graveyardUpdate) {
 	for _, u := range updates {
 		r.Broadcast(models.MsgGraveyardChanged, u)
 	}
+}
+
+// broadcastSquareEffects manda a entrambi la lista completa degli stati delle
+// case, se è cambiata (nil = nessun cambiamento). Va invocata senza r.mu.
+func (r *Room) broadcastSquareEffects(squares []effects.SquareEffectInfo) {
+	if squares == nil {
+		return
+	}
+	r.Broadcast(models.MsgSquareEffectsChanged, map[string]interface{}{"square_effects": squares})
+}
+
+// squareEffects restituisce gli stati attivi sulle case (nil-safe).
+func (r *Room) squareEffects() []effects.SquareEffectInfo {
+	if r.Tracker == nil {
+		return []effects.SquareEffectInfo{}
+	}
+	return r.Tracker.SquareEffects()
 }
 
 // graveHas indica se nel cimitero c'è un pezzo del tipo dato.
@@ -1252,16 +1313,21 @@ func moveEndpoints(fen string, params map[string]interface{}, targets []string, 
 }
 
 // tickEffectsOnNewTurn, se nei risultati c'è un nuovo turno, aggiorna le durate
-// degli effetti alla fine del turno di chi ha appena chiuso e restituisce gli
-// effetti scaduti. Va invocata con r.mu tenuto.
-func (r *Room) tickEffectsOnNewTurn(results []match.AdvanceResult) []effects.ExpiredEffect {
+// degli effetti alla fine del turno di chi ha appena chiuso. Restituisce gli
+// effetti scaduti sui pezzi e, se uno stato di una casa è scaduto, la nuova
+// lista degli stati delle case (nil altrimenti). Va invocata con r.mu tenuto.
+func (r *Room) tickEffectsOnNewTurn(results []match.AdvanceResult) ([]effects.ExpiredEffect, []effects.SquareEffectInfo) {
 	for _, res := range results {
 		if res.NewTurn {
-			finishing := res.ActivePlayer.Opponent() // chi ha appena chiuso il turno
-			return r.Tracker.TickTurnEnd(toEffectsColor(finishing))
+			finishing := toEffectsColor(res.ActivePlayer.Opponent()) // chi ha appena chiuso il turno
+			expired := r.Tracker.TickTurnEnd(finishing)
+			if r.Tracker.TickSquares(finishing) {
+				return expired, r.Tracker.SquareEffects()
+			}
+			return expired, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // gameStatus valuta la posizione per il lato al tratto della FEN. Le mosse dei
@@ -1273,9 +1339,17 @@ func (r *Room) gameStatus() engine.GameStatus {
 }
 
 // isPlayable indica se una mossa legale per gli scacchi è ammessa dagli stati
-// delle magie: un pezzo congelato non muove (lo stesso controllo di handleMove).
+// delle magie, con gli stessi controlli di handleMove: un pezzo congelato non
+// muove, un muro sbarra il percorso, su un santuario non si cattura.
 func (r *Room) isPlayable(move string) bool {
-	return len(move) < 4 || !r.Tracker.IsFrozen(move[:2])
+	if len(move) < 4 {
+		return true
+	}
+	if r.Tracker.IsFrozen(move[:2]) {
+		return false
+	}
+	_, reason := effects.MoveBlock(r.Board.FEN, r.Tracker, move)
+	return reason == ""
 }
 
 // checkRolloverGameEnd, dopo un rollover di turno, verifica se il nuovo
@@ -1804,6 +1878,7 @@ func (r *Room) publicState() map[string]interface{} {
 		"active_effects":  r.activeEffects(),
 		"white_graveyard": r.Match.White.GraveyardKinds(),
 		"black_graveyard": r.Match.Black.GraveyardKinds(),
+		"square_effects":  r.squareEffects(),
 	}
 }
 

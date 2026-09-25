@@ -44,6 +44,10 @@ var catalogList = []Spell{
 		Effects: []Effect{{Kind: EffectFreezeAll, Params: map[string]interface{}{
 			"side": "enemy", "pieces": []PieceKind{Pawn}, "duration": 1}}}},
 
+	{ID: "ice_wall", Name: "Muro di ghiaccio", ManaCost: 2, Phases: mainPhases, Tags: []string{"gelo"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetSquare, EmptySquare: true}},
+		Effects: []Effect{{Kind: EffectCreateWall, Params: map[string]interface{}{"duration": 2}}}},
+
 	// ────────────────────── NECROMANZIA ──────────────────────
 
 	{ID: "blood_pact", Name: "Patto di sangue", ManaCost: 0, Phases: mainPhases, Tags: []string{"necro"}, Rarity: Common,
@@ -94,6 +98,11 @@ var catalogList = []Spell{
 	{ID: "divine_castling", Name: "Arrocco divino", ManaCost: 4, Phases: preMove, Tags: []string{"sacro"}, Rarity: Common,
 		Effects: []Effect{{Kind: EffectRestoreCastling}}},
 
+	{ID: "sanctuary", Name: "Santuario", ManaCost: 5, Phases: mainPhases, Tags: []string{"sacro"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetSquare}},
+		Effects: []Effect{{Kind: EffectCreateSquareEffect, Params: map[string]interface{}{
+			"effect": "no_capture", "duration": 3}}}},
+
 	// ──────────────────────── FALANGE ────────────────────────
 
 	{ID: "forced_march", Name: "Marcia forzata", ManaCost: 1, Phases: mainPhases, Tags: []string{"falange"}, Rarity: Common,
@@ -138,29 +147,31 @@ func indexCatalog(list []Spell) map[string]Spell {
 // per entrambi i giocatori. Totale = 40.
 //
 // Finché il catalogo non è completo la ricetta non può rispettare i limiti di
-// copie della rarità (2 per le comuni, 1 per le leggendarie): con 15 comuni e 3
-// leggendarie arrivano al massimo 33 carte. Le leggendarie sono già a 1 copia; il
+// copie della rarità (2 per le comuni, 1 per le leggendarie): con 17 comuni e 3
+// leggendarie arrivano al massimo 37 carte. Le leggendarie sono già a 1 copia; il
 // limite delle comuni si impone alla ricetta finale.
 var deckRecipe = []struct {
 	ID    string
 	Count int
 }{
 	{"frost", 3},
+	{"ice_wall", 2},
 	{"ice_chain", 2},
 	{"shatter", 3},
 	{"eternal_winter", 1},
 	{"blood_pact", 3},
-	{"recall", 3},
+	{"recall", 2},
 	{"resurrection", 1},
 	{"blink", 2},
 	{"swap", 2},
 	{"metamorphosis", 2},
-	{"shield", 3},
+	{"shield", 2},
 	{"royal_shield", 2},
 	{"royal_guard", 2},
 	{"divine_castling", 2},
-	{"forced_march", 3},
-	{"conscription", 3},
+	{"sanctuary", 2},
+	{"forced_march", 2},
+	{"conscription", 2},
 	{"phalanx", 2},
 	{"early_promotion", 1},
 }

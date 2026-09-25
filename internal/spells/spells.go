@@ -99,6 +99,9 @@ const (
 	EffectPromotePiece    = "promote_piece"           // promuove un pedone (scelta del giocatore)
 	EffectRevivePiece     = "revive_piece"            // riporta in gioco un pezzo dal cimitero
 	EffectRestoreCastling = "restore_castling_rights" // ripristina i diritti d'arrocco del lanciatore
+
+	EffectCreateWall         = "create_wall"          // muro su una casa vuota
+	EffectCreateSquareEffect = "create_square_effect" // stato generico su una casa (es. no_capture)
 )
 
 // Choice è la scelta del giocatore che alcune magie richiedono (cast_spell.choice):
