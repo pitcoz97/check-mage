@@ -83,6 +83,7 @@ Dopo `game_over` ogni azione riceve `error` con `code: "game_over"`.
 | `mana_changed` | `{ player, current, max }` | entrambi |
 | `spell_cast` | `{ player, spell_id, targets, effects_applied:[...] }` | entrambi |
 | `graveyard_changed` | `{ player, graveyard: ["pawn", …] }`: il cimitero di un giocatore, in ordine | entrambi |
+| `square_effects_changed` | `{ square_effects: [...] }`: la lista completa degli stati delle case (stessa forma di `game_state.square_effects`), quando uno viene creato o scade | entrambi |
 | `effect_expired` | scadenza: `{ square, effect_kind, piece_id }`; scudo consumato: `{ square, effect_kind: "shield", reason: "shield_absorbed" }` | entrambi |
 | `game_over` | `{ result, reason, winner? }` | entrambi |
 | `draw_offer` | `{ from }` | avversario |
@@ -114,6 +115,7 @@ scacchiera, alla riconnessione (con `reconnected: true`) e subito **prima** di
   "white_deck_size": 36, "black_deck_size": 36,
   "active_effects": [ { "square": "e7", "effects": [ { "kind": "freeze", "remaining_turns": 1, "source_spell_id": "frost", "caster": "white" } ] } ],
   "white_graveyard": ["pawn"], "black_graveyard": [],
+  "square_effects": [ { "square": "e5", "effects": [ { "kind": "wall", "remaining_turns": 2, "source_spell_id": "ice_wall", "caster": "white" } ] } ],
   "reconnected": true
 }
 ```
@@ -126,6 +128,8 @@ scacchiera, alla riconnessione (con `reconnected: true`) e subito **prima** di
 - `board.status`: `active`, `checkmate`, `stalemate`, `draw`, `resigned`,
   `timeout`, `abandoned`. Tutti i valori diversi da `active` sono terminali.
 - `active_effects` è ordinato per casella.
+- `square_effects` (stati delle **case**: `wall`, `no_capture`) è ordinato per
+  casella. Manca nei server precedenti allo Step 3 del catalogo: vale lista vuota.
 
 ### `game_over`
 
@@ -154,7 +158,10 @@ relativo, dove il client manda solo il pezzo); `summon_pawn` → `target`, `piec
 `freeze_all`/`shield_area` → `targets` (case colpite), `remaining_turns`;
 `swap_pieces` → `targets` (le due case); `transform_piece`/`promote_piece`/
 `revive_piece` → `target`, `piece` (il tipo risultante); `restore_castling_rights`
-→ nessun campo (arriva il `game_state` con la FEN nuova).
+→ nessun campo (arriva il `game_state` con la FEN nuova); `create_wall` →
+`target`, `remaining_turns`; `create_square_effect` → `target`, `effect` (es.
+`no_capture`), `remaining_turns` (la lista aggiornata arriva con
+`square_effects_changed`).
 
 ### `error`
 
@@ -173,6 +180,7 @@ relativo, dove il client manda solo il pezzo); `summon_pawn` → `target`, `piec
 | `wrong_phase` | mossa, pass o magia nella fase sbagliata | `phase` |
 | `illegal_move` | mossa illegale | `move` |
 | `piece_frozen` | il pezzo da muovere è congelato | `square` |
+| `move_blocked` | uno stato della casa vieta la mossa: muro sul percorso o cattura su un santuario | `square`, `reason` (`wall`, `no_capture`) |
 | `unknown_spell` | `spell_id` inesistente | `spell_id` |
 | `card_not_in_hand` | carta non in mano | `spell_id` |
 | `insufficient_mana` | mana insufficiente | `needed`, `available` |
@@ -191,7 +199,8 @@ Un `code` sconosciuto va trattato come errore generico.
 
 Valori di `reason` per `invalid_target`: `off_board`, `duplicate`, `not_empty`,
 `no_piece`, `wrong_owner`, `king`, `piece_kind`, `missing_effect`, `too_far`,
-`rank`, `max_pawns`, `promotion`, `pawn_rank`. Un valore sconosciuto va trattato
+`rank`, `max_pawns`, `promotion`, `pawn_rank`, `wall` (casa col muro: non è vuota),
+`no_capture` (Frantumare su un pezzo in un santuario). Un valore sconosciuto va trattato
 come bersaglio non valido generico.
 
 `no_effect` (la magia non avrebbe effetto, cast rifiutato a costo zero) ha
@@ -220,6 +229,18 @@ come bersaglio non valido generico.
   pezzo colpito; `shield` 1 protegge durante il prossimo turno avversario e
   sparisce all'inizio del turno dopo. `remaining_turns` 0 = fino alla fine del
   turno di chi lancia; -1 = permanente.
+- **Stati delle case** (`square_effects`): restano sulla casa, qualunque pezzo
+  ci sia, con le stesse durate degli stati sui pezzi.
+  - **wall**: nessun pezzo ci entra né la attraversa (torre, alfiere e donna:
+    le case fra partenza e arrivo; pedone: la casa di mezzo della spinta
+    doppia; arrocco: tutte le case fra re e torre). Il cavallo lo scavalca ma
+    non ci atterra. Il muro blocca **solo il movimento**: scacco e matto restano
+    quelli degli scacchi (una torre dietro un muro dà ancora scacco).
+  - **no_capture** (santuario): nessuna cattura del pezzo che sta sulla casa,
+    en passant compreso (conta la casa del pedone preso), né distruzione di un
+    pezzo nemico con una magia; il sacrificio di un proprio pezzo è ammesso.
+  - Una mossa vietata è rifiutata con `move_blocked` (prima dello scudo, che non
+    si consuma). Una casa col muro non è vuota per i bersagli `empty_square`.
 - **Bersagli.** Ogni magia dichiara in `targets` una lista di `TargetSpec`
   (vedi sotto); il cast manda una casella per elemento, nello stesso ordine. Le
   caselle devono essere distinte e il re non è mai un bersaglio (salvo un
@@ -230,10 +251,10 @@ come bersaglio non valido generico.
   risolvere lo scacco). Se il re avversario era già sotto scacco per la mossa del
   turno, la magia è ammessa. Il matto arriva solo da una mossa.
 - **Senza mosse giocabili**: se tutte le mosse legali del giocatore di turno sono
-  di pezzi congelati, valgono le regole degli scacchi: re sotto scacco = matto,
+  di pezzi congelati o bloccate da muri e santuari, valgono le regole degli scacchi: re sotto scacco = matto,
   altrimenti stallo. Si verifica dopo ogni mossa, a ogni cambio di turno e dopo
   una magia in `main1` che cambia la scacchiera (un Patto di sangue può lasciare
-  senza mosse chi lo lancia).
+  senza mosse chi lo lancia, come un muro).
 - **move_piece** sposta un pezzo proprio su una casella vuota senza regole di
   movimento: un re su g1 non arrocca, un pedone in diagonale non cattura en
   passant. Con `relative: "forward"` il client manda solo il pezzo e il server
@@ -249,8 +270,8 @@ come bersaglio non valido generico.
 
 ## Catalogo magie
 
-Il catalogo segue `docs/BRIEFING-MAGIE.md` e cresce per step: oggi contiene le 18
-magie degli Step 1 e 2. Disponibile via `GET /spells`:
+Il catalogo segue `docs/BRIEFING-MAGIE.md` e cresce per step: oggi contiene le 20
+magie degli Step 1–3. Disponibile via `GET /spells`:
 
 ```json
 { "id": "blink", "name": "Blink", "mana_cost": 4, "phases": ["main1", "main2"],
@@ -287,6 +308,8 @@ magie degli Step 1 e 2. Disponibile via `GET /spells`:
 | `divine_castling` | Arrocco divino | 4, solo main1 | — | `restore_castling_rights` |
 | `phalanx` | Falange | 3 | — | `shield_area` ai propri pedoni con un pedone accanto sulla traversa, 1 |
 | `early_promotion` | Promozione anticipata (leggendaria) | 6 | proprio pedone dalla 6ª traversa | `promote_piece` (`choice`) |
+| `ice_wall` | Muro di ghiaccio | 2 | casa vuota | `create_wall` 2 |
+| `sanctuary` | Santuario | 5 | una casa qualsiasi | `create_square_effect` `no_capture` 3 |
 
 **Cimitero.** Ogni pezzo tolto dalla scacchiera (cattura, anche en passant, o
 magia) va nel cimitero del proprietario con il tipo che aveva; la cattura

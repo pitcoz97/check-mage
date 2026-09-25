@@ -205,3 +205,18 @@ Verifica: `go vet ./...` e `go test ./...` sulla VM (qui Go non è installato).
 | 6 | `invalid_target` ha il nuovo `reason: pawn_rank` (Scambio che porterebbe un pedone in 1ª o 8ª) | Messaggio |
 
 Verifica: `go build ./... && go vet ./... && go test ./...` sulla VM.
+
+## 11. Catalogo magie — Step 3 (stati delle case)
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | 2 magie nuove: `ice_wall` (muro per 2 turni su una casa vuota) e `sanctuary` (nessuna cattura per 3 turni su una casa qualsiasi). Mazzo di 40 su 20 magie | Nomi e testi i18n per id |
+| 2 | **Stati delle case**: `game_state.square_effects` (`[{square, effects: [{kind, remaining_turns, source_spell_id, caster}]}]`) ed evento `square_effects_changed {square_effects}` con la lista completa, quando uno stato nasce o scade. Kind: `wall`, `no_capture` | Disegnarli sulle case |
+| 3 | Il muro blocca il movimento (arrivo e percorso, arrocco compreso; il cavallo scavalca), non gli attacchi: lo scacco resta quello degli scacchi. Il santuario vieta le catture del pezzo sulla casa (en passant compreso) e Frantumare | Togliere dagli evidenziati le mosse bloccate |
+| 4 | Nuovo errore `move_blocked {square, reason: wall \| no_capture}`; controllato prima dello scudo | Rollback e messaggio |
+| 5 | `invalid_target` ha i nuovi `reason` `wall` (casa col muro non vuota, anche per la Marcia forzata) e `no_capture` | Messaggio |
+| 6 | `effects_applied`: `create_wall {target, remaining_turns}`, `create_square_effect {target, effect, remaining_turns}` | — |
+| 7 | Senza mosse giocabili per muri o santuari: matto o stallo, anche dopo un muro lanciato in main1 | — |
+| 8 | Snapshot: `square_effects` (assente negli snapshot precedenti = nessuno stato) | — |
+
+Verifica: `go build ./... && go vet ./... && go test ./...` sulla VM.
