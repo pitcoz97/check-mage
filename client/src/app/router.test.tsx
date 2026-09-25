@@ -91,7 +91,7 @@ describe('router e layout shell', () => {
     await renderAuthenticated('/dev/cards');
     expect(await screen.findByRole('heading', { name: 'Catalogo magie' }, { timeout: 5_000 })).toBeTruthy();
     await waitFor(() => expect(document.querySelectorAll('[data-card]').length).toBeGreaterThan(18));
-    expect(screen.getByText('Sorgente: server — 20 magie')).toBeTruthy();
+    expect(screen.getByText('Sorgente: server — 26 magie')).toBeTruthy();
     // Stato scelto dal selettore: con mana 0 resta giocabile solo la magia che costa 0.
     fireEvent.click(screen.getByRole('button', { name: 'Mana insufficiente' }));
     // La griglia e la mano a ventaglio mostrano le stesse carte: conta la griglia.

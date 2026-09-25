@@ -141,6 +141,42 @@ describe('applyServerEvent: aggiornamenti puntuali', () => {
     expect(run([{ type: 'square_effects_changed', squareStates: [] }], '1', after).game?.squareStates).toEqual([]);
   });
 
+  it('magia nascosta dell’avversario: la mano non cambia, nel registro senza carta', () => {
+    const state = run([...START, { type: 'spell_cast', player: 'black', spellId: null, targets: [], effects: [{ kind: 'hidden_effect' }] }]);
+    expect(state.hand.map((c) => c.spellId)).toEqual(['spark', 'frostbolt', 'aegis', 'nova']);
+    expect(state.lastCast).toMatchObject({ player: 'black', spellId: null, targets: [] });
+    expect(state.spellLog.map(({ player, spellId }) => ({ player, spellId }))).toEqual([{ player: 'black', spellId: null }]);
+  });
+
+  it('Detonazione congela i pezzi dichiarati; le rune spariscono solo con square_effects_changed', () => {
+    const rune = { square: 'e3' as const, effects: [{ kind: 'rune', remainingTurns: -1, sourceSpellId: 'stasis_rune', owner: 'white' as const, hidden: true, onEnter: 'freeze_piece' }] };
+    const withRune = run([...START, { type: 'square_effects_changed', squareStates: [rune] }]);
+    const state = run(
+      [{ type: 'spell_cast', player: 'white', spellId: 'detonation', targets: [], effects: [{ kind: 'detonate_runes', runes: ['e3'], targets: ['d4'], remainingTurns: 1 }] }],
+      '1',
+      withRune,
+    );
+    expect(state.game?.activeEffects).toEqual([{ square: 'd4', effects: [{ kind: 'freeze', remainingTurns: 1, sourceSpellId: 'detonation' }] }]);
+    expect(state.game?.squareStates).toEqual([rune]);
+  });
+
+  it('rune_triggered resta come ultimo avviso, senza toccare lo stato di gioco', () => {
+    const before = run(START);
+    const state = run(
+      [{ type: 'rune_triggered', square: 'e5', owner: 'white', onEnter: 'freeze_piece', result: { kind: 'freeze_piece', target: 'e5', remainingTurns: 3 } }],
+      '1',
+      before,
+    );
+    expect(state.lastRune).toEqual({
+      square: 'e5',
+      owner: 'white',
+      onEnter: 'freeze_piece',
+      result: { kind: 'freeze_piece', target: 'e5', remainingTurns: 3 },
+      seq: state.seq,
+    });
+    expect(state.game).toBe(before.game);
+  });
+
   it('le magie della sessione finiscono nel registro, con il punto dello storico in cui sono arrivate (D11)', () => {
     const state = run([
       ...START,

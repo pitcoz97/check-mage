@@ -1,6 +1,6 @@
-import type { ActiveEffect } from '../model';
+import { PERMANENT_TURNS, type ActiveEffect } from '../model';
 import type { PlacedPiece } from '../fen';
-import { StateBadge, statePresentation } from '../../spells/effects.registry';
+import { effectStatePresentation, StateBadge } from '../../spells/effects.registry';
 import { PieceIcon } from '../pieces/PieceIcon';
 
 /**
@@ -56,9 +56,10 @@ export function BoardSquare({
           className={`${LAYER} inset-0 bg-[radial-gradient(circle,var(--board-check)_0%,transparent_72%)]`}
         />
       )}
-      {states.map((state) => {
-        const veil = statePresentation(state.kind).veil;
-        return veil === '' ? null : <span key={state.kind} aria-hidden="true" className={`${LAYER} ${veil}`} />;
+      {states.map((state, index) => {
+        const veil = effectStatePresentation(state).veil;
+        // Su una casa possono stare due rune (una per giocatore): la chiave è la posizione.
+        return veil === '' ? null : <span key={`${state.kind}-${String(index)}`} aria-hidden="true" className={`${LAYER} ${veil}`} />;
       })}
       {piece !== undefined && (
         <span className={`${LAYER} inset-0 ${ghost ? 'opacity-30' : ''}`}>
@@ -68,12 +69,15 @@ export function BoardSquare({
       {hint !== null && <HintMark hint={hint} occupied={piece !== undefined} />}
       {states.length > 0 && (
         <span aria-hidden="true" data-effects className={`${LAYER} top-[3px] right-[3px] flex flex-col items-end gap-px`}>
-          {states.map((state) => (
-            <span key={state.kind} className="flex items-center gap-px">
-              <span className="rounded-pill bg-app/80 px-[0.35em] text-[max(8px,15cqw)] leading-tight font-bold text-primary tabular-nums">
-                {state.remainingTurns}
-              </span>
-              <StateBadge kind={state.kind} className="size-[max(12px,26cqw)]" />
+          {states.map((state, index) => (
+            <span key={`${state.kind}-${String(index)}`} className="flex items-center gap-px">
+              {/* Uno stato permanente (una runa) non ha turni da contare. */}
+              {state.remainingTurns !== PERMANENT_TURNS && (
+                <span className="rounded-pill bg-app/80 px-[0.35em] text-[max(8px,15cqw)] leading-tight font-bold text-primary tabular-nums">
+                  {state.remainingTurns}
+                </span>
+              )}
+              <StateBadge kind={state.kind} effect={state} className="size-[max(12px,26cqw)]" />
             </span>
           ))}
         </span>

@@ -340,6 +340,77 @@ describe('magie ed effetti', () => {
     ]);
   });
 
+  it('rune: stato della casa con owner, hidden e on_enter; -1 resta permanente', () => {
+    const own = { kind: 'rune', remaining_turns: -1, source_spell_id: 'stasis_rune', caster: 'white', hidden: true, rune: { on_enter: 'freeze_piece', duration: 2 } };
+    const enemy = { kind: 'rune', remaining_turns: -1, source_spell_id: 'repel_rune', caster: 'black', rune: { on_enter: 'return_to_origin' } };
+    const { event, codes } = decodeOk(frame('square_effects_changed', { square_effects: [{ square: 'e5', effects: [own, enemy] }] }));
+    expect(codes).toEqual([]);
+    expect(event).toEqual({
+      type: 'square_effects_changed',
+      squareStates: [
+        {
+          square: 'e5',
+          effects: [
+            { kind: 'rune', remainingTurns: -1, sourceSpellId: 'stasis_rune', owner: 'white', hidden: true, onEnter: 'freeze_piece' },
+            { kind: 'rune', remainingTurns: -1, sourceSpellId: 'repel_rune', owner: 'black', hidden: false, onEnter: 'return_to_origin' },
+          ],
+        },
+      ],
+    });
+    // Un -1 fuori dalle rune è comunque "permanente"; gli altri negativi vanno a 0 con un warning.
+    const odd = decodeOk(frame('square_effects_changed', { square_effects: [{ square: 'e5', effects: [{ kind: 'wall', remaining_turns: -3 }] }] }));
+    expect(odd.event.type === 'square_effects_changed' && odd.event.squareStates[0]?.effects[0]?.remainingTurns).toBe(0);
+    expect(odd.codes).toEqual(['number_out_of_range']);
+  });
+
+  it('spell_cast nascosto: niente carta né bersagli, un effetto hidden_effect', () => {
+    const { event, codes } = decodeOk(frame('spell_cast', { player: 'black', hidden: true, effects_applied: [{ kind: 'hidden_effect' }] }));
+    expect(codes).toEqual([]);
+    expect(event).toEqual({ type: 'spell_cast', player: 'black', spellId: null, targets: [], effects: [{ kind: 'hidden_effect' }] });
+    // Senza `hidden` lo spell_id resta obbligatorio.
+    const missing = decodeServerMessage(frame('spell_cast', { player: 'black', effects_applied: [] }));
+    expect(failureKind(missing)).toBe('malformed_payload');
+  });
+
+  it('effetti delle rune in spell_cast', () => {
+    const { event, codes } = decodeOk(
+      frame('spell_cast', {
+        player: 'white',
+        spell_id: 'x',
+        targets: ['c5', 'e5'],
+        effects_applied: [
+          { kind: 'place_rune', targets: ['c5', 'e5'], on_enter: 'freeze_piece' },
+          { kind: 'reveal_runes', side: 'black' },
+          { kind: 'detonate_runes', runes: ['e3'], targets: ['d4', 'f4'], remaining_turns: 1 },
+        ],
+      }),
+    );
+    expect(codes).toEqual([]);
+    expect(event.type === 'spell_cast' && event.effects).toEqual([
+      { kind: 'place_rune', targets: ['c5', 'e5'], onEnter: 'freeze_piece' },
+      { kind: 'reveal_runes', side: 'black' },
+      { kind: 'detonate_runes', runes: ['e3'], targets: ['d4', 'f4'], remainingTurns: 1 },
+    ]);
+  });
+
+  it('rune_triggered: gelo, ritorno, distruzione; un risultato ignoto non rompe l’evento', () => {
+    const triggered = (result: object) => decodeOk(frame('rune_triggered', { square: 'e5', owner: 'white', on_enter: 'destroy_piece', result }));
+    expect(triggered({ kind: 'freeze_piece', target: 'e5', remaining_turns: 3 }).event).toEqual({
+      type: 'rune_triggered',
+      square: 'e5',
+      owner: 'white',
+      onEnter: 'destroy_piece',
+      result: { kind: 'freeze_piece', target: 'e5', remainingTurns: 3 },
+    });
+    expect(triggered({ kind: 'return_to_origin', from: 'e5', to: 'e7' }).event).toMatchObject({ result: { kind: 'return_to_origin', from: 'e5', to: 'e7' } });
+    expect(triggered({ kind: 'destroy_piece', target: 'e5', piece_destroyed: 'knight' }).event).toMatchObject({
+      result: { kind: 'destroy_piece', target: 'e5', destroyedPiece: 'knight' },
+    });
+    const odd = triggered({ kind: 'teleport' });
+    expect(odd.event).toMatchObject({ result: { kind: 'unknown', rawKind: 'teleport' } });
+    expect(odd.codes).toEqual(['effect_unknown']);
+  });
+
   it('effect_expired: scadenza con piece_id numerico e scudo assorbito', () => {
     expect(decodeOk(frame('effect_expired', { square: 'e7', effect_kind: 'freeze', piece_id: 12 })).event).toEqual({
       type: 'effect_expired',
@@ -582,10 +653,10 @@ describe('REST', () => {
 });
 
 describe('catalogo', () => {
-  it('fallback.json: le 20 magie degli step 1–3 (spells/catalog.go), tutte valide', () => {
+  it('fallback.json: le 26 magie degli step 1–4 (spells/catalog.go), tutte valide', () => {
     const { spells, warnings } = normalizeSpellCatalog(fallbackCatalog);
     expect(warnings).toEqual([]);
-    expect(spells).toHaveLength(20);
+    expect(spells).toHaveLength(26);
     expect(spells.find((s) => s.id === 'blink')).toEqual({
       id: 'blink',
       name: 'Blink',

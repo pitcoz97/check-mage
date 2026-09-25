@@ -62,9 +62,19 @@ export type Clocks = PerColor<number>;
 /** Stato persistente su un pezzo (`freeze`, `shield`): spazio distinto dagli effetti di magia (A18). */
 export interface ActiveEffect {
   readonly kind: string;
+  /** Turni residui; `PERMANENT_TURNS` = non scade (oggi solo le rune, ASSUMPTIONS S9). */
   readonly remainingTurns: number;
   readonly sourceSpellId: SpellId | null;
+  /** Solo per le rune: chi l'ha piazzata. */
+  readonly owner?: Color;
+  /** Solo per le rune: la propria runa è ancora nascosta all'avversario (ASSUMPTIONS S10). */
+  readonly hidden?: boolean;
+  /** Solo per le rune: cosa fa quando scatta (`freeze_piece`, `return_to_origin`, `destroy_piece`). */
+  readonly onEnter?: string;
 }
+
+/** `remaining_turns` di uno stato che non scade (`effects.Permanent`). */
+export const PERMANENT_TURNS = -1;
 
 /**
  * Stati attivi su una casa: quelli del pezzo che ci sta (`active_effects`, `effects/tracker.go`) oppure quelli della
@@ -157,7 +167,25 @@ export type AppliedEffect =
       readonly state: string;
       readonly remainingTurns: number;
     }
+  /** Rune (Step 4): piazzate (solo per chi le lancia), rivelate, detonate. */
+  | { readonly kind: 'place_rune'; readonly targets: readonly Square[]; readonly onEnter: string }
+  | { readonly kind: 'reveal_runes'; readonly side: Color }
+  | {
+      readonly kind: 'detonate_runes';
+      readonly runes: readonly Square[];
+      readonly targets: readonly Square[];
+      readonly remainingTurns: number;
+    }
+  /** L'unico effetto di una magia nascosta vista dall'avversario (ASSUMPTIONS M42). */
+  | { readonly kind: 'hidden_effect' }
   /** Effetto sconosciuto o malformato: si mostra neutro, non blocca il resto (§5.1.6). */
+  | { readonly kind: 'unknown'; readonly rawKind: string };
+
+/** Cosa ha fatto una runa scattata (`rune_triggered.result`, `game/room.go` triggerRune). */
+export type RuneResult =
+  | { readonly kind: 'freeze_piece'; readonly target: Square; readonly remainingTurns: number }
+  | { readonly kind: 'return_to_origin'; readonly from: Square; readonly to: Square }
+  | { readonly kind: 'destroy_piece'; readonly target: Square; readonly destroyedPiece: PieceKind | 'unknown' }
   | { readonly kind: 'unknown'; readonly rawKind: string };
 
 /** `effect_expired` (`game/room.go:548-555,902-916`). Per lo scudo sull'en passant `square` è il pedone catturato. */

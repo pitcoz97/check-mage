@@ -49,6 +49,8 @@
   --color-board-select: var(--board-select);
   --color-board-frozen: var(--board-frozen);
   --color-board-wall: var(--board-wall);
+  --color-board-rune: var(--board-rune);
+  --color-board-rune-edge: var(--board-rune-edge);
   --color-board-cast-dot: var(--board-cast-dot);
   --color-board-cast-veil: var(--board-cast-veil);
   --color-state-frost-ink: var(--state-frost-ink);

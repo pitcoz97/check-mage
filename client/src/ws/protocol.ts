@@ -25,6 +25,7 @@ import type {
   PrivateHand,
   ProtocolErrorInfo,
   PublicGameState,
+  RuneResult,
   SpellId,
   Square,
   SquareEffects,
@@ -69,6 +70,7 @@ export const SERVER_MESSAGE_TYPES = [
   'effect_expired',
   'graveyard_changed',
   'square_effects_changed',
+  'rune_triggered',
   'timer_update',
   'game_over',
   'error',
@@ -111,15 +113,18 @@ export type ServerEvent =
   | {
       readonly type: 'spell_cast';
       readonly player: Color;
-      readonly spellId: SpellId;
+      /** `null` per una magia nascosta dell'avversario: né carta né bersagli (ASSUMPTIONS M42). */
+      readonly spellId: SpellId | null;
       readonly targets: readonly Square[];
       readonly effects: readonly AppliedEffect[];
     }
   | { readonly type: 'effect_expired'; readonly expired: ExpiredEffect }
   /** Il cimitero di un giocatore è cambiato: la lista intera, in ordine. */
   | { readonly type: 'graveyard_changed'; readonly player: Color; readonly graveyard: readonly PieceKind[] }
-  /** Gli stati delle case sono cambiati (creati o scaduti): la lista intera. */
+  /** Gli stati delle case sono cambiati (creati, rivelati, consumati o scaduti): la lista intera, vista da me. */
   | { readonly type: 'square_effects_changed'; readonly squareStates: readonly SquareEffects[] }
+  /** Una runa è scattata; lo stato aggiornato arriva con `game_state` e `square_effects_changed`. */
+  | { readonly type: 'rune_triggered'; readonly square: Square; readonly owner: Color; readonly onEnter: string; readonly result: RuneResult }
   /** `turn` = giocatore di cui scorre il tempo, non il tratto scacchistico (`game/room.go:1331-1340`). */
   | { readonly type: 'timer_update'; readonly clocks: Clocks; readonly turn: Color | 'unknown' }
   | {

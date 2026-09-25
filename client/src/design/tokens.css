@@ -75,6 +75,9 @@
   --board-wall-shade: rgba(15, 62, 82, 0.4);
   --board-sanctuary: rgba(242, 211, 138, 0.55);
   --board-sanctuary-edge: rgba(217, 168, 69, 0.85);
+  /* Rune (Step 4), dalla palette dell'incanto: cerchio sulla casa. */
+  --board-rune: rgba(155, 123, 224, 0.28);
+  --board-rune-edge: var(--arcane);
   /* Bersagli delle magie: viola. */
   --board-cast-dot: rgba(155, 123, 224, 0.9);
   --board-cast-glow: rgba(155, 123, 224, 0.8);

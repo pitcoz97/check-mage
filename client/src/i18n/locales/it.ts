@@ -199,6 +199,7 @@ export const it = {
         cast: 'Magia',
         refused: 'Non consentito',
         draw: 'Patta',
+        rune: 'Runa',
       },
     },
     mana: {
@@ -296,6 +297,7 @@ export const it = {
         no_pieces: 'Non ci sono pezzi su cui la magia possa agire.',
         empty_graveyard: 'Nel tuo cimitero non c’è nessun pezzo da riportare.',
         no_castling: 'Non ci sono arrocchi da ripristinare: re o torri non sono al loro posto.',
+        no_runes: 'Non hai rune da far esplodere.',
       },
       choice: {
         missing: 'Scegli il pezzo prima di lanciare la magia.',
@@ -378,6 +380,26 @@ export const it = {
     },
     castByYou: 'Hai lanciato {{name}}: {{effects}}',
     castByOpponent: 'L’avversario ha lanciato {{name}}: {{effects}}',
+    hiddenCastByOpponent: 'L’avversario ha lanciato una magia nascosta.',
+    /** Nome nel registro di una magia nascosta dell'avversario. */
+    hiddenSpell: 'Magia nascosta',
+    /** Avviso di una runa scattata: la runa si chiama per quello che fa (ASSUMPTIONS S11). */
+    runeTriggered: {
+      freeze_piece: 'La {{rune}} in {{square}} ha congelato {{piece}}.',
+      return_to_origin: 'La {{rune}} in {{square}} ha rimandato {{piece}} in {{to}}.',
+      destroy_piece: 'La {{rune}} in {{square}} ha distrutto {{piece}}.',
+      unknown: 'La {{rune}} in {{square}} è scattata.',
+      mine: { pawn: 'il tuo pedone', knight: 'il tuo cavallo', bishop: 'il tuo alfiere', rook: 'la tua torre', queen: 'la tua regina', king: 'il tuo re', unknown: 'un tuo pezzo' },
+      theirs: {
+        pawn: 'il pedone avversario',
+        knight: 'il cavallo avversario',
+        bishop: 'l’alfiere avversario',
+        rook: 'la torre avversaria',
+        queen: 'la regina avversaria',
+        king: 'il re avversario',
+        unknown: 'un pezzo avversario',
+      },
+    },
     effect: {
       destroy_piece: { label: 'Distruzione', text: 'Distrugge il pezzo bersaglio, mai il re.' },
       freeze_piece: {
@@ -421,6 +443,21 @@ export const it = {
         noCaptureOne: 'Nessuna cattura su quella casa nel prossimo turno avversario.',
         noCaptureMany: 'Nessuna cattura su quella casa per {{count}} turni avversari.',
       },
+      place_rune: {
+        label: 'Runa',
+        freeze: 'Una runa nascosta: il pezzo nemico che ci entra è congelato per {{count}} suoi turni.',
+        freezeOne: 'Una runa nascosta: il pezzo nemico che ci entra è congelato nel suo prossimo turno.',
+        return: 'Una runa nascosta: il pezzo nemico che ci entra torna da dove è venuto.',
+        destroy: 'Una runa nascosta: distrugge il {{pieces}} nemico che ci entra; gli altri pezzi restano congelati.',
+        text: 'Una runa nascosta sulla casa: scatta quando ci entra un pezzo nemico.',
+      },
+      reveal_runes: { label: 'Rivelazione', text: 'Le rune nemiche sulla scacchiera diventano visibili per sempre.' },
+      detonate_runes: {
+        label: 'Detonazione',
+        textOne: 'Fa esplodere le tue rune: i pezzi nemici attorno, non il re, sono congelati nel loro prossimo turno.',
+        textMany: 'Fa esplodere le tue rune: i pezzi nemici attorno, non il re, sono congelati per {{count}} turni.',
+      },
+      hidden_effect: { label: 'Effetto nascosto', text: 'Un effetto che l’avversario non vede.' },
       orList: '{{head}} o {{last}}',
       unknown: { label: 'Effetto ignoto', text: 'Effetto che questo client non conosce ancora.' },
     },
@@ -429,6 +466,16 @@ export const it = {
       shield: 'Protetto',
       wall: 'Muro',
       no_capture: 'Santuario',
+      /** Le rune si chiamano per quello che fanno quando scattano (`on_enter`). */
+      rune: {
+        freeze_piece: 'Runa di stasi',
+        return_to_origin: 'Runa di respinta',
+        destroy_piece: 'Runa esplosiva',
+        unknown: 'Runa',
+      },
+      runeHidden: '{{rune}} tua, visibile solo a te',
+      runeOwn: '{{rune}} tua',
+      runeEnemy: '{{rune}} dell’avversario',
       unknown: 'Effetto attivo',
       badgeOne: '{{state}}, ancora 1 turno',
       badgeMany: '{{state}}, ancora {{count}} turni',
@@ -484,6 +531,21 @@ export const it = {
         text: 'Un muro su una casa vuota per 2 turni avversari: nessun pezzo ci entra o la attraversa. Il cavallo lo scavalca.',
       },
       sanctuary: { name: 'Santuario', text: 'Su una casa, per 3 turni avversari, nessun pezzo può essere catturato.' },
+      revelation: { name: 'Rivelazione', text: 'Rivela per sempre le rune nemiche sulla scacchiera, poi pesca una carta.' },
+      stasis_rune: {
+        name: 'Runa di stasi',
+        text: 'Una runa nascosta su una casa vuota: il pezzo nemico che ci entra, non il re, è congelato per 2 suoi turni.',
+      },
+      repel_rune: {
+        name: 'Runa di respinta',
+        text: 'Una runa nascosta su una casa vuota: il pezzo nemico che ci entra, non il re, torna da dove è venuto.',
+      },
+      explosive_rune: {
+        name: 'Runa esplosiva',
+        text: 'Una runa nascosta su una casa vuota: distrugge il pedone o il pezzo minore nemico che ci entra; torre e regina restano congelate 1 turno.',
+      },
+      detonation: { name: 'Detonazione', text: 'Fa esplodere le tue rune: i pezzi nemici attorno a ciascuna, non il re, sono congelati per 1 turno.' },
+      minefield: { name: 'Campo minato', text: 'Tre Rune di stasi nascoste su tre case vuote.' },
     },
     /** Perché una carta non è giocabile ora: il motivo si vede sulla carta, non si indovina. */
     refusal: {

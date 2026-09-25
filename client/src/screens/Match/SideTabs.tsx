@@ -138,7 +138,9 @@ function MoveList() {
             <svg viewBox="0 0 24 24" aria-hidden="true" className="size-3.5 shrink-0 text-arcane-bright" fill="currentColor">
               <path d="M12 3l1.8 4.6L18.5 9.5l-4.7 1.9L12 16l-1.8-4.6L5.5 9.5l4.7-1.9z" />
             </svg>
-            <span className="font-bold text-arcane-bright">{spellName(t, byId.get(row.spell.spellId), row.spell.spellId)}</span>
+            <span className="font-bold text-arcane-bright">
+              {row.spell.spellId === null ? t('spells.hiddenSpell') : spellName(t, byId.get(row.spell.spellId), row.spell.spellId)}
+            </span>
             {row.spell.targets.length > 0 && <span className="text-muted">→ {row.spell.targets.join(' ')}</span>}
             <span className="grow" />
             <span className="text-12 text-faint">

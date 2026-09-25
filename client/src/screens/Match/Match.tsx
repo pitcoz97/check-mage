@@ -87,12 +87,14 @@ function OutcomePanel({ outcome }: { outcome: GameOutcome }) {
 }
 
 /**
- * Caselle toccate dall'ultima magia: pulsano per un attimo, poi si spengono. Solo feedback grafico, nessuno stato
- * di gioco (il server ha già mandato tutto quello che conta).
+ * Caselle toccate dall'ultima magia o dall'ultima runa scattata: pulsano per un attimo, poi si spengono. Solo
+ * feedback grafico, nessuno stato di gioco (il server ha già mandato tutto quello che conta).
  */
 function useSpellFlash(): readonly Square[] {
   const lastCast = useMatch((s) => s.lastCast);
-  const seq = lastCast?.seq ?? 0;
+  const lastRune = useMatch((s) => s.lastRune);
+  const runeIsLatest = lastRune !== null && lastRune.seq > (lastCast?.seq ?? 0);
+  const seq = runeIsLatest ? lastRune.seq : (lastCast?.seq ?? 0);
   /** Progressivo della magia il cui lampeggio è già finito. */
   const [faded, setFaded] = useState(0);
 
@@ -102,7 +104,9 @@ function useSpellFlash(): readonly Square[] {
     return () => clearTimeout(timer);
   }, [seq, faded]);
 
-  if (lastCast === null || faded === seq) return [];
+  if (faded === seq) return [];
+  if (runeIsLatest) return [lastRune.square];
+  if (lastCast === null) return [];
   return [...lastCast.targets, ...lastCast.effects.flatMap(effectSquares)];
 }
 

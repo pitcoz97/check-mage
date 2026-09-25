@@ -1,6 +1,6 @@
 import type { TFunction } from 'i18next';
 
-import { PIECE_KINDS, type PieceKind } from '../game/model';
+import { PERMANENT_TURNS, PIECE_KINDS, type ActiveEffect, type PieceKind } from '../game/model';
 import type { EffectIconName } from './icons/EffectIcon';
 import { StateIcon, type StateIconName } from './icons/StateIcon';
 import type { SpellEffect } from './schema';
@@ -92,6 +92,10 @@ export const EFFECT_KINDS = [
   'restore_castling_rights',
   'create_wall',
   'create_square_effect',
+  'place_rune',
+  'reveal_runes',
+  'detonate_runes',
+  'hidden_effect',
 ] as const;
 export type KnownEffectKind = (typeof EFFECT_KINDS)[number];
 
@@ -237,6 +241,46 @@ const EFFECTS: Record<KnownEffectKind, EffectPresentation> = {
         count,
       });
     },
+  },  // Rune (Step 4): icone provvisorie, come agli step precedenti.
+  place_rune: {
+    icon: 'spark',
+    art: ART.arcane,
+    label: (t) => t('spells.effect.place_rune.label'),
+    describe: (t, params) => {
+      switch (params['on_enter']) {
+        case 'freeze_piece': {
+          const count = intParam(params, 'duration', 1);
+          return count === 1 ? t('spells.effect.place_rune.freezeOne') : t('spells.effect.place_rune.freeze', { count });
+        }
+        case 'return_to_origin':
+          return t('spells.effect.place_rune.return');
+        case 'destroy_piece':
+          return t('spells.effect.place_rune.destroy', { pieces: pieceNames(t, params, 'only') });
+        default:
+          return t('spells.effect.place_rune.text');
+      }
+    },
+  },
+  reveal_runes: {
+    icon: 'spark',
+    art: ART.arcane,
+    label: (t) => t('spells.effect.reveal_runes.label'),
+    describe: (t) => t('spells.effect.reveal_runes.text'),
+  },
+  detonate_runes: {
+    icon: 'burst',
+    art: ART.frost,
+    label: (t) => t('spells.effect.detonate_runes.label'),
+    describe: (t, params) => {
+      const count = intParam(params, 'duration', 1);
+      return count === 1 ? t('spells.effect.detonate_runes.textOne') : t('spells.effect.detonate_runes.textMany', { count });
+    },
+  },
+  hidden_effect: {
+    icon: 'question',
+    art: ART.arcane,
+    label: (t) => t('spells.effect.hidden_effect.label'),
+    describe: (t) => t('spells.effect.hidden_effect.text'),
   },
 };
 
@@ -277,7 +321,7 @@ export interface StatePresentation {
   label(t: TFunction): string;
 }
 
-export const PIECE_STATE_KINDS = ['freeze', 'shield', 'wall', 'no_capture'] as const;
+export const PIECE_STATE_KINDS = ['freeze', 'shield', 'wall', 'no_capture', 'rune'] as const;
 export type KnownStateKind = (typeof PIECE_STATE_KINDS)[number];
 
 const UNKNOWN_STATE: StatePresentation = {
@@ -314,14 +358,71 @@ const STATES: Record<KnownStateKind, StatePresentation> = {
     veil: 'inset-0 bg-[radial-gradient(circle,var(--board-sanctuary)_0%,transparent_72%)] shadow-ring-sanctuary',
     label: (t) => t('spells.state.no_capture'),
   },
+  // Rune (Step 4), non disegnate dal design (D20): un cerchio viola sulla casa, pieno se visibile a entrambi.
+  // Icona e nome vengono da `on_enter` (RUNE_TRIGGERS), il tratteggio da `hidden` (runeStatePresentation).
+  rune: {
+    badge: 'rune',
+    badgeClass: 'text-arcane-bright',
+    veil: 'inset-[14%] rounded-full border-2 border-board-rune-edge bg-board-rune',
+    label: (t) => t('spells.state.rune.unknown'),
+  },
 };
+
+/** Cosa fa una runa quando scatta (`on_enter`) → icona del badge e nome ("Runa di stasi", ASSUMPTIONS S11). */
+const RUNE_TRIGGERS = {
+  freeze_piece: { badge: 'frost', label: (t: TFunction) => t('spells.state.rune.freeze_piece') },
+  return_to_origin: { badge: 'return', label: (t: TFunction) => t('spells.state.rune.return_to_origin') },
+  destroy_piece: { badge: 'burst', label: (t: TFunction) => t('spells.state.rune.destroy_piece') },
+} as const satisfies Record<string, { badge: StateIconName; label(t: TFunction): string }>;
+type RuneTrigger = keyof typeof RUNE_TRIGGERS;
+
+function runeTrigger(onEnter: string | undefined): (typeof RUNE_TRIGGERS)[RuneTrigger] | null {
+  return onEnter !== undefined && Object.hasOwn(RUNE_TRIGGERS, onEnter) ? RUNE_TRIGGERS[onEnter as RuneTrigger] : null;
+}
+
+/** Nome di una runa dal suo `on_enter` ("Runa di stasi"); "Runa" se il client non lo conosce. */
+export function runeName(t: TFunction, onEnter: string | undefined): string {
+  return runeTrigger(onEnter)?.label(t) ?? t('spells.state.rune.unknown');
+}
+
+/** La propria runa nascosta è tratteggiata e semitrasparente; una runa visibile a entrambi è piena. */
+const HIDDEN_RUNE_VEIL = 'inset-[14%] rounded-full border-2 border-dashed border-board-rune-edge bg-board-rune opacity-60';
+
+function runeStatePresentation(effect: ActiveEffect): StatePresentation {
+  const base = STATES.rune;
+  return {
+    ...base,
+    badge: runeTrigger(effect.onEnter)?.badge ?? base.badge,
+    veil: effect.hidden === true ? HIDDEN_RUNE_VEIL : base.veil,
+    label: (t) => runeName(t, effect.onEnter),
+  };
+}
 
 export function statePresentation(kind: string): StatePresentation {
   return (PIECE_STATE_KINDS as readonly string[]).includes(kind) ? STATES[kind as KnownStateKind] : UNKNOWN_STATE;
 }
 
+/** Presentazione di uno stato preciso: per le rune dipende da cosa fanno e da chi le vede, non solo dal `kind`. */
+export function effectStatePresentation(effect: ActiveEffect): StatePresentation {
+  return effect.kind === 'rune' ? runeStatePresentation(effect) : statePresentation(effect.kind);
+}
+
+/**
+ * Etichetta accessibile di uno stato sulla casa: "Congelato, ancora 2 turni"; per una runa, di chi è e se
+ * l'avversario la vede ("Runa di stasi tua, visibile solo a te"). `myColor` nullo = non si sa chi guarda.
+ */
+export function stateLabel(t: TFunction, effect: ActiveEffect, myColor: string | null): string {
+  const state = effectStatePresentation(effect).label(t);
+  if (effect.kind === 'rune') {
+    if (effect.owner !== undefined && myColor !== null && effect.owner !== myColor) return t('spells.state.runeEnemy', { rune: state });
+    return t(effect.hidden === true ? 'spells.state.runeHidden' : 'spells.state.runeOwn', { rune: state });
+  }
+  if (effect.remainingTurns === PERMANENT_TURNS) return state;
+  return effect.remainingTurns === 1 ? t('spells.state.badgeOne', { state }) : t('spells.state.badgeMany', { state, count: effect.remainingTurns });
+}
+
 /** Badge di uno stato: icona del design colorata dal registry, dimensione decisa da chi lo usa. */
-export function StateBadge({ kind, className = '' }: { kind: string; className?: string }) {
-  const presentation = statePresentation(kind);
+export function StateBadge({ kind, effect, className = '' }: { kind: string; effect?: ActiveEffect; className?: string }) {
+  const presentation = effect === undefined ? statePresentation(kind) : effectStatePresentation(effect);
   return <StateIcon name={presentation.badge} className={`${presentation.badgeClass} ${className}`} />;
 }

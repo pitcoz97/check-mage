@@ -76,6 +76,13 @@ describe('registry dei bersagli', () => {
     expect(spellTargets(freeze, withStates, [])).toContain('e7' satisfies Square);
   });
 
+  it('una casa con una runa resta vuota per i bersagli (ASSUMPTIONS M39)', () => {
+    const rune = { square: 'e4' as Square, effects: [{ kind: 'rune', remainingTurns: -1, sourceSpellId: 'x', owner: 'white' as const, hidden: true, onEnter: 'freeze_piece' }] };
+    const empty = spellTargets(oneTarget(targetSpec('square', { emptySquare: true })), { ...ctx, squareStates: [rune] }, []);
+    expect(empty).toHaveLength(32);
+    expect(empty).toContain('e4' satisfies Square);
+  });
+
   it('un tipo sconosciuto non è supportato e non produce bersagli', () => {
     const odd = oneTarget(targetSpec('constellation'));
     expect(targetsSupported(odd)).toBe(false);

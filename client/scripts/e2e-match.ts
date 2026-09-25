@@ -151,7 +151,7 @@ const SCENARIOS: Record<string, Scenario> = {
     await white.refresh();
     report.expect((await white.me()).email === white.email, 'refresh del token e /me con il token nuovo');
     const catalog = await white.catalog();
-    report.expect(catalog.spells.length === 20, `catalogo: ${catalog.spells.length} magie da ${catalog.source}`);
+    report.expect(catalog.spells.length === 26, `catalogo: ${catalog.spells.length} magie da ${catalog.source}`);
     report.expect(catalog.source === 'server', 'catalogo da GET /spells');
 
     await white.connect('pvp');
@@ -291,6 +291,43 @@ const SCENARIOS: Record<string, Scenario> = {
       c.events.some((e) => e.type === 'game_state' && e.state.activeEffects.some((s) => s.effects.some((x) => x.sourceSpellId === 'frost'))),
       'active_effects con source_spell_id',
     );
+    await resignAndWait(c);
+    ctx.report.expect(unexpectedWarnings([c]).length === 0 && c.failures.length === 0, 'nessun warning inatteso né decode failure');
+    await c.disconnect();
+    return [c];
+  },
+
+  /**
+   * Anti-cheat delle rune (docs/BRIEFING-MAGIE.md, Step 4): il bot lancia solo rune. Sui frame grezzi, prima
+   * dell'adapter: nessuno `spell_cast` del bot porta la carta o i bersagli, e nessuna lista degli stati delle case
+   * contiene una runa del bot (non ci sono Rivelazioni, quindi sono tutte nascoste).
+   */
+  async runes(ctx) {
+    const c = await newPlayer(ctx.server, ctx.pacer, `franca`);
+    await c.connect('runes');
+    await ensureColor(ctx, c, 'white');
+    const hidden = () => c.events.filter((e) => e.type === 'spell_cast' && e.player === 'black' && e.spellId === null).length;
+    for (let turn = 0; turn < 4 && c.gameOver === null && hidden() < 2; turn++) await playTurn(c);
+    await c.until(() => hidden() >= 2 || c.gameOver !== null, 'due rune del bot', 10_000).catch(() => undefined);
+    ctx.report.expect(hidden() >= 2, `magie nascoste del bot: ${hidden()}`);
+    if (c.gameOver === null) {
+      await waitMyTurn(c);
+      await expectSnapshot(ctx, c, 'runes');
+    }
+
+    const leaks: string[] = [];
+    for (const raw of c.frames) {
+      const frame = JSON.parse(raw) as { type?: string; payload?: Record<string, unknown> };
+      const payload = frame.payload ?? {};
+      if (frame.type === 'spell_cast' && payload['player'] === 'black') {
+        if ('spell_id' in payload || 'targets' in payload || payload['hidden'] !== true) leaks.push(`spell_cast ${raw}`);
+      }
+      if (frame.type === 'game_state' || frame.type === 'square_effects_changed') {
+        const list = Array.isArray(payload['square_effects']) ? (payload['square_effects'] as { effects?: { kind?: string; caster?: string }[] }[]) : [];
+        if (list.some((s) => (s.effects ?? []).some((e) => e.kind === 'rune' && e.caster === 'black'))) leaks.push(`${frame.type} con una runa del bot`);
+      }
+    }
+    ctx.report.expect(leaks.length === 0, `nessuna runa nascosta né carta del bot nei frame: ${leaks.slice(0, 2).join(' | ')}`);
     await resignAndWait(c);
     ctx.report.expect(unexpectedWarnings([c]).length === 0 && c.failures.length === 0, 'nessun warning inatteso né decode failure');
     await c.disconnect();

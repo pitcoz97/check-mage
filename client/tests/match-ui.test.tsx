@@ -255,6 +255,27 @@ describe('schermata di partita contro il mock', () => {
   );
 
   it(
+    'rune: la propria nascosta si vede tratteggiata; quelle dell’avversario arrivano come magia nascosta, mai sulla scacchiera',
+    async () => {
+      const { session } = await startMatch('runes', 'ui_runes');
+      await waitFor(() => expect(turnOf(session).mine && turnOf(session).phase === 'main1').toBe(true), { timeout: 10_000 });
+      await cast(session, 'stasis_rune', ['c6']);
+      expect(square('c6').getAttribute('aria-label')).toBe('c6, Runa di stasi tua, visibile solo a te');
+      expect(square('c6').querySelector('.border-dashed')).not.toBeNull();
+
+      await play(session, 'g1f3');
+      await endTurn(session); // il bot lancia le sue rune
+      await waitFor(() => expect(session.match.getState().spellLog.some((s) => s.player === 'black' && s.spellId === null)).toBe(true), {
+        timeout: 20_000,
+      });
+      expect(screen.getAllByText('Magia nascosta').length).toBeGreaterThan(0);
+      const squares = session.match.getState().game?.squareStates ?? [];
+      expect(squares.flatMap((s) => s.effects).filter((e) => e.kind === 'rune' && e.owner === 'black')).toEqual([]);
+    },
+    60_000,
+  );
+
+  it(
     'un pezzo congelato dall’avversario rifiuta il pickup, col motivo',
     async () => {
       const { session } = await startMatch('spells', 'ui_frozen');

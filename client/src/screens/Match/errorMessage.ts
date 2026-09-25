@@ -38,7 +38,7 @@ function isTargetReason(reason: string | null): reason is TargetReason {
 }
 
 /** Motivi di `no_effect` e di `invalid_choice` (`game/room.go`, applySpellEffects). */
-const NO_EFFECT_REASONS = ['no_pieces', 'empty_graveyard', 'no_castling'] as const;
+const NO_EFFECT_REASONS = ['no_pieces', 'empty_graveyard', 'no_castling', 'no_runes'] as const;
 const CHOICE_REASONS = ['missing', 'not_allowed'] as const;
 /** Motivi di `move_blocked` (`effects/squares.go`). */
 const BLOCK_REASONS = ['wall', 'no_capture'] as const;

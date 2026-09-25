@@ -17,7 +17,7 @@ const MOVES = ['e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4', 'f8e7', 'd2d3', 'g8f6', '
 const FEN = 'r2q1rk1/pp2bppp/2np1n2/2p1p3/2B1P3/2NP1N1P/PPP2PP1/R1BQ1RK1 w - - 0 8';
 
 /** Stati della partita che le tavole non disegnano, per vederli nell'anteprima (`/dev/match?scenario=…`). */
-export const DEV_SCENARIOS = ['over', 'draw', 'reconnecting', 'replaced', 'disconnected', 'promotion', 'spells'] as const;
+export const DEV_SCENARIOS = ['over', 'draw', 'reconnecting', 'replaced', 'disconnected', 'promotion', 'spells', 'rune'] as const;
 export type DevScenario = (typeof DEV_SCENARIOS)[number];
 
 export function isDevScenario(value: string | null): value is DevScenario {
@@ -126,8 +126,9 @@ export async function startDevSession({
   if (scenario === 'promotion') socket.receive(gameState(MOVES, [], { fen: PROMOTION_FEN, phase: 'move' }));
   // Magie dello Step 2: cimiteri non vuoti nelle righe dei giocatori e carte che chiedono la scelta del pezzo
   // (Promozione anticipata sul pedone in b7, Resurrezione con due tipi nel cimitero). Dello Step 3: un muro e un
-  // santuario sulle case, e le due carte in mano.
-  if (scenario === 'spells') {
+  // santuario sulle case. Dello Step 4: una propria runa nascosta in e6, una runa nemica rivelata in a3, carte di rune
+  // in mano e l'avviso di una magia nascosta dell'avversario; con `rune` anche l'avviso di una runa scattata.
+  if (scenario === 'spells' || scenario === 'rune') {
     socket.receive(
       gameState(MOVES, [], {
         fen: PROMOTION_FEN,
@@ -139,13 +140,30 @@ export async function startDevSession({
           square_effects: [
             { square: 'd5', effects: [{ kind: 'wall', remaining_turns: 2, source_spell_id: 'ice_wall', caster: 'black' }] },
             { square: 'e4', effects: [{ kind: 'no_capture', remaining_turns: 3, source_spell_id: 'sanctuary', caster: 'white' }] },
+            {
+              square: 'e6',
+              effects: [
+                { kind: 'rune', remaining_turns: -1, source_spell_id: 'stasis_rune', caster: 'white', hidden: true, rune: { on_enter: 'freeze_piece', duration: 2 } },
+              ],
+            },
+            {
+              square: 'a3',
+              effects: [{ kind: 'rune', remaining_turns: -1, source_spell_id: 'repel_rune', caster: 'black', rune: { on_enter: 'return_to_origin' } }],
+            },
           ],
         },
       }),
     );
     socket.receive({
       type: 'hand',
-      payload: { hand: ['early_promotion', 'resurrection', 'ice_wall', 'sanctuary', 'swap'], mana: 10, max_mana: 10, deck_size: 18 },
+      payload: { hand: ['early_promotion', 'ice_wall', 'stasis_rune', 'detonation', 'minefield'], mana: 10, max_mana: 10, deck_size: 18 },
+    });
+    socket.receive({ type: 'spell_cast', payload: { player: 'black', hidden: true, effects_applied: [{ kind: 'hidden_effect' }] } });
+  }
+  if (scenario === 'rune') {
+    socket.receive({
+      type: 'rune_triggered',
+      payload: { square: 'f3', owner: 'black', on_enter: 'freeze_piece', result: { kind: 'freeze_piece', target: 'f3', remaining_turns: 3 } },
     });
   }
   // Il socket cade: la sessione riprova (banner con i secondi) o, con 4001, la partita è stata aperta altrove.
