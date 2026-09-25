@@ -57,6 +57,10 @@ func ValidateTargets(fen string, t *Tracker, specs []spells.TargetSpec, targets 
 			if spec.EmptySquare && p != 0 {
 				return reject(ReasonNotEmpty, "la casella %s non è vuota", square)
 			}
+			// Una casa col muro non è vuota: niente muri impilati, niente pezzi evocati o teletrasportati lì.
+			if spec.EmptySquare && t.HasSquareEffect(square, KindWall) {
+				return reject(ReasonWall, "la casella %s ha un muro", square)
+			}
 		case spells.TargetOwnPiece, spells.TargetEnemyPiece:
 			if p == 0 {
 				return reject(ReasonNoPiece, "nessun pezzo in %s", square)

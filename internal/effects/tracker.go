@@ -44,6 +44,8 @@ type Tracker struct {
 	bySquare map[string]int      // casella -> pieceID
 	pieces   map[int]*PieceState // pieceID -> stato
 	nextID   int
+	// squares: stati sulle case (muri, santuari), vedi squares.go.
+	squares map[string][]ActiveEffect
 }
 
 // NewTracker assegna un ID univoco a ogni pezzo presente nella FEN.
@@ -327,6 +329,12 @@ func (t *Tracker) Clone() *Tracker {
 		bySquare: make(map[string]int, len(t.bySquare)),
 		pieces:   make(map[int]*PieceState, len(t.pieces)),
 		nextID:   t.nextID,
+	}
+	if len(t.squares) > 0 {
+		c.squares = make(map[string][]ActiveEffect, len(t.squares))
+		for sq, effs := range t.squares {
+			c.squares[sq] = append([]ActiveEffect(nil), effs...)
+		}
 	}
 	for sq, id := range t.bySquare {
 		c.bySquare[sq] = id
