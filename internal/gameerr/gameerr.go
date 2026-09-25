@@ -37,6 +37,8 @@ const (
 	InvalidTarget      Code = "invalid_target"       // details: index, reason (vedi effects.Reason*)
 	IllegalPosition    Code = "illegal_position"     // l'effetto lascerebbe un re sotto scacco; details: king
 	LimitReached       Code = "limit_reached"        // details: spell_id, per_turn
+	NoEffect           Code = "no_effect"            // la magia non avrebbe effetto; details: reason
+	InvalidChoice      Code = "invalid_choice"       // choice mancante o non ammessa; details: reason
 
 	// Patta
 	DrawOfferPending Code = "draw_offer_pending"

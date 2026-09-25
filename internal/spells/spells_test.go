@@ -94,6 +94,8 @@ func TestCatalog_WellFormed(t *testing.T) {
 	kinds := map[string]bool{
 		EffectDestroyPiece: true, EffectFreezePiece: true, EffectShieldPiece: true, EffectDrawCard: true,
 		EffectGainMana: true, EffectMovePiece: true, EffectSummonPawn: true,
+		EffectFreezeAll: true, EffectShieldArea: true, EffectSwapPieces: true, EffectTransformPiece: true,
+		EffectPromotePiece: true, EffectRevivePiece: true, EffectRestoreCastling: true,
 	}
 	targetTypes := map[TargetType]bool{TargetSquare: true, TargetOwnPiece: true, TargetEnemyPiece: true}
 	pieces := map[PieceKind]bool{Pawn: true, Knight: true, Bishop: true, Rook: true, Queen: true}
@@ -136,12 +138,17 @@ func TestCatalog_WellFormed(t *testing.T) {
 	}
 }
 
-// Il mazzo è di 40 carte e contiene solo magie del catalogo.
+// Il mazzo è di 40 carte, contiene solo magie del catalogo e le leggendarie
+// sono già a una copia.
 func TestDeckRecipe(t *testing.T) {
 	total := 0
 	for _, entry := range deckRecipe {
-		if _, ok := Catalog[entry.ID]; !ok {
+		sp, ok := Catalog[entry.ID]
+		if !ok {
 			t.Errorf("ricetta: %s non è nel catalogo", entry.ID)
+		}
+		if sp.Rarity == Legendary && entry.Count > Legendary.MaxCopies() {
+			t.Errorf("ricetta: %s è leggendaria ma ha %d copie", entry.ID, entry.Count)
 		}
 		if entry.Count <= 0 {
 			t.Errorf("ricetta: %s ha %d copie", entry.ID, entry.Count)
@@ -201,5 +208,21 @@ func TestDropUnknownCards(t *testing.T) {
 	}
 	if len(ps.Discard) != 0 {
 		t.Errorf("scarti = %v, attesi vuoti", ps.Discard)
+	}
+}
+
+func TestGraveyard(t *testing.T) {
+	ps := &PlayerState{Graveyard: []GraveEntry{{Piece: Pawn, PieceID: 9}, {Piece: Knight, PieceID: 2}}}
+	kinds := ps.GraveyardKinds()
+	if len(kinds) != 2 || kinds[0] != Pawn || kinds[1] != Knight {
+		t.Errorf("tipi del cimitero = %v", kinds)
+	}
+	if !ps.InGraveyard(Knight) || ps.InGraveyard(Rook) {
+		t.Error("InGraveyard errato")
+	}
+	c := ps.CopyGraveyard()
+	c[0].Piece = Queen
+	if ps.Graveyard[0].Piece != Pawn {
+		t.Error("la copia del cimitero deve essere indipendente")
 	}
 }

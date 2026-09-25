@@ -40,6 +40,7 @@ const (
 	MsgHandSizeChanged = "hand_size_changed" // server→client: cambio dimensione mano (broadcast)
 	MsgManaChanged     = "mana_changed"      // server→client: cambio mana (broadcast)
 	MsgEffectExpired   = "effect_expired"    // server→client: effetto persistente scaduto (broadcast)
+	MsgGraveyardChanged = "graveyard_changed" // server→client: il cimitero di un giocatore è cambiato (broadcast)
 
 	// Risultati partita
 	ResultWhiteWins = "1-0"

@@ -91,7 +91,28 @@ const (
 	EffectGainMana     = "gain_mana"     // mana extra questo turno
 	EffectMovePiece    = "move_piece"    // sposta un pezzo proprio su una casa vuota
 	EffectSummonPawn   = "summon_pawn"   // crea un pedone del lanciatore
+
+	EffectFreezeAll       = "freeze_all"              // congela tutti i pezzi di un lato che rispettano il filtro
+	EffectShieldArea      = "shield_area"             // scudo ai pezzi scelti da un filtro spaziale
+	EffectSwapPieces      = "swap_pieces"             // scambia di posto due pezzi
+	EffectTransformPiece  = "transform_piece"         // cambia il tipo di un pezzo
+	EffectPromotePiece    = "promote_piece"           // promuove un pedone (scelta del giocatore)
+	EffectRevivePiece     = "revive_piece"            // riporta in gioco un pezzo dal cimitero
+	EffectRestoreCastling = "restore_castling_rights" // ripristina i diritti d'arrocco del lanciatore
 )
+
+// Choice è la scelta del giocatore che alcune magie richiedono (cast_spell.choice):
+// il pezzo da riportare dal cimitero o quello in cui promuovere.
+type Choice struct {
+	Piece PieceKind `json:"piece,omitempty"`
+}
+
+// GraveEntry è un pezzo nel cimitero: il tipo che aveva quando ha lasciato la
+// scacchiera e il suo PieceID (interno: al ripristino gli id si riassegnano).
+type GraveEntry struct {
+	Piece   PieceKind `json:"piece"`
+	PieceID int       `json:"piece_id"`
+}
 
 // Effect è un effetto componibile di una magia.
 type Effect struct {
@@ -134,6 +155,33 @@ type PlayerState struct {
 	// Cast di ogni magia nel turno corrente del giocatore (per Spell.Limits).
 	// Si azzera all'inizio di ogni suo turno.
 	CastsThisTurn map[string]int `json:"casts_this_turn,omitempty"`
+	// Cimitero: i pezzi del giocatore tolti dalla scacchiera, in ordine.
+	Graveyard []GraveEntry `json:"graveyard,omitempty"`
+}
+
+// GraveyardKinds restituisce i tipi dei pezzi nel cimitero, in ordine (la vista
+// pubblica: gli id restano interni).
+func (ps *PlayerState) GraveyardKinds() []PieceKind {
+	out := make([]PieceKind, 0, len(ps.Graveyard))
+	for _, e := range ps.Graveyard {
+		out = append(out, e.Piece)
+	}
+	return out
+}
+
+// InGraveyard indica se nel cimitero c'è almeno un pezzo del tipo dato.
+func (ps *PlayerState) InGraveyard(kind PieceKind) bool {
+	for _, e := range ps.Graveyard {
+		if e.Piece == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// CopyGraveyard restituisce una copia indipendente del cimitero.
+func (ps *PlayerState) CopyGraveyard() []GraveEntry {
+	return append([]GraveEntry{}, ps.Graveyard...)
 }
 
 // NewPlayerState costruisce e mischia (in modo deterministico, via rng) il
