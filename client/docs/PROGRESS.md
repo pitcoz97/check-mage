@@ -3,7 +3,7 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Redesign, step R2 (scacchiera e pezzi) — fatto, in attesa di review.** R1 approvato. Branch `feat/redesign`. Analisi, decisioni (D1–D22)
+**Redesign, step R3 (carta e mano) — fatto, in attesa di review.** R1 e R2 approvati. Branch `feat/redesign`. Analisi, decisioni (D1–D22)
 e step R1–R6 in `REDESIGN_PLAN.md`; il design sta in `design-reference/` (fuori da git).
 Prima del redesign: Step 0–7 completi, Step 6 in attesa dell'APK (`docs/ANDROID.md`).
 Server: `C:\Projects\chess-server` (sola lettura, qui non eseguibile), branch `fix/backend-requests` (`62475c9`).
@@ -35,12 +35,23 @@ Server: `C:\Projects\chess-server` (sola lettura, qui non eseguibile), branch `f
   - `MiniBoard` senza chess.js per la home; `fen.ts` legge la FEN senza regole;
   - `/dev/board`: la posizione del design in tutti gli stati e nei tre temi. Confronto via DOM col design: casa 70px,
     glifo 56px, colori, ombre, coordinate 13px, badge 18px a 3px dall'angolo — coincidono.
+- **Redesign R3:**
+  - carta nella struttura del componente Carta (200×280: cornice per rarità, moneta del costo, arte per kind, riga del
+    tipo, regole su pergamena); rarità comune finché il catalogo non la manda (P2-15); icone a tratto del design;
+  - nome lungo: scende fino a 10px, poi va a capo (anche dentro un id senza spazi);
+  - carta spenta: velo scuro al **30%**, il massimo che tiene ogni testo AA (al 50% la moneta scende a 3:1, lo ha
+    trovato il test di contrasto); resta toccabile e il motivo compare nell'avviso (in R4 nel box);
+  - mano a ventaglio del design, geometria in CSS (`.hand-fan`), passo che si stringe se le carte non entrano; secondo
+    tocco annulla, niente pulsante Annulla; anteprima grande al passaggio, al focus e alla pressione prolungata;
+  - `/dev/cards` a grandezza di design, con la mano a ventaglio.
+- **Verifica R3:** typecheck, lint, build puliti; 439 test verdi; e2e 10/10. Confronto via DOM col componente Carta:
+  tutte le misure coincidono.
 - **Verifica R2:** typecheck, lint, build puliti; 432 test verdi; e2e 10/10. JS iniziale invariato (311 + 210 kB).
 - **Verifica R1:** typecheck, lint, build puliti; 416 test verdi; e2e 10/10; `cap sync android` pulito. JS invariato
   (520 kB iniziali); i font si scaricano per sottoinsieme Unicode, solo quelli usati.
 
 ## Prossima azione concreta
-Review di R2: `/dev/board` in sviluppo, e la partita vera col login. Poi R3 — carta e mano.
+Review di R3: `/dev/cards` in sviluppo, e la partita vera col login. Poi R4 — la partita.
 
 ## Decisioni prese
 - Redesign: tutte in `REDESIGN_PLAN.md` §10 (D1–D22). Il design vince sulla resa, CLAUDE.md sul resto.
@@ -56,8 +67,8 @@ Review di R2: `/dev/board` in sviluppo, e la partita vera col login. Poi R3 — 
 
 ## Da ricordare negli Step successivi
 - R5: selettore del tema (`boardThemeStore.set`) nelle Impostazioni; la miniatura della home è `MiniBoard`.
-- R3: ASSUMPTIONS C14 dice "motivo scritto sulla carta": cambia con D5.
-- R4: `--mana-*`, `--spell-frame`, `--effect-*` sono valori ponte.
+- R4: `--mana-*` sono valori ponte; il motivo della carta spenta e gli avvisi vanno nel box del suggerimento; la
+  mano va sovrapposta al bordo inferiore come nelle tavole.
 - APK mai costruito qui: se Gradle si lamenta, guardare `android/app/src/main/res/`.
 - Rilanciare `verify:server` a ogni cambiamento del server.
 

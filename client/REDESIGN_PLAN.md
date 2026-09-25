@@ -421,7 +421,7 @@ Ogni step è a sé: piano breve → implementazione → verifica (test verdi e s
 |---|---|---|
 | **R1 — Fondamenta** (fatto) | token (palette, temi della scacchiera sotto `[data-board-theme]`), `theme.css` (font mono e pezzi, raggi, ombre), font Figtree / JetBrains Mono / Cinzel 700-800, font dei pezzi ritagliato ai 12 glifi con uno script, `Button`, `Panel`, `TextField`, `Spinner`, test di contrasto, sfondo nativo Android | 1, 3.1, D2, D4, D22 |
 | **R2 — Scacchiera e pezzi** (fatto) | temi, coordinate, stati (velo, badge in alto a destra con turni residui), bersagli viola, mosse legali / selezione / scacco ridisegnati, glifi, miniatura per la home | 3.2, F1, F2, D1–D3, D19 |
-| **R3 — Carta e mano** | nuova carta (rarità comune di default, moneta del costo, arte per kind, riga del tipo, pergamena, stato scurito, nome che si riduce), icone a tratto, mano a ventaglio, annullo col tocco sulla carta | 3.3, F3, D5–D8 |
+| **R3 — Carta e mano** (fatto) | nuova carta (rarità comune di default, moneta del costo, arte per kind, riga del tipo, pergamena, stato scurito, nome che si riduce), icone a tratto, mano a ventaglio, annullo col tocco sulla carta | 3.3, F3, D5–D8 |
 | **R4 — Partita** | layout desktop e Android (Menu con foglio), pannelli giocatore, orologio, fasi a pillole con "Turno N", mana a 10 rombi, box del suggerimento unico (targeting, avvisi, motivo della carta spenta, pezzi congelati), CTA con la fase successiva, schede Mosse (UCI) / Grimorio / Chat, magie nello storico | 3.4, F4–F8, F11, D16–D18, D21 |
 | **R5 — Shell e home** | barra laterale / verticale / inferiore, home del design (Gioca con Classificata, card «Presto»), Partita in corso in background con miniatura live, Classifica, Impostazioni (tema, lingua, Esci), redirect solo coda → partita | 3.5, F14, F16, F18, D9–D15 |
 | **R6 — Parti senza design e chiusura** | tutto ciò che è nella sezione 6, nel linguaggio del design; Android sincronizzato; PROGRESS | 6, 8, D20 |
@@ -436,7 +436,7 @@ Ogni step è a sé: piano breve → implementazione → verifica (test verdi e s
 | D2 | Pezzi | Glifi Unicode in **Noto Sans Symbols 2**, font **ritagliato** ai 12 glifi degli scacchi con uno script di build. |
 | D3 | Mosse legali, selezione, scacco | **Restano** (briefing §7.5), ridisegnati nella palette del design e distinti dal viola delle magie. |
 | D4 | Contrasto | Colori fedeli; si schiariscono **solo** quelli sotto l'AA, del minimo necessario. Fatto in R1: l'unico è il testo spento `#7F786E` → **`#928B81`** (4.5:1 su pannello e superficie incassata). Guardiano: `tests/contrast.test.ts`. |
-| D5 | Carta non giocabile | **Scurita** con un velo (non trasparente, il testo resta AA). Il motivo **non** è scritto sulla carta: sta nell'etichetta accessibile e compare nel **box del suggerimento** quando si tocca la carta. |
+| D5 | Carta non giocabile | **Scurita** con un velo (non trasparente, il testo resta AA): al 30%, il massimo che tiene l'AA su ogni testo della carta. Il motivo **non** è scritto sulla carta: sta nell'etichetta accessibile e compare nel **box del suggerimento** quando si tocca la carta. |
 | D6 | Nome della carta lungo | Il corpo si riduce fino a un minimo; sotto quel minimo va a capo. Mai troncato. |
 | D7 | Rarità e tipo | Assenti dal catalogo: **rarità comune di default**, riga del tipo dal kind del primo effetto; richiesta in P2-15. |
 | D8 | Annullare il targeting | Tocco sulla carta selezionata, `Esc`, tocco fuori dai bersagli. **Nessun pulsante**: il box del suggerimento dice come annullare. |
