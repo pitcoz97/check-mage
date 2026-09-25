@@ -1,10 +1,10 @@
 # BACKEND-REQUESTS
 
-Registro vivo delle modifiche da chiedere al server Go (`C:\Projects\chess-server`).
+Registro vivo delle modifiche da chiedere al server Go (`server/`).
 Il client **non** aggira nessuna di queste voci.
 
 **Riferimento del codice:** branch `fix/backend-requests` (commit `62475c9`), costruito su `7f817e5`. Non è ancora
-unito in `main`. Riepilogo lato server in `chess-server/docs/SERVER-CHANGES.md`.
+unito in `main`. Riepilogo lato server in `server/docs/SERVER-CHANGES.md`.
 I riferimenti `file.go:riga` sono relativi a `internal/` e puntano a quel branch, salvo dove è indicato `7f817e5`.
 
 Priorità:

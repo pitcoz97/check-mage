@@ -22,9 +22,9 @@ Serve sempre `npm run mock` in parallelo a `npm run dev`: senza, il client non h
 
 ## Stato del backend
 
-Il codice del server Go è in `C:\Projects\chess-server`. Dal 25 settembre 2026 **si può modificare**, ma solo sul
-branch della feature in corso (oggi `feat/spell-catalog`, nato da `fix/backend-requests`); il suo `.env` non si
-legge. Le modifiche fatte per il client sono riassunte in `docs/SERVER-CHANGES.md` del server.
+Il codice del server Go è nello stesso repository, in `../server` (monorepo `check-mage`: `client/` e `server/`).
+Dal 25 settembre 2026 **si può modificare**, ma solo sul branch della feature in corso (oggi `feat/spell-catalog`);
+`server/.env` non si legge. Le modifiche fatte per il client sono riassunte in `docs/SERVER-CHANGES.md` del server.
 
 Qui il server **non è eseguibile** (niente Go, Postgres, Stockfish): i test del server (`go vet ./... && go test
 ./...`) li lancia l'utente sulla VM, e il client si sviluppa contro il mock in `mock-server/`, che è un porting

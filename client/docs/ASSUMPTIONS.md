@@ -2,7 +2,7 @@
 
 Registro di ciò che il client assume sul server Go.
 
-**Fonte:** il codice in `C:\Projects\chess-server`, consultabile in sola lettura, branch `fix/backend-requests`
+**Fonte:** il codice in `server/` (allora il repo separato `chess-server`), consultabile in sola lettura, branch `fix/backend-requests`
 (commit `62475c9`, costruito su `7f817e5`, non ancora unito in `main`). I riferimenti sono `file.go:riga`, relativi a
 `internal/`; dove è indicato `7f817e5` si riferiscono al codice precedente.
 

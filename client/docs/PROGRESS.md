@@ -6,7 +6,8 @@
 **Catalogo magie, Step 3 di 6 (`docs/BRIEFING-MAGIE.md`), in attesa di review e dei test Go sulla VM.** Branch
 `feat/spell-catalog` qui e nel server (da `fix/backend-requests`). Decisioni M1–M14 e verifiche del brief in
 `docs/ASSUMPTIONS.md` §7 (M1–M33). Il redesign (R1–R6) è unito in `main`.
-Server: `C:\Projects\chess-server`, modificabile sul branch della feature; qui non eseguibile.
+Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
+eseguibile).
 
 ## Completo
 - **Catalogo magie, Step 3:** stati delle case (`square_effects`, `square_effects_changed`), Muro di ghiaccio e
