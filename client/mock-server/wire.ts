@@ -38,6 +38,7 @@ export type WireServerType =
   | 'effect_expired'
   | 'graveyard_changed'
   | 'square_effects_changed'
+  | 'rune_triggered'
   | 'timer_update'
   | 'game_over'
   | 'error'

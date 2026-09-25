@@ -124,7 +124,8 @@ export class Bot {
   }
 
   private playMove(room: Room): void {
-    // Solo le mosse giocabili: niente pezzi congelati, muri o catture su un santuario.
+    // Solo le mosse giocabili: niente pezzi congelati, muri o catture su un santuario. Le rune non bloccano le mosse e
+    // il bot non le guarda: quelle nascoste dell'avversario non sono nello stato che riceverebbe un client.
     const legal = legalMoves(room.board.fen).filter((m) => room.isPlayable(m));
     const scripted = this.behavior.script?.[this.movesMade];
     const move = scripted !== undefined && legal.includes(scripted) ? scripted : legal[0];
@@ -194,12 +195,19 @@ export class Bot {
     );
     const pawnsFirst = [...pieces].sort((a, b) => Number(b.piece.toLowerCase() === 'p') - Number(a.piece.toLowerCase() === 'p'));
     const allSquares = Array.from({ length: 64 }, (_, i) => squareName(Math.floor(i / 8), i % 8));
+    // Le rune vanno al centro, dove qualcuno ci passerà: prima le case più vicine al centro.
+    const centre = (sq: string) => {
+      const col = sq.charCodeAt(0) - 97;
+      const rank = sq.charCodeAt(1) - 49;
+      return Math.max(Math.abs(col - 3.5), Math.abs(rank - 3.5));
+    };
+    const squares = spell.effects.some((e) => e.kind === 'place_rune') ? [...allSquares].sort((a, b) => centre(a) - centre(b)) : allSquares;
 
     const chosen: string[] = [];
     for (const [index, spec] of spell.targets.entries()) {
       const candidates =
         spec.type === 'square'
-          ? allSquares
+          ? squares
           : pawnsFirst
               .map((p) => p.square)
               .filter((sq) => spec.require_effect !== undefined || (!room.tracker.isFrozen(sq) && !room.tracker.hasShield(sq)));

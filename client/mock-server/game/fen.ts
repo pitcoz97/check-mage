@@ -176,6 +176,21 @@ export function clearStaleEnPassant(fen: string): string {
   return f.join(' ');
 }
 
+/**
+ * `ReturnPiece` (`effects/runes.go`): toglie il pezzo da `at` e rimette `piece` (com'era prima della mossa) sulla casa
+ * di partenza, vuota. Il lato al tratto resta; la casella en passant della spinta annullata si azzera.
+ */
+export function returnPiece(fen: string, at: string, origin: string, piece: string): string {
+  const [ar, ac] = parseSquare(at);
+  const [or, oc] = parseSquare(origin);
+  const grid = parsePlacement(fen);
+  if (grid[ar]?.[ac] === null) throw new Error(`nessun pezzo da rimandare in ${at}`);
+  if (grid[or]?.[oc] !== null) throw new Error(`la casa di partenza ${origin} non è vuota`);
+  (grid[ar] as (string | null)[])[ac] = null;
+  (grid[or] as (string | null)[])[oc] = piece;
+  return clearStaleEnPassant(replacePlacement(fen, encodePlacement(grid)));
+}
+
 /** `PieceLetter` (`effects/group_a.go`): carattere FEN del pezzo nel colore dato, `null` se il nome è ignoto. */
 export function pieceLetter(kind: string, color: Color): string | null {
   const letters: Record<string, string> = { pawn: 'p', knight: 'n', bishop: 'b', rook: 'r', queen: 'q', king: 'k' };

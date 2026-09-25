@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createRng } from '../util';
-import { buildDeck, CATALOG, DECK_SIZE } from './catalog';
+import { buildDeck, CATALOG, DECK_RECIPE, DECK_SIZE } from './catalog';
 import { clearStaleEnPassant, destroyPiece, EffectError, forwardSquare, movePieceFen, passTurn, placePiece, relativeRank } from './fen';
 import { CastError, MatchState } from './match';
 import { validateTargets } from './targets';
@@ -106,9 +106,17 @@ describe('MatchState (match/match.go)', () => {
     expect(m.drawFor('black')).toMatchObject({ player: 'black', handSize: 5, deckSize: 35 });
   });
 
-  it('il catalogo ha le 20 magie degli step 1–3 (spells/catalog.go)', () => {
-    expect(CATALOG.size).toBe(20);
-    expect(CATALOG.has('ice_wall') && CATALOG.has('sanctuary')).toBe(true);
+  it('il catalogo ha le 26 magie degli step 1–4 (spells/catalog.go)', () => {
+    expect(CATALOG.size).toBe(26);
+    expect(CATALOG.has('ice_wall') && CATALOG.has('sanctuary') && CATALOG.has('minefield')).toBe(true);
+  });
+
+  it('la ricetta rispetta i limiti di copie della rarità (M43)', () => {
+    for (const [id, count] of DECK_RECIPE) {
+      const spell = CATALOG.get(id);
+      expect(spell, id).toBeDefined();
+      expect(count, id).toBeLessThanOrEqual(spell?.rarity === 'legendary' ? 1 : 2);
+    }
   });
 });
 

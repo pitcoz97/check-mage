@@ -23,6 +23,7 @@ import {
   placePiece,
   relativeRank,
   restoreCastling,
+  returnPiece,
   setPiece,
   sideToMove,
   swapPieces,
@@ -37,9 +38,10 @@ import {
   type ManaState,
   type MatchOverrides,
 } from './match';
+import { aroundSquares, RUNE_DESTROY, RUNE_FREEZE, RUNE_RETURN, runeEntry, runeStrike } from './runes';
 import { captureSquare, KIND_NO_CAPTURE, KIND_WALL, moveBlock } from './squares';
 import { validateTargets } from './targets';
-import { KIND_SHIELD, Tracker, type ExpiredEffect, type PieceEffectInfo } from './tracker';
+import { KIND_SHIELD, Tracker, type ExpiredEffect, type PieceEffectInfo, type RuneSpec } from './tracker';
 
 /**
  * Porting di `game/room.go` (branch `fix/backend-requests`). I commenti `room.go:N` rimandano alla riga del server.
@@ -119,6 +121,36 @@ function validateNoCheck(before: string, after: string, caster: Color): void {
   if (isKingAttacked(after, caster)) throw new EffectError(WS.kingLeftInCheck(caster));
   const opponent = opponentOf(caster);
   if (isKingAttacked(after, opponent) && !isKingAttacked(before, opponent)) throw new EffectError(WS.spellGivesCheck(opponent));
+}
+
+/** `squareViews` (`room.go`): la lista degli stati delle case vista da ciascun giocatore; `null` = nessun cambiamento. */
+type SquareViews = Record<Color, PieceEffectInfo[]>;
+
+/** `runeTrigger` (`room.go`): il payload di `rune_triggered`, più i cimiteri cambiati. */
+interface RuneTrigger {
+  square: string;
+  owner: Color;
+  on_enter: string;
+  result: Record<string, unknown>;
+  graves: Color[];
+}
+
+/** `runeSpecFrom` (`room.go`): i params di `place_rune`, senza i campi vuoti (omitempty). */
+function runeSpecFrom(params: Record<string, unknown> | undefined): RuneSpec {
+  const spec: RuneSpec = { on_enter: typeof params?.['on_enter'] === 'string' ? params['on_enter'] : '' };
+  const duration = paramInt(params, 'duration', 0);
+  if (duration !== 0) spec.duration = duration;
+  const only = paramStrings(params, 'only');
+  if (only.length > 0) spec.only = only;
+  if (typeof params?.['fallback'] === 'string' && params['fallback'] !== '') spec.fallback = params['fallback'];
+  const fallbackDuration = paramInt(params, 'fallback_duration', 0);
+  if (fallbackDuration !== 0) spec.fallback_duration = fallbackDuration;
+  return spec;
+}
+
+/** `Spell.HiddenFromOpponent` (`spells.go`): le magie che piazzano rune arrivano all'avversario nascoste (M42). */
+function hiddenFromOpponent(spell: Spell): boolean {
+  return spell.effects.some((e) => e.kind === 'place_rune');
 }
 
 /**
@@ -242,6 +274,7 @@ export class Room {
     const captured = captureSquare(this.board.fen, from, to);
     const graveOwners: Color[] = [];
     let shieldAbsorbed = captured !== null && this.tracker.hasShield(captured);
+    let trig: RuneTrigger | null = null;
     if (shieldAbsorbed && isKingAttacked(passTurn(this.board.fen), senderColor)) shieldAbsorbed = false;
 
     if (senderColor === 'white') this.whiteTime += this.options.incrementMs;
@@ -255,9 +288,13 @@ export class Room {
       // Il pezzo catturato (anche en passant) va nel cimitero del proprietario.
       const owner = captured === null ? null : this.buryCaptured(captured);
       if (owner !== null) graveOwners.push(owner);
+      const fenBefore = this.board.fen;
       this.board.moves.push(move);
       this.board.fen = engineApplyMove(this.board.fen, move);
       this.tracker.movePiece(from, to, move.length >= 5 ? (move[4] as string) : null);
+      // Una runa dell'avversario sulla casa d'arrivo: l'esito si calcola sulla posizione dopo la runa.
+      trig = this.triggerRune(fenBefore, move, senderColor);
+      if (trig !== null) graveOwners.push(...trig.graves);
     }
     this.board.turn = sideToMove(this.board.fen);
     this.recordPosition();
@@ -275,7 +312,8 @@ export class Room {
     let end: GameEnd | null = null;
     let results: AdvanceResult[] = [];
     let expired: ExpiredEffect[] = [];
-    let squares: PieceEffectInfo[] | null = null;
+    // La runa consumata sparisce dalle liste.
+    let squares: SquareViews | null = trig === null ? null : this.squareViewsNow();
     switch (status) {
       case 'checkmate':
         end = this.finish(senderColor === 'white' ? '1-0' : '0-1', 'checkmate', 'checkmate');
@@ -286,9 +324,12 @@ export class Room {
       case 'draw':
         end = this.finish('1/2-1/2', 'draw', 'draw');
         break;
-      case 'ongoing':
+      case 'ongoing': {
         results = [this.match.advance(), ...this.match.autoAdvance()];
-        [expired, squares] = this.tickEffectsOnNewTurn(results);
+        let ticked: SquareViews | null;
+        [expired, ticked] = this.tickEffectsOnNewTurn(results);
+        if (ticked !== null) squares = ticked;
+      }
     }
 
     if (shieldAbsorbed) {
@@ -297,6 +338,10 @@ export class Room {
     drawOfferExpiredFor?.send(msg('draw_declined', { message: INFO.drawLapsed(sender.username), reason: 'move_played' }));
     // Lo stato parte anche a fine partita: i client vedono la mossa decisiva prima del game_over.
     this.broadcastState();
+    if (trig !== null) {
+      const { graves: _graves, ...payload } = trig;
+      this.broadcast('rune_triggered', payload);
+    }
     this.broadcastGraveyards(graveOwners);
     for (const res of results) this.applyAdvanceBroadcasts(res);
     this.broadcastExpired(expired);
@@ -348,7 +393,7 @@ export class Room {
     if (boardChanged) this.recordPosition();
     const autoResults = this.match.autoAdvance();
     // Gli stati creati dal cast partono prima delle scadenze del rollover.
-    const castSquares = squaresChanged ? this.tracker.squareEffects() : null;
+    const castSquares = squaresChanged ? this.squareViewsNow() : null;
     const [expired, squares] = this.tickEffectsOnNewTurn(autoResults);
     // Se il cast chiude il turno si valuta il nuovo giocatore attivo; se chi lancia ha ancora il tratto (main1) e la
     // scacchiera o le case sono cambiate, si valuta lui: un Patto di sangue o un muro possono lasciarlo senza mosse.
@@ -357,12 +402,16 @@ export class Room {
       end = this.checkActivePlayerEnd();
     }
 
-    this.broadcast('spell_cast', {
-      player: senderColor,
-      spell_id: res.spell.id,
-      targets: res.targets,
-      effects_applied: res.effectsApplied,
-    });
+    // Una magia nascosta (una runa) arriva all'avversario senza carta né bersagli (M42).
+    const full = { player: senderColor, spell_id: res.spell.id, targets: res.targets, effects_applied: res.effectsApplied };
+    if (hiddenFromOpponent(res.spell)) {
+      this.clientOf(senderColor).send(msg('spell_cast', full));
+      this.clientOf(opponentOf(senderColor)).send(
+        msg('spell_cast', { player: senderColor, hidden: true, effects_applied: [{ kind: 'hidden_effect' }] }),
+      );
+    } else {
+      this.broadcast('spell_cast', full);
+    }
     this.broadcastMana({ player: senderColor, current: res.manaAfter, max: res.manaMax });
     this.broadcast('hand_size_changed', { player: senderColor, size: res.handSize });
     for (const d of drawn) this.clientOf(senderColor).send(msg('card_drawn', { card_id: d.cardId, deck_size: d.deckSize }));
@@ -575,6 +624,44 @@ export class Room {
           entry['remaining_turns'] = duration;
           break;
         }
+        case 'place_rune': {
+          if (targets.length === 0) throw new EffectError(WS.needsTarget(def.name));
+          const spec = runeSpecFrom(eff.params);
+          for (const square of targets) tracker.addRune(square, caster, spec, def.id);
+          squaresChanged = true;
+          entry['targets'] = [...targets];
+          entry['on_enter'] = spec.on_enter;
+          break;
+        }
+        case 'reveal_runes': {
+          const side = eff.params?.['side'] === 'own' ? caster : opponentOf(caster);
+          if (tracker.revealRunes(side) > 0) squaresChanged = true;
+          entry['side'] = side;
+          break;
+        }
+        case 'detonate_runes': {
+          if (eff.params?.['do'] !== 'freeze_piece') throw new EffectError(WS.unsupportedEffect(String(eff.params?.['do'])));
+          const runes = tracker.runesOf(caster);
+          if (runes.length === 0) throw noEffect('no_runes');
+          const radius = paramInt(eff.params, 'radius', 1);
+          const duration = paramInt(eff.params, 'duration', 1);
+          // Congela i nemici attorno a ogni runa (il re escluso), poi consuma le rune.
+          const frozen: string[] = [];
+          for (const rune of runes) {
+            for (const square of aroundSquares(rune, radius)) {
+              const p = pieceAt(fen, square);
+              if (p === null || frozen.includes(square) || pieceColor(p) === caster || pieceName(p) === 'king') continue;
+              tracker.freeze(square, caster, duration, def.id);
+              frozen.push(square);
+            }
+          }
+          for (const rune of runes) tracker.removeRune(rune, caster);
+          squaresChanged = true;
+          entry['runes'] = runes;
+          entry['targets'] = frozen.sort();
+          entry['remaining_turns'] = duration;
+          break;
+        }
         case 'summon_pawn': {
           const square = target();
           const pawn = caster === 'white' ? 'P' : 'p';
@@ -630,17 +717,92 @@ export class Room {
    * `tickEffectsOnNewTurn` (`room.go`): durate alla fine del turno di chi ha appena chiuso. Restituisce gli effetti
    * scaduti sui pezzi e, se uno stato di una casa è scaduto, la nuova lista degli stati delle case.
    */
-  private tickEffectsOnNewTurn(results: AdvanceResult[]): [ExpiredEffect[], PieceEffectInfo[] | null] {
+  private tickEffectsOnNewTurn(results: AdvanceResult[]): [ExpiredEffect[], SquareViews | null] {
     const rollover = results.find((r) => r.newTurn);
     if (rollover === undefined) return [[], null];
     const finishing = opponentOf(rollover.activePlayer);
     const expired = this.tracker.tickTurnEnd(finishing);
-    return [expired, this.tracker.tickSquares(finishing) ? this.tracker.squareEffects() : null];
+    return [expired, this.tracker.tickSquares(finishing) ? this.squareViewsNow() : null];
   }
 
-  /** `square_effects_changed` a entrambi, con la lista completa (`null` = nessun cambiamento). */
-  private broadcastSquareEffects(squares: PieceEffectInfo[] | null): void {
-    if (squares !== null) this.broadcast('square_effects_changed', { square_effects: squares });
+  /** `squareViewsNow` (`room.go`): le liste dei due giocatori, senza le rune nascoste dell'avversario. */
+  private squareViewsNow(): SquareViews {
+    return { white: this.tracker.squareEffectsFor('white'), black: this.tracker.squareEffectsFor('black') };
+  }
+
+  /** `square_effects_changed` a ciascuno, con la sua lista completa (`null` = nessun cambiamento). */
+  private broadcastSquareEffects(views: SquareViews | null): void {
+    if (views === null) return;
+    for (const color of ['white', 'black'] as const) {
+      this.clientOf(color).send(msg('square_effects_changed', { square_effects: views[color] }));
+    }
+  }
+
+  /**
+   * `triggerRune` (`room.go`): dopo una mossa già applicata, la runa dell'avversario di chi ha mosso sulla casa in cui
+   * è entrato un pezzo (la torre nell'arrocco; il re mai). Gelo per `duration` turni del pezzo, quello in corso escluso
+   * (M44); ritorno com'era prima della mossa (M40); distruzione dei tipi in `only`, altrimenti il fallback, e sul
+   * santuario gelo. Su copie di FEN e Tracker: se il re di chi ha mosso resta sotto scacco la runa non scatta (M35),
+   * altrimenti si consuma.
+   */
+  private triggerRune(fenBefore: string, move: string, mover: Color): RuneTrigger | null {
+    const entry = runeEntry(fenBefore, move);
+    if (entry === null) return null;
+    const owner = opponentOf(mover);
+    const rune = this.tracker.runeAt(entry.square, owner);
+    if (rune?.rune === undefined) return null;
+
+    let fen = this.board.fen;
+    const tracker = this.tracker.clone();
+    const info = tracker.info(entry.square);
+    const now = info?.piece ?? pieceAt(fen, entry.square);
+    if (now === null) return null;
+    let { kind, duration } = runeStrike(rune.rune, now);
+    if (kind === RUNE_DESTROY && tracker.hasSquareEffect(entry.square, KIND_NO_CAPTURE)) {
+      kind = RUNE_FREEZE;
+      duration = rune.rune.fallback_duration !== undefined && rune.rune.fallback_duration > 0 ? rune.rune.fallback_duration : 1;
+    }
+
+    const result: Record<string, unknown> = { kind };
+    let grave: GraveEntry | null = null;
+    switch (kind) {
+      case RUNE_FREEZE: {
+        const turns = duration + 1; // il turno in corso di chi è entrato non conta (M44)
+        tracker.freeze(entry.square, owner, turns, rune.source_spell_id ?? '');
+        result['target'] = entry.square;
+        result['remaining_turns'] = turns;
+        break;
+      }
+      case RUNE_RETURN:
+        fen = returnPiece(fen, entry.square, entry.origin, entry.piece);
+        tracker.relocate(entry.square, entry.origin);
+        tracker.setType(entry.origin, entry.piece); // un pedone promosso torna pedone
+        result['from'] = entry.square;
+        result['to'] = entry.origin;
+        break;
+      case RUNE_DESTROY: {
+        const destroyed = destroyPiece(fen, entry.square);
+        fen = clearStaleEnPassant(destroyed.fen);
+        tracker.removeAt(entry.square);
+        grave = { piece: pieceName(now), piece_id: info?.id ?? 0 };
+        result['target'] = entry.square;
+        result['piece_destroyed'] = destroyed.destroyed;
+        break;
+      }
+      default:
+        return null;
+    }
+
+    if (isKingAttacked(fen, mover)) return null;
+    tracker.removeRune(entry.square, owner);
+    this.board.fen = fen;
+    this.tracker = tracker;
+    const graves: Color[] = [];
+    if (grave !== null) {
+      this.match.player(mover).graveyard.push(grave);
+      graves.push(mover);
+    }
+    return { square: entry.square, owner, on_enter: rune.rune.on_enter, result, graves };
   }
 
   /** `isPlayable` (`room.go`): gli stessi controlli di `handleMove` (gelo, muri, santuari). */
@@ -752,7 +914,7 @@ export class Room {
     }
     this.ensureTimer();
 
-    client.send(msg('game_state', { ...this.publicState(), reconnected: true }));
+    client.send(msg('game_state', { ...this.publicState(this.getColor(client)), reconnected: true }));
     this.sendHand(this.getColor(client));
     this.getOpponent(client).send(msg('opponent_reconnected', { message: INFO.opponentReconnected(client.username) }));
   }
@@ -860,8 +1022,8 @@ export class Room {
 
   // --- Serializzazione ------------------------------------------------------------------------------
 
-  /** `room.go:1360-1386`. */
-  publicState(): Record<string, unknown> {
+  /** `publicState(viewer)` (`room.go`): lo stato visto da `viewer`, senza le rune nascoste dell'avversario. */
+  publicState(viewer: Color): Record<string, unknown> {
     const { white, black } = this.match;
     return {
       board: { fen: this.board.fen, moves: [...this.board.moves], turn: this.board.turn, status: this.board.status },
@@ -884,12 +1046,14 @@ export class Room {
       active_effects: this.tracker.activeEffects(),
       white_graveyard: white.graveyard.map((g) => g.piece),
       black_graveyard: black.graveyard.map((g) => g.piece),
-      square_effects: this.tracker.squareEffects(),
+      square_effects: this.tracker.squareEffectsFor(viewer),
     };
   }
 
+  /** `broadcastState` (`room.go`): a ciascuno la sua vista. */
   private broadcastState(): void {
-    this.broadcast('game_state', this.publicState());
+    this.white.send(msg('game_state', this.publicState('white')));
+    this.black.send(msg('game_state', this.publicState('black')));
   }
 
   /** `room.go:1004-1019`. */

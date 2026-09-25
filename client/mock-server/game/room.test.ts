@@ -538,6 +538,135 @@ describe('magie dello step 3: muri e santuari', () => {
   });
 });
 
+describe('magie dello step 4: rune', () => {
+  const FILLER = ['shatter', 'shatter'];
+  const rich = { white: 10 };
+  const stasis = { on_enter: 'freeze_piece', duration: 2 };
+  const explosive = { on_enter: 'destroy_piece', only: ['pawn', 'knight', 'bishop'], fallback: 'freeze_piece', fallback_duration: 1 };
+
+  it("il cast di una runa: completo al proprietario, nascosto all'avversario, anche nelle liste e alla riconnessione", () => {
+    const { room, white, black, send } = setup({ overrides: { hand: { white: ['stasis_rune', ...FILLER] }, manaFloor: rich } });
+    black.clear();
+    send(white, 'cast_spell', { spell_id: 'stasis_rune', targets: ['e5'] });
+    expect(white.last('spell_cast')).toEqual({
+      player: 'white',
+      spell_id: 'stasis_rune',
+      targets: ['e5'],
+      effects_applied: [{ kind: 'place_rune', targets: ['e5'], on_enter: 'freeze_piece' }],
+    });
+    expect(black.last('spell_cast')).toEqual({ player: 'white', hidden: true, effects_applied: [{ kind: 'hidden_effect' }] });
+    expect(white.last('square_effects_changed')).toEqual({
+      square_effects: [
+        {
+          square: 'e5',
+          effects: [
+            { kind: 'rune', remaining_turns: -1, source_spell_id: 'stasis_rune', caster: 'white', hidden: true, rune: { on_enter: 'freeze_piece', duration: 2 } },
+          ],
+        },
+      ],
+    });
+    expect(black.last('square_effects_changed')).toEqual({ square_effects: [] });
+    expect(JSON.stringify(black.messages)).not.toContain('"e5"');
+    expect(JSON.stringify(black.messages)).not.toContain('stasis_rune');
+
+    const back = new FakeClient(2, 'luigi');
+    room.reconnect(back);
+    expect(back.last('game_state')?.['square_effects']).toEqual([]);
+    expect(room.publicState('white')['square_effects']).toHaveLength(1);
+  });
+
+  it('Runa di stasi: scatta col pezzo nemico che entra, lo congela per i suoi 2 turni e si consuma', () => {
+    const { room, white, black, send } = setup();
+    room.tracker.addRune('e5', 'white', stasis, 'stasis_rune');
+    send(white, 'move', { move: 'e2e4' });
+    send(black, 'move', { move: 'e7e5' });
+    const triggered = { square: 'e5', owner: 'white', on_enter: 'freeze_piece', result: { kind: 'freeze_piece', target: 'e5', remaining_turns: 3 } };
+    expect(black.last('rune_triggered')).toEqual(triggered);
+    expect(white.last('rune_triggered')).toEqual(triggered);
+    expect(room.tracker.isFrozen('e5')).toBe(true);
+    expect(room.tracker.runesOf('white')).toEqual([]);
+    expect(black.types().indexOf('rune_triggered')).toBeGreaterThan(black.types().lastIndexOf('game_state') - 1);
+  });
+
+  it('non scatta coi propri pezzi né col re; la runa resta', () => {
+    const own = setup();
+    own.room.tracker.addRune('e4', 'white', stasis, 'stasis_rune');
+    own.send(own.white, 'move', { move: 'e2e4' });
+    expect(own.white.all('rune_triggered')).toEqual([]);
+    expect(own.room.tracker.runesOf('white')).toEqual(['e4']);
+
+    const king = setup({ fen: '4k3/p7/8/8/8/8/8/4K3 w - - 0 1' });
+    king.room.tracker.addRune('e2', 'black', stasis, 'stasis_rune');
+    king.send(king.white, 'move', { move: 'e1e2' });
+    expect(king.white.all('rune_triggered')).toEqual([]);
+    expect(king.room.tracker.runesOf('black')).toEqual(['e2']);
+  });
+
+  it('Runa esplosiva: distrugge il cavallo (cimitero), congela la torre', () => {
+    const knight = setup({ fen: '4k3/p7/8/8/8/8/3N4/4K3 w - - 0 1' });
+    knight.room.tracker.addRune('e4', 'black', explosive, 'explosive_rune');
+    knight.send(knight.white, 'move', { move: 'd2e4' });
+    expect(knight.white.last('rune_triggered')?.['result']).toEqual({ kind: 'destroy_piece', target: 'e4', piece_destroyed: 'knight' });
+    expect(knight.room.board.fen.split(' ')[0]).toBe('4k3/p7/8/8/8/8/8/4K3');
+    expect(knight.black.last('graveyard_changed')).toEqual({ player: 'white', graveyard: ['knight'] });
+
+    const rook = setup({ fen: '4k3/p7/8/8/8/8/8/R3K3 w - - 0 1' });
+    rook.room.tracker.addRune('a5', 'black', explosive, 'explosive_rune');
+    rook.send(rook.white, 'move', { move: 'a1a5' });
+    expect(rook.white.last('rune_triggered')?.['result']).toEqual({ kind: 'freeze_piece', target: 'a5', remaining_turns: 2 });
+    expect(rook.room.tracker.isFrozen('a5')).toBe(true);
+  });
+
+  it('Runa di respinta: il pedone promosso torna pedone, la cattura resta; non scatta se lascia il re sotto scacco', () => {
+    const promo = setup({ fen: '4r2k/3P4/8/8/8/8/8/4K3 w - - 0 1' });
+    promo.room.tracker.addRune('e8', 'black', { on_enter: 'return_to_origin' }, 'repel_rune');
+    const id = promo.room.tracker.idAt('d7');
+    promo.send(promo.white, 'move', { move: 'd7e8q' });
+    expect(promo.white.last('rune_triggered')?.['result']).toEqual({ kind: 'return_to_origin', from: 'e8', to: 'd7' });
+    expect(promo.room.board.fen.split(' ')[0]).toBe('7k/3P4/8/8/8/8/8/4K3');
+    expect(promo.room.tracker.info('d7')).toEqual({ id, piece: 'P' });
+
+    const pinned = setup({ fen: '4k3/8/8/8/7q/8/4N3/4K3 w - - 0 1' });
+    pinned.room.tracker.addRune('g3', 'black', { on_enter: 'return_to_origin' }, 'repel_rune');
+    pinned.send(pinned.white, 'move', { move: 'e2g3' });
+    expect(pinned.white.all('rune_triggered')).toEqual([]);
+    expect(pinned.room.tracker.runesOf('black')).toEqual(['g3']);
+  });
+
+  it('Detonazione congela i nemici attorno e consuma le rune; senza rune è no_effect; poi Frantumare', () => {
+    const { room, white, send } = setup({
+      fen: '4k3/8/8/3n4/8/8/3P4/4K3 w - - 0 1',
+      overrides: { hand: { white: ['detonation', 'detonation', 'shatter'] }, manaFloor: rich },
+    });
+    room.tracker.addRune('e6', 'white', stasis, 'stasis_rune');
+    room.tracker.addRune('e3', 'white', stasis, 'stasis_rune');
+    send(white, 'cast_spell', { spell_id: 'detonation', targets: [] });
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([
+      { kind: 'detonate_runes', runes: ['e3', 'e6'], targets: ['d5'], remaining_turns: 1 },
+    ]);
+    expect(room.tracker.runesOf('white')).toEqual([]);
+    send(white, 'cast_spell', { spell_id: 'detonation', targets: [] });
+    expect(white.last('error')).toEqual({ message: 'la magia Detonazione non avrebbe effetto', code: 'no_effect', details: { reason: 'no_runes' } });
+    send(white, 'cast_spell', { spell_id: 'shatter', targets: ['d5'] });
+    expect(room.board.fen.split(' ')[0]).toBe('4k3/8/8/8/8/8/3P4/4K3');
+  });
+
+  it('Rivelazione rende visibili le rune nemiche e pesca', () => {
+    const { room, white, send } = setup({ overrides: { hand: { white: ['revelation', ...FILLER] }, manaFloor: rich } });
+    room.tracker.addRune('d4', 'black', stasis, 'stasis_rune');
+    send(white, 'cast_spell', { spell_id: 'revelation', targets: [] });
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([
+      { kind: 'reveal_runes', side: 'black' },
+      { kind: 'draw_card', count: 1 },
+    ]);
+    expect(white.last('square_effects_changed')).toEqual({
+      square_effects: [
+        { square: 'd4', effects: [{ kind: 'rune', remaining_turns: -1, source_spell_id: 'stasis_rune', caster: 'black', rune: stasis }] },
+      ],
+    });
+  });
+});
+
 describe('patta (room.go:1413-1501)', () => {
   it('offerta, doppia offerta, risposta propria, rifiuto con reason, accettazione', () => {
     const { white, black, send, lastError } = setup();

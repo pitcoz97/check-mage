@@ -18,7 +18,22 @@ export interface ActiveEffect {
   remaining_turns: number;
   source_spell_id?: string;
   caster?: Color;
+  /** Solo per le rune (`runes.go`): nascosta all'avversario di `caster`. Assente quando è falsa (omitempty). */
+  hidden?: boolean;
+  /** Solo per le rune: cosa fa quando scatta, copiato dai params al lancio. */
+  rune?: RuneSpec;
 }
+
+/** `RuneSpec` (`effects/runes.go`): i campi vuoti mancano (omitempty). */
+export interface RuneSpec {
+  on_enter: string;
+  duration?: number;
+  only?: string[];
+  fallback?: string;
+  fallback_duration?: number;
+}
+
+export const KIND_RUNE = 'rune';
 
 export const PERMANENT = -1;
 
@@ -246,12 +261,64 @@ export class Tracker {
 
   /** `AddSquareEffect`: mette (o rinnova) uno stato sulla casa. */
   addSquareEffect(square: string, kind: string, turns: number, source: string, caster: Color): void {
+    this.putSquareEffect(square, { kind, remaining_turns: turns, source_spell_id: source, caster });
+  }
+
+  /** `putSquareEffect`: sostituisce lo stato dello stesso tipo; le rune sono una per proprietario. */
+  private putSquareEffect(square: string, next: ActiveEffect): void {
     const effects = this.squares.get(square) ?? [];
-    const next = { kind, remaining_turns: turns, source_spell_id: source, caster };
-    const index = effects.findIndex((e) => e.kind === kind);
+    const index = effects.findIndex((e) => e.kind === next.kind && (next.kind !== KIND_RUNE || e.caster === next.caster));
     if (index >= 0) effects[index] = next;
     else effects.push(next);
     this.squares.set(square, effects);
+  }
+
+  /** `AddRune`: runa nascosta, permanente; quella dello stesso proprietario sulla casa viene sostituita. */
+  addRune(square: string, owner: Color, spec: RuneSpec, source: string): void {
+    const rune: RuneSpec = { ...spec };
+    if (spec.only !== undefined) rune.only = [...spec.only];
+    this.putSquareEffect(square, { kind: KIND_RUNE, remaining_turns: PERMANENT, source_spell_id: source, caster: owner, hidden: true, rune });
+  }
+
+  /** `RuneAt`: la runa del proprietario sulla casa. */
+  runeAt(square: string, owner: Color): ActiveEffect | null {
+    return this.squares.get(square)?.find((e) => e.kind === KIND_RUNE && e.caster === owner) ?? null;
+  }
+
+  /** `RunesOf`: le case con una runa del proprietario, in ordine. */
+  runesOf(owner: Color): string[] {
+    return [...this.squares.keys()].filter((square) => this.runeAt(square, owner) !== null).sort();
+  }
+
+  /** `RemoveRune`. */
+  removeRune(square: string, owner: Color): void {
+    const kept = (this.squares.get(square) ?? []).filter((e) => !(e.kind === KIND_RUNE && e.caster === owner));
+    if (kept.length === 0) this.squares.delete(square);
+    else this.squares.set(square, kept);
+  }
+
+  /** `RevealRunes`: rende visibili per sempre le rune del proprietario che esistono ora; quante erano nascoste. */
+  revealRunes(owner: Color): number {
+    let n = 0;
+    for (const effects of this.squares.values()) {
+      for (const e of effects) {
+        if (e.kind === KIND_RUNE && e.caster === owner && e.hidden === true) {
+          delete e.hidden;
+          n++;
+        }
+      }
+    }
+    return n;
+  }
+
+  /** `SquareEffectsFor`: la lista vista da `viewer`, senza le rune nascoste del suo avversario. */
+  squareEffectsFor(viewer: Color): PieceEffectInfo[] {
+    return this.squareEffects()
+      .map(({ square, effects }) => ({
+        square,
+        effects: effects.filter((e) => !(e.kind === KIND_RUNE && e.hidden === true && e.caster !== viewer)),
+      }))
+      .filter((s) => s.effects.length > 0);
   }
 
   hasSquareEffect(square: string, kind: string): boolean {
