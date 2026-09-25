@@ -220,3 +220,19 @@ Verifica: `go build ./... && go vet ./... && go test ./...` sulla VM.
 | 8 | Snapshot: `square_effects` (assente negli snapshot precedenti = nessuno stato) | — |
 
 Verifica: `go build ./... && go vet ./... && go test ./...` sulla VM.
+
+## 12. Catalogo magie — Step 4 (rune)
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | 6 magie nuove: `revelation`, `stasis_rune`, `repel_rune`, `explosive_rune`, `detonation`, `minefield` (leggendaria, tre bersagli). Catalogo di 26; la ricetta rispetta i limiti di copie (2 comuni, 1 leggendarie) | Nomi e testi i18n per id |
+| 2 | Nuovo stato delle case `rune`: `remaining_turns: -1`, `hidden`, `rune {on_enter, duration?, only?, fallback?, fallback_duration?}`. Al massimo una runa per giocatore per casa; una casa con le rune resta vuota per i bersagli | Disegnarle sulla casa; tratteggiate se nascoste |
+| 3 | **Stato per destinatario**: `game_state` (anche alla riconnessione) e `square_effects_changed` sono costruiti per ciascun giocatore, senza le rune nascoste dell'avversario | Nessuna: la lista ricevuta è quella da disegnare |
+| 4 | Il cast di una runa arriva all'avversario come `spell_cast {player, hidden: true, effects_applied: [{kind: "hidden_effect"}]}`, senza `spell_id` né `targets` | Registro e avviso "magia nascosta" |
+| 5 | Nuovo evento `rune_triggered {square, owner, on_enter, result}` a entrambi; `result` è `{kind: freeze_piece, target, remaining_turns}`, `{kind: return_to_origin, from, to}` o `{kind: destroy_piece, target, piece_destroyed}`. Scatta solo con un pezzo nemico entrato muovendo (il re e i pezzi arrivati per magia no), non se lascerebbe sotto scacco il re di chi ha mosso; poi arrivano `game_state` e `square_effects_changed` senza la runa | Lampeggio della casa e avviso |
+| 6 | `effects_applied`: `place_rune {targets, on_enter}`, `reveal_runes {side}`, `detonate_runes {runes, targets, remaining_turns}` | Registry degli effetti |
+| 7 | `no_effect` ha il nuovo `reason: no_runes` (Detonazione senza rune proprie) | Messaggio |
+| 8 | Snapshot: le rune stanno in `square_effects` con `hidden` e `rune` | — |
+
+Verifica: `go build ./... && go vet ./... && go test ./...` (i test delle rune che passano da una mossa usano
+Stockfish e si saltano dove non è installato).

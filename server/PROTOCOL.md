@@ -74,16 +74,17 @@ Dopo `game_over` ogni azione riceve `error` con `code: "game_over"`.
 
 | `type` | `payload` | Destinatario |
 |--------|-----------|--------------|
-| `game_state` | vedi sotto | entrambi (pubblico) |
+| `game_state` | vedi sotto | entrambi, ciascuno la sua vista (rune nascoste dell'avversario tolte) |
 | `timer_update` | `{ white_time, black_time, turn }` | entrambi, ~1/s (`turn` = giocatore attivo, di chi scorre il tempo) |
 | `phase_changed` | `{ phase, active_player, turn_number }` | entrambi |
 | `hand` | `{ hand:[id...], mana, max_mana, deck_size }` | **solo proprietario** |
 | `card_drawn` | `{ card_id, deck_size }` | **solo chi pesca** |
 | `hand_size_changed` | `{ player, size }` | entrambi |
 | `mana_changed` | `{ player, current, max }` | entrambi |
-| `spell_cast` | `{ player, spell_id, targets, effects_applied:[...] }` | entrambi |
+| `spell_cast` | `{ player, spell_id, targets, effects_applied:[...] }`; per una magia nascosta l'avversario riceve `{ player, hidden: true, effects_applied: [{ kind: "hidden_effect" }] }` | entrambi |
 | `graveyard_changed` | `{ player, graveyard: ["pawn", …] }`: il cimitero di un giocatore, in ordine | entrambi |
-| `square_effects_changed` | `{ square_effects: [...] }`: la lista completa degli stati delle case (stessa forma di `game_state.square_effects`), quando uno viene creato o scade | entrambi |
+| `square_effects_changed` | `{ square_effects: [...] }`: la lista completa degli stati delle case (stessa forma di `game_state.square_effects`), quando uno viene creato, rivelato, consumato o scade | entrambi, ciascuno la sua lista (rune nascoste dell'avversario tolte) |
+| `rune_triggered` | `{ square, owner, on_enter, result }`: una runa è scattata (vedi "Rune") | entrambi |
 | `effect_expired` | scadenza: `{ square, effect_kind, piece_id }`; scudo consumato: `{ square, effect_kind: "shield", reason: "shield_absorbed" }` | entrambi |
 | `game_over` | `{ result, reason, winner? }` | entrambi |
 | `draw_offer` | `{ from }` | avversario |
@@ -115,7 +116,11 @@ scacchiera, alla riconnessione (con `reconnected: true`) e subito **prima** di
   "white_deck_size": 36, "black_deck_size": 36,
   "active_effects": [ { "square": "e7", "effects": [ { "kind": "freeze", "remaining_turns": 1, "source_spell_id": "frost", "caster": "white" } ] } ],
   "white_graveyard": ["pawn"], "black_graveyard": [],
-  "square_effects": [ { "square": "e5", "effects": [ { "kind": "wall", "remaining_turns": 2, "source_spell_id": "ice_wall", "caster": "white" } ] } ],
+  "square_effects": [
+    { "square": "e5", "effects": [ { "kind": "wall", "remaining_turns": 2, "source_spell_id": "ice_wall", "caster": "white" } ] },
+    { "square": "d6", "effects": [ { "kind": "rune", "remaining_turns": -1, "source_spell_id": "stasis_rune", "caster": "black",
+                                     "hidden": true, "rune": { "on_enter": "freeze_piece", "duration": 2 } } ] }
+  ],
   "reconnected": true
 }
 ```
@@ -128,8 +133,13 @@ scacchiera, alla riconnessione (con `reconnected: true`) e subito **prima** di
 - `board.status`: `active`, `checkmate`, `stalemate`, `draw`, `resigned`,
   `timeout`, `abandoned`. Tutti i valori diversi da `active` sono terminali.
 - `active_effects` è ordinato per casella.
-- `square_effects` (stati delle **case**: `wall`, `no_capture`) è ordinato per
-  casella. Manca nei server precedenti allo Step 3 del catalogo: vale lista vuota.
+- `square_effects` (stati delle **case**: `wall`, `no_capture`, `rune`) è
+  ordinato per casella. Manca nei server precedenti allo Step 3 del catalogo:
+  vale lista vuota. Ogni giocatore riceve la **sua** vista: le rune nascoste
+  dell'avversario non ci sono, nemmeno alla riconnessione. Una runa ha
+  `remaining_turns: -1`, `hidden` (vera finché l'avversario non la vede: nella
+  lista del proprietario) e `rune` (`on_enter`, e se servono `duration`, `only`,
+  `fallback`, `fallback_duration`).
 
 ### `game_over`
 
@@ -161,7 +171,11 @@ relativo, dove il client manda solo il pezzo); `summon_pawn` → `target`, `piec
 → nessun campo (arriva il `game_state` con la FEN nuova); `create_wall` →
 `target`, `remaining_turns`; `create_square_effect` → `target`, `effect` (es.
 `no_capture`), `remaining_turns` (la lista aggiornata arriva con
-`square_effects_changed`).
+`square_effects_changed`); `place_rune` → `targets` (le case), `on_enter`;
+`reveal_runes` → `side` (il giocatore le cui rune diventano visibili);
+`detonate_runes` → `runes` (le case delle rune consumate), `targets` (i pezzi
+congelati), `remaining_turns`; `hidden_effect` → nessun campo (lo riceve solo
+l'avversario di chi lancia una magia nascosta).
 
 ### `error`
 
@@ -204,13 +218,18 @@ Valori di `reason` per `invalid_target`: `off_board`, `duplicate`, `not_empty`,
 come bersaglio non valido generico.
 
 `no_effect` (la magia non avrebbe effetto, cast rifiutato a costo zero) ha
-`reason` ∈ `no_pieces`, `empty_graveyard`, `no_castling`; `invalid_choice` ha
+`reason` ∈ `no_pieces`, `empty_graveyard`, `no_castling`, `no_runes`
+(Detonazione senza rune proprie); `invalid_choice` ha
 `reason` ∈ `missing`, `not_allowed`.
 
 ## Anti-cheat
 
 - Il client vede **solo la propria mano** (`hand`/`card_drawn`); dell'avversario
   conosce solo dimensione mano/mazzo e mana.
+- Le **rune nascoste** dell'avversario non arrivano mai: né in `game_state`
+  (anche alla riconnessione) né in `square_effects_changed`. Il cast di una runa
+  arriva all'avversario senza `spell_id` né `targets` (`hidden: true`); mana e
+  dimensione della mano cambiano come per ogni magia.
 - Il server è autoritativo: applica lui gli effetti e li comunica; il client li
   visualizza soltanto.
 
@@ -241,6 +260,32 @@ come bersaglio non valido generico.
     pezzo nemico con una magia; il sacrificio di un proprio pezzo è ammesso.
   - Una mossa vietata è rifiutata con `move_blocked` (prima dello scudo, che non
     si consuma). Una casa col muro non è vuota per i bersagli `empty_square`.
+- **Rune** (`rune`): stati delle case permanenti, finché non scattano o
+  vengono detonate; al massimo una per giocatore per casa (una seconda runa
+  propria sostituisce la prima). Una casa con le rune resta **vuota** per i
+  bersagli `empty_square`, anche per chi le vede.
+  - Una runa scatta quando un pezzo **nemico** di chi l'ha piazzata ci entra
+    **con una mossa**: normale, cattura, en passant, promozione; nell'arrocco
+    entra la torre. Il **re** non la fa scattare (può entrare, e la runa
+    resta); un pezzo arrivato per magia nemmeno. Poi si consuma.
+  - `on_enter`: `freeze_piece` (il pezzo è congelato per `duration` suoi turni;
+    quello in corso non conta), `return_to_origin` (il pezzo torna sulla casa di
+    partenza com'era prima della mossa — un pedone promosso torna pedone — con
+    id ed effetti; la cattura fatta entrando resta), `destroy_piece` (solo i
+    tipi in `only`; gli altri subiscono `fallback`; su un santuario il pezzo è
+    congelato invece). Lo scudo non protegge dalla distruzione.
+  - Se l'effetto lascerebbe sotto scacco il re di chi ha mosso, la runa **non
+    scatta** e resta nascosta. Matto, stallo e ripetizione si valutano sulla
+    posizione dopo la runa.
+  - `rune_triggered.result`: `{kind: "freeze_piece", target, remaining_turns}`,
+    `{kind: "return_to_origin", from, to}` oppure `{kind: "destroy_piece",
+    target, piece_destroyed}` (il pezzo va nel cimitero di chi ha mosso:
+    arriva `graveyard_changed`). Arrivano poi `game_state` e
+    `square_effects_changed` senza la runa.
+  - **Rivelazione** rende visibili a entrambi, per sempre, le rune nemiche che
+    esistono in quel momento; quelle piazzate dopo sono di nuovo nascoste.
+    **Detonazione** consuma le proprie rune e congela i pezzi nemici entro 1
+    casa da ciascuna (non il re).
 - **Bersagli.** Ogni magia dichiara in `targets` una lista di `TargetSpec`
   (vedi sotto); il cast manda una casella per elemento, nello stesso ordine. Le
   caselle devono essere distinte e il re non è mai un bersaglio (salvo un
@@ -270,8 +315,8 @@ come bersaglio non valido generico.
 
 ## Catalogo magie
 
-Il catalogo segue `docs/BRIEFING-MAGIE.md` e cresce per step: oggi contiene le 20
-magie degli Step 1–3. Disponibile via `GET /spells`:
+Il catalogo segue `docs/BRIEFING-MAGIE.md` e cresce per step: oggi contiene le 26
+magie degli Step 1–4. Disponibile via `GET /spells`:
 
 ```json
 { "id": "blink", "name": "Blink", "mana_cost": 4, "phases": ["main1", "main2"],
@@ -310,6 +355,12 @@ magie degli Step 1–3. Disponibile via `GET /spells`:
 | `early_promotion` | Promozione anticipata (leggendaria) | 6 | proprio pedone dalla 6ª traversa | `promote_piece` (`choice`) |
 | `ice_wall` | Muro di ghiaccio | 2 | casa vuota | `create_wall` 2 |
 | `sanctuary` | Santuario | 5 | una casa qualsiasi | `create_square_effect` `no_capture` 3 |
+| `revelation` | Rivelazione | 1 | — | `reveal_runes` sulle rune nemiche + `draw_card` 1 |
+| `stasis_rune` | Runa di stasi | 2 | casa vuota | `place_rune`: congela 2 turni chi entra (nascosta) |
+| `repel_rune` | Runa di respinta | 2 | casa vuota | `place_rune`: chi entra torna alla casa di partenza (nascosta) |
+| `explosive_rune` | Runa esplosiva | 3 | casa vuota | `place_rune`: distrugge pedone o pezzo minore, congela 1 turno torre e regina (nascosta) |
+| `detonation` | Detonazione | 4 | — | `detonate_runes`: consuma le proprie rune e congela 1 turno i nemici attorno |
+| `minefield` | Campo minato (leggendaria) | 7 | tre case vuote | `place_rune`: tre Rune di stasi (nascosta) |
 
 **Cimitero.** Ogni pezzo tolto dalla scacchiera (cattura, anche en passant, o
 magia) va nel cimitero del proprietario con il tipo che aveva; la cattura
@@ -319,9 +370,8 @@ occorrenza del tipo riportato, che torna con un id nuovo e senza effetti.
 **Arrocco divino** ripristina il diritto solo dove re e torre sono sulle case
 iniziali; arroccare attraverso case attaccate resta vietato.
 
-Mazzo: 40 carte, identico per i due giocatori. Finché il catalogo non è
-completo la ricetta supera i limiti di copie della rarità (2 comuni, 1
-leggendaria), che valgono per la ricetta finale.
+Mazzo: 40 carte, identico per i due giocatori, nei limiti di copie della
+rarità (2 per le comuni, 1 per le leggendarie).
 
 ## Limiti noti
 
