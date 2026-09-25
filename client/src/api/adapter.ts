@@ -261,6 +261,7 @@ const APPLIED_EFFECT_SCHEMAS = {
   move_piece: z.object({ from: squareSchema, to: squareSchema }),
   draw_card: z.object({ count }),
   gain_mana: z.object({ amount: count, mana: count }),
+  summon_pawn: z.object({ target: squareSchema, piece: loose }),
 } as const;
 
 function decodeAppliedEffect(ctx: Ctx, raw: unknown, index: number): AppliedEffect {
@@ -301,6 +302,12 @@ function decodeAppliedEffect(ctx: Ctx, raw: unknown, index: number): AppliedEffe
       return p.ok
         ? { kind, amount: p.data.amount, manaAfter: clampNonNegative(ctx, p.data.mana, 'mana') }
         : unknown(p.issues.join('; '));
+    }
+    case 'summon_pawn': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.summon_pawn, raw);
+      if (!p.ok) return unknown(p.issues.join('; '));
+      const piece = p.data.piece;
+      return { kind, target: p.data.target, piece: isOneOf(PIECE_NAMES, piece) ? piece : readEnum(ctx, piece, PIECE_NAMES, 'piece') };
     }
     default:
       return unknown(`kind sconosciuto ${JSON.stringify(kind)}`);
@@ -583,6 +590,9 @@ const wireErrorDetailsSchema = z.object({
   expected: loose,
   received: loose,
   king: loose,
+  index: loose,
+  reason: loose,
+  per_turn: loose,
 });
 
 const intOrNull = (value: unknown): number | null => (typeof value === 'number' && Number.isInteger(value) ? value : null);
@@ -613,6 +623,9 @@ function interpretWsError(ctx: Ctx, payload: unknown): ProtocolErrorInfo {
     expected: intOrNull(details.expected),
     received: intOrNull(details.received),
     king: isOneOf(COLORS, king) ? king : null,
+    index: intOrNull(details.index),
+    reason: typeof details.reason === 'string' && details.reason !== '' ? details.reason : null,
+    perTurn: intOrNull(details.per_turn),
   };
 }
 
@@ -924,13 +937,28 @@ export function normalizePasswordPolicy(data: unknown): Normalized<CredentialPol
 // §7 Catalogo magie (`GET /spells`, `handlers/catalog.go:13-20`; riserva `src/spells/fallback.json`, G10)
 // ===================================================================================================
 
+/** `TargetSpec` (`spells/spells.go`): i campi vuoti mancano sul filo (omitempty). */
+const wireTargetSpecSchema = z.object({
+  type: z.string(),
+  pieces: z.array(z.string()).nullable().optional(),
+  require_effect: z.string().nullable().optional(),
+  empty_square: z.boolean().nullable().optional(),
+  max_distance: z.number().nullable().optional(),
+  own_ranks: z.array(z.number()).nullable().optional(),
+  min_rank: z.number().nullable().optional(),
+});
+
 const wireSpellSchema = z.object({
   id: nonEmptyString,
   name: nonEmptyString,
   mana_cost: z.number(),
   phases: z.array(z.string()),
-  target_type: z.string(),
+  targets: z.array(wireTargetSpecSchema).nullable(),
   effects: z.array(z.object({ kind: z.string(), params: z.record(z.string(), z.unknown()).nullable().optional() })),
+  tags: z.array(z.string()).nullable().optional(),
+  // Una rarità sconosciuta si legge come comune: cambia solo la cornice della carta.
+  rarity: z.string().nullable().optional(),
+  limits: z.record(z.string(), z.number()).nullable().optional(),
 });
 
 export interface NormalizedCatalog {
@@ -959,8 +987,19 @@ export function normalizeSpellCatalog(raw: unknown): NormalizedCatalog {
       name: wire.data.name,
       manaCost: wire.data.mana_cost,
       phases: wire.data.phases,
-      targetType: wire.data.target_type,
+      targets: (wire.data.targets ?? []).map((spec) => ({
+        type: spec.type,
+        pieces: spec.pieces ?? [],
+        requireEffect: spec.require_effect ?? null,
+        emptySquare: spec.empty_square ?? false,
+        maxDistance: spec.max_distance ?? 0,
+        ownRanks: spec.own_ranks ?? [],
+        minRank: spec.min_rank ?? 0,
+      })),
       effects: wire.data.effects.map((effect) => ({ kind: effect.kind, params: effect.params ?? {} })),
+      tags: wire.data.tags ?? [],
+      rarity: wire.data.rarity === 'legendary' ? 'legendary' : 'common',
+      perTurn: wire.data.limits?.['per_turn'] ?? null,
     });
     if (!internal.ok) {
       warn(ctx, 'catalog_entry_invalid', `${wire.data.id}: ${internal.issues.join('; ')}`);

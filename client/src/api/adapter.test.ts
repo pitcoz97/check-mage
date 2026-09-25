@@ -329,7 +329,7 @@ describe('orologio, fine partita, patta, connessione', () => {
 });
 
 describe('error: codici e dettagli (§3b, gameerr/gameerr.go)', () => {
-  const none = { square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null };
+  const none = { square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null, index: null, reason: null, perTurn: null };
 
   it('il codice arriva così com’è, il testo resta fuori', () => {
     const { event, codes } = decodeOk(frame('error', { message: 'Non è il tuo turno', code: 'not_your_turn' }));
@@ -507,23 +507,30 @@ describe('REST', () => {
 });
 
 describe('catalogo', () => {
-  it('fallback.json: le 11 magie di spells/spells.go, tutte valide', () => {
+  it('fallback.json: le 9 magie dello step 1 (spells/catalog.go), tutte valide', () => {
     const { spells, warnings } = normalizeSpellCatalog(fallbackCatalog);
     expect(warnings).toEqual([]);
-    expect(spells).toHaveLength(11);
-    expect(spells.find((s) => s.id === 'teleport')).toEqual({
-      id: 'teleport',
-      name: 'Teleport',
-      manaCost: 3,
+    expect(spells).toHaveLength(9);
+    expect(spells.find((s) => s.id === 'blink')).toEqual({
+      id: 'blink',
+      name: 'Blink',
+      manaCost: 4,
       phases: ['main1', 'main2'],
-      targetType: 'piece_move',
-      effects: [{ kind: 'move_piece', params: {} }],
+      targets: [
+        { type: 'own_piece', pieces: ['knight', 'bishop'], requireEffect: null, emptySquare: false, maxDistance: 0, ownRanks: [], minRank: 0 },
+        { type: 'square', pieces: [], requireEffect: null, emptySquare: true, maxDistance: 2, ownRanks: [], minRank: 0 },
+      ],
+      effects: [{ kind: 'move_piece', params: { no_check: true } }],
+      tags: ['arcano'],
+      rarity: 'common',
+      perTurn: null,
     });
+    expect(spells.find((s) => s.id === 'blood_pact')?.perTurn).toBe(1);
   });
 
   it('voci invalide scartate una per una; forma inattesa', () => {
     const { spells, warnings } = normalizeSpellCatalog({
-      spells: [{ id: 'x', name: 'X', mana_cost: 1, phases: ['main1'], target_type: 'hex', effects: [] }, { name: 'no id' }],
+      spells: [{ id: 'x', name: 'X', mana_cost: 1, phases: ['main1'], targets: [{ type: 'hex' }], effects: [], tags: null, rarity: 'mythic' }, { name: 'no id' }],
     });
     expect(spells.map((s) => s.id)).toEqual(['x']);
     expect(warnings.map((w) => w.code)).toEqual(['catalog_entry_invalid']);

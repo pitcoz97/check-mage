@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useCatalog } from '../../spells/CatalogProvider';
 import { effectPresentation } from '../../spells/effects.registry';
+import { spellName } from '../../spells/texts';
 import { useMatch } from '../../store/MatchProvider';
 import { protocolErrorMessage } from './errorMessage';
 
@@ -42,13 +43,13 @@ export function useNotice(): { notice: Notice | null; show(text: string): void; 
 
   const candidates: Candidate[] = [];
   if (lastError !== null) {
-    candidates.push({ kind: 'refused', text: protocolErrorMessage(t, lastError.info), key: `error:${lastError.seq}`, order: lastError.seq });
+    candidates.push({ kind: 'refused', text: protocolErrorMessage(t, lastError.info, myColor), key: `error:${lastError.seq}`, order: lastError.seq });
   }
   if (lastCast !== null) {
     candidates.push({
       kind: 'cast',
       text: t(lastCast.player === myColor ? 'spells.castByYou' : 'spells.castByOpponent', {
-        name: byId.get(lastCast.spellId)?.name ?? lastCast.spellId,
+        name: spellName(t, byId.get(lastCast.spellId), lastCast.spellId),
         effects: lastCast.effects.map((effect) => effectPresentation(effect.kind).label(t)).join(', '),
       }),
       key: `cast:${lastCast.seq}`,

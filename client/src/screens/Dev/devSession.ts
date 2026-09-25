@@ -62,8 +62,8 @@ const LEADERBOARD = [
   { rank: 5, id: 7, username: 'Riccardo', elo: 1240 },
 ];
 
-const SHIELD = { square: 'e4', effects: [{ kind: 'shield', remaining_turns: 2, source_spell_id: 'aegis' }] };
-const FREEZE = { square: 'c3', effects: [{ kind: 'freeze', remaining_turns: 1, source_spell_id: 'frostbolt' }] };
+const SHIELD = { square: 'e4', effects: [{ kind: 'shield', remaining_turns: 1, source_spell_id: 'shield' }] };
+const FREEZE = { square: 'c3', effects: [{ kind: 'freeze', remaining_turns: 1, source_spell_id: 'ice_chain' }] };
 
 /** Account e sessione finti per le anteprime: con `withMatch` la partita delle tavole è già in corso. */
 export async function startDevSession({
@@ -106,15 +106,15 @@ export async function startDevSession({
   socket.receive(gameState(MOVES.slice(0, 12), []));
   socket.receive({
     type: 'spell_cast',
-    payload: { player: 'white', spell_id: 'aegis', targets: ['e4'], effects_applied: [{ kind: 'shield_piece', target: 'e4', remaining_turns: 2 }] },
+    payload: { player: 'white', spell_id: 'shield', targets: ['e4'], effects_applied: [{ kind: 'shield_piece', target: 'e4', remaining_turns: 1 }] },
   });
   socket.receive(gameState(MOVES, [SHIELD]));
   socket.receive({
     type: 'spell_cast',
-    payload: { player: 'black', spell_id: 'frostbolt', targets: ['c3'], effects_applied: [{ kind: 'freeze_piece', target: 'c3', remaining_turns: 1 }] },
+    payload: { player: 'black', spell_id: 'ice_chain', targets: ['c3'], effects_applied: [{ kind: 'freeze_piece', target: 'c3', remaining_turns: 1 }] },
   });
   socket.receive(gameState(MOVES, [SHIELD, FREEZE]));
-  socket.receive({ type: 'hand', payload: { hand: ['teleport', 'frostbolt', 'aegis', 'disintegrate', 'nova'], mana: 4, max_mana: 8, deck_size: 18 } });
+  socket.receive({ type: 'hand', payload: { hand: ['blink', 'frost', 'shield', 'shatter', 'conscription'], mana: 4, max_mana: 8, deck_size: 18 } });
   if (scenario === 'over') socket.receive({ type: 'game_over', payload: { result: '1-0', reason: 'checkmate', winner: SELF.username } });
   if (scenario === 'draw') socket.receive({ type: 'draw_offer', payload: { from: OPPONENT.username } });
   if (scenario === 'disconnected') socket.receive({ type: 'opponent_disconnected', payload: { message: 'x' } });

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { BoardTargeting } from '../../game/board/Board';
-import type { HandCard } from '../../game/model';
+import type { HandCard, SquareEffects } from '../../game/model';
 import {
   beginTargeting,
   pickTarget,
@@ -13,6 +13,7 @@ import {
   type TargetingState,
 } from '../../game/targeting';
 import type { Spell } from '../../spells/schema';
+import { spellName } from '../../spells/texts';
 import { useMatch, useMatchSession } from '../../store/MatchProvider';
 import { refusalMessage } from './errorMessage';
 
@@ -36,6 +37,8 @@ export interface Casting {
   cancel(): void;
 }
 
+const NO_EFFECTS: readonly SquareEffects[] = [];
+
 export function useCasting(notify: (message: string) => void): Casting {
   const { t } = useTranslation();
   const session = useMatchSession();
@@ -43,6 +46,7 @@ export function useCasting(notify: (message: string) => void): Casting {
   const fen = useMatch((s) => s.game?.fen ?? '');
   const phase = useMatch((s) => s.game?.phase ?? 'unknown');
   const myColor = useMatch((s) => s.myColor);
+  const effects = useMatch((s) => s.game?.activeEffects ?? NO_EFFECTS);
   const [state, setState] = useState<TargetingState>(TARGETING_IDLE);
 
   // Una posizione o una fase nuova rendono vecchi i bersagli scelti: si annulla durante il render, senza effetti.
@@ -63,7 +67,7 @@ export function useCasting(notify: (message: string) => void): Casting {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [state.kind]);
 
-  const ctx = { fen, myColor: myColor ?? 'white' } as const;
+  const ctx = { fen, myColor: myColor ?? 'white', effects } as const;
 
   function apply(outcome: TargetingOutcome): void {
     if (outcome.kind === 'state') {
@@ -83,7 +87,7 @@ export function useCasting(notify: (message: string) => void): Casting {
 
   return {
     selectedInstanceId: state.kind === 'idle' ? null : state.card.instanceId,
-    spellName: state.kind === 'idle' ? null : state.spell.name,
+    spellName: state.kind === 'idle' ? null : spellName(t, state.spell, state.spell.id),
     spellCost: state.kind === 'idle' ? null : state.spell.manaCost,
     prompt: targetingPrompt(state, t),
     boardTargeting:

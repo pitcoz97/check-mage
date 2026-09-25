@@ -282,6 +282,25 @@ export const it = {
       invalid_target_count: 'Bersagli sbagliati: ne servono {{expected}}, ne hai indicati {{received}}.',
       invalid_target: 'Bersaglio non valido.',
       illegal_position: 'La posizione risultante non sarebbe legale.',
+      illegalPositionOwnKing: 'Il tuo re resterebbe sotto scacco.',
+      illegalPositionCheck: 'Una magia non può dare scacco.',
+      limit_reached: 'Questa magia si può lanciare solo {{perTurn}} volte per turno.',
+      limitReachedOnce: 'Questa magia si può lanciare una sola volta per turno.',
+      /** Perché un bersaglio è stato rifiutato (`details.reason`, effects/targets.go). */
+      target: {
+        off_board: 'Casella fuori dalla scacchiera.',
+        duplicate: 'Hai già scelto quella casella.',
+        not_empty: 'La casella non è vuota.',
+        no_piece: 'Lì non c’è nessun pezzo.',
+        wrong_owner: 'Il pezzo è del colore sbagliato.',
+        king: 'Il re non può essere un bersaglio.',
+        piece_kind: 'Questa magia non può colpire quel pezzo.',
+        missing_effect: 'Il pezzo non ha lo stato richiesto.',
+        too_far: 'La casella è troppo lontana.',
+        rank: 'Traversa non ammessa per questa magia.',
+        max_pawns: 'Hai già il numero massimo di pedoni.',
+        promotion: 'Il pedone arriverebbe alla promozione.',
+      },
       draw_offer_pending: 'C’è già un’offerta di patta.',
       no_draw_offer: 'Non c’è nessuna offerta di patta.',
       own_draw_offer: 'Non puoi rispondere alla tua offerta.',
@@ -318,7 +337,10 @@ export const it = {
       backToLobby: 'Torna alla lobby',
     },
   },
-  /** Layer magie. I testi delle carte si costruiscono da qui e dai parametri del catalogo, mai per singola magia. */
+  /**
+   * Layer magie. Nomi e testi delle carte stanno in `catalog`, sotto l'id della magia (ASSUMPTIONS §7, M4); per una
+   * magia che non è qui il testo si genera dagli effetti e dai loro parametri.
+   */
   spells: {
     hand: 'La tua mano',
     handEmpty: 'Nessuna carta in mano.',
@@ -338,13 +360,26 @@ export const it = {
     castByYou: 'Hai lanciato {{name}}: {{effects}}',
     castByOpponent: 'L’avversario ha lanciato {{name}}: {{effects}}',
     effect: {
-      noop: { label: 'Nessun effetto', text: 'Non succede nulla.' },
-      destroy_piece: { label: 'Distruzione', text: 'Distrugge un pezzo avversario, tranne il re.' },
-      freeze_piece: { label: 'Gelo', text: 'Congela un pezzo avversario per {{turns}} turni: non può muoversi.' },
-      shield_piece: { label: 'Scudo', text: 'Protegge un tuo pezzo per {{turns}} turni: assorbe una cattura.' },
+      destroy_piece: { label: 'Distruzione', text: 'Distrugge il pezzo bersaglio, mai il re.' },
+      freeze_piece: {
+        label: 'Gelo',
+        textOne: 'Congela il pezzo: non può muoversi nel suo prossimo turno.',
+        textMany: 'Congela il pezzo: non può muoversi per {{count}} suoi turni.',
+      },
+      shield_piece: {
+        label: 'Scudo',
+        textOne: 'Protegge il pezzo nel prossimo turno avversario: assorbe una cattura.',
+        textMany: 'Protegge il pezzo per {{count}} turni avversari: assorbe una cattura.',
+      },
       draw_card: { label: 'Pesca', textOne: 'Peschi una carta.', textMany: 'Peschi {{count}} carte.' },
       gain_mana: { label: 'Mana', textOne: 'Guadagni 1 mana.', textMany: 'Guadagni {{amount}} mana.' },
-      move_piece: { label: 'Spostamento', text: 'Sposta un tuo pezzo su una casella vuota, senza usare la mossa del turno.' },
+      move_piece: {
+        label: 'Spostamento',
+        text: 'Sposta un tuo pezzo su una casella vuota, senza usare la mossa del turno.',
+        forwardOne: 'Il pezzo avanza di una casa, senza catturare.',
+        forwardMany: 'Il pezzo avanza di {{count}} case, senza catturare.',
+      },
+      summon_pawn: { label: 'Evocazione', text: 'Crea un tuo pedone sulla casa scelta (massimo {{max}} pedoni).' },
       unknown: { label: 'Effetto ignoto', text: 'Effetto che questo client non conosce ancora.' },
     },
     state: {
@@ -355,15 +390,30 @@ export const it = {
       badgeMany: '{{state}}, ancora {{count}} turni',
     },
     prompt: {
-      none: 'Nessun bersaglio.',
       own_piece: 'Scegli un tuo pezzo.',
       enemy_piece: 'Scegli un pezzo avversario.',
-      piece: 'Scegli un pezzo.',
       square: 'Scegli una casella.',
-      piece_move: {
-        from: 'Scegli il tuo pezzo da spostare.',
-        to: 'Scegli una casella vuota.',
-      },
+    },
+    /** Archetipi (`tags` del catalogo): la riga del tipo della carta. */
+    tag: {
+      gelo: 'Gelo',
+      necro: 'Necromanzia',
+      arcano: 'Arcano',
+      sacro: 'Sacro',
+      rune: 'Rune',
+      falange: 'Falange',
+    },
+    /** Nome e testo di ogni magia, per id (docs/BRIEFING-MAGIE.md §5). Nessuna magia può dare scacco: non si ripete. */
+    catalog: {
+      frost: { name: 'Brina', text: 'Congela un pedone nemico: non può muoversi nel suo prossimo turno.' },
+      ice_chain: { name: 'Catena di ghiaccio', text: 'Congela un cavallo o un alfiere nemico: non può muoversi nel suo prossimo turno.' },
+      shatter: { name: 'Frantumare', text: 'Distrugge un pezzo nemico congelato. Non la regina.' },
+      blood_pact: { name: 'Patto di sangue', text: 'Sacrifica un tuo pedone: +2 mana, fino a 10. Una volta per turno.' },
+      blink: { name: 'Blink', text: 'Teletrasporta un tuo cavallo o alfiere su una casa vuota entro 2 case.' },
+      shield: { name: 'Scudo', text: 'Protegge un tuo pezzo, non la regina, nel prossimo turno avversario: assorbe una cattura.' },
+      royal_shield: { name: 'Scudo reale', text: 'Protegge la tua regina nel prossimo turno avversario: assorbe una cattura.' },
+      forced_march: { name: 'Marcia forzata', text: 'Un tuo pedone avanza di una casa, senza catturare né promuovere.' },
+      conscription: { name: 'Leva militare', text: 'Crea un tuo pedone su una casa vuota della tua seconda traversa. Massimo 8 pedoni.' },
     },
     /** Perché una carta non è giocabile ora: il motivo si vede sulla carta, non si indovina. */
     refusal: {

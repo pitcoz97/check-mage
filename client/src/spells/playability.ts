@@ -2,7 +2,7 @@ import type { TFunction } from 'i18next';
 
 import type { Phase } from '../game/model';
 import type { Spell } from './schema';
-import { targetResolver } from './targets.registry';
+import { targetsSupported } from './targets.registry';
 
 /**
  * Perché una carta non è giocabile ora. I controlli sono nello stesso ordine del server
@@ -36,7 +36,7 @@ export interface CastContext {
 export function cardRefusal(spell: Spell | undefined, ctx: CastContext): CardRefusal | null {
   if (spell === undefined) return 'unknown_spell';
   // Senza resolver il client non sa quante caselle chiedere: meglio non mandare nulla (ASSUMPTIONS C14).
-  if (targetResolver(spell.targetType) === null) return 'unsupported_target';
+  if (!targetsSupported(spell)) return 'unsupported_target';
   if (!ctx.playing) return 'not_playing';
   if (!ctx.connected) return 'not_connected';
   if (!ctx.myTurn) return 'not_your_turn';

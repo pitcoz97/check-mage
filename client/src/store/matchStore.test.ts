@@ -140,7 +140,7 @@ describe('applyServerEvent: aggiornamenti puntuali', () => {
     store.getState().beginCast('nova');
     store.getState().dispatch({
       type: 'error',
-      error: { code: 'insufficient_mana', square: null, phase: null, needed: 5, available: 1, expected: null, received: null, king: null },
+      error: { code: 'insufficient_mana', square: null, phase: null, needed: 5, available: 1, expected: null, received: null, king: null, index: null, reason: null, perTurn: null },
     });
     expect(store.getState().pendingCast).toBeNull();
   });
@@ -246,7 +246,7 @@ describe('applyServerEvent: patta, connessione, errori', () => {
   });
 
   it('error: registrato con un seq nuovo anche se identico al precedente', () => {
-    const info = { code: 'not_your_turn' as const, square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null };
+    const info = { code: 'not_your_turn' as const, square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null, index: null, reason: null, perTurn: null };
     const first = applyServerEvent(run(START), { type: 'error', error: info }, 2_000);
     const second = applyServerEvent(first, { type: 'error', error: info }, 2_010);
     expect(second.lastError?.info).toEqual(info);
@@ -271,7 +271,7 @@ describe('applyServerEvent: patta, connessione, errori', () => {
       over,
     );
     expect(late).toBe(over);
-    const info = { code: 'game_over' as const, square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null };
+    const info = { code: 'game_over' as const, square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null, index: null, reason: null, perTurn: null };
     expect(applyServerEvent(over, { type: 'error', error: info }, 9_000).lastError?.info.code).toBe('game_over');
   });
 });
@@ -290,7 +290,7 @@ describe('mossa ottimista', () => {
     const store = createMatchStore('1', () => 100);
     for (const event of START) store.getState().dispatch(event);
     store.getState().previewMove('e2', 'e4');
-    const info = { code: 'illegal_move' as const, square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null };
+    const info = { code: 'illegal_move' as const, square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null, index: null, reason: null, perTurn: null };
     store.getState().dispatch({ type: 'error', error: info });
     expect(store.getState().optimistic).toBeNull();
     expect(store.getState().lastError?.info.code).toBe('illegal_move');

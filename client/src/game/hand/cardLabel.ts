@@ -1,8 +1,8 @@
 import type { TFunction } from 'i18next';
 
-import { spellRulesText } from '../../spells/effects.registry';
 import { cardRefusalMessage, type CardRefusal } from '../../spells/playability';
 import type { Spell } from '../../spells/schema';
+import { spellName, spellText } from '../../spells/texts';
 
 /**
  * Etichetta accessibile di una carta in mano: nome, costo, testo di regole e, se non si può giocare, il motivo.
@@ -10,10 +10,10 @@ import type { Spell } from '../../spells/schema';
  * che il lettore di schermo trova tutto.
  */
 export function spellCardLabel(t: TFunction, spell: Spell | undefined, spellId: string, refusal: CardRefusal | null): string {
-  const name = spell?.name ?? spellId;
+  const name = spellName(t, spell, spellId);
   const cost = spell === undefined ? t('spells.costUnknown') : String(spell.manaCost);
   const parts: string[] = [t('spells.card.label', { name, cost })];
-  if (spell !== undefined) parts.push(...spellRulesText(t, spell.effects));
+  parts.push(...spellText(t, spell, spellId));
   if (refusal !== null) parts.push(cardRefusalMessage(t, refusal, spell));
   return parts.join('. ');
 }

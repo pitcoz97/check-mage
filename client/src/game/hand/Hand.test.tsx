@@ -6,6 +6,7 @@ import { initI18n } from '../../i18n';
 import { createWebStorage } from '../../lib/storage';
 import type { CastContext } from '../../spells/playability';
 import type { Spell } from '../../spells/schema';
+import { testSpell } from '../../testing/catalog';
 import type { HandCard } from '../model';
 import { Hand } from './Hand';
 
@@ -17,15 +18,8 @@ beforeAll(async () => {
 afterEach(cleanup);
 
 const CATALOG: Record<string, Spell> = {
-  frostbolt: {
-    id: 'frostbolt',
-    name: 'Frost Bolt',
-    manaCost: 2,
-    phases: ['main1', 'main2'],
-    targetType: 'enemy_piece',
-    effects: [{ kind: 'freeze_piece', params: { turns: 2 } }],
-  },
-  nova: { id: 'nova', name: 'Nova', manaCost: 5, phases: ['main1', 'main2'], targetType: 'none', effects: [{ kind: 'noop', params: {} }] },
+  frostbolt: testSpell({ id: 'frostbolt', name: 'Frost Bolt', manaCost: 2, effects: [{ kind: 'freeze_piece', params: { duration: 2 } }] }),
+  nova: testSpell({ id: 'nova', name: 'Nova', manaCost: 5, targets: [], effects: [{ kind: 'gain_mana', params: { amount: 2 } }] }),
 };
 
 const CARDS: readonly HandCard[] = [
@@ -62,15 +56,15 @@ describe('mano', () => {
     expect(face.querySelector('[data-card-name]')?.textContent).toBe('Frost Bolt');
     expect(face.querySelector('[data-card-cost]')?.textContent).toBe('2');
     expect(face.querySelector('[data-card-type]')?.textContent).toBe('Magia · Gelo');
-    expect(face.querySelector('[data-card-rules]')?.textContent).toContain('Congela un pezzo avversario per 2 turni');
-    // Rarità assente dal catalogo: cornice della rarità comune (D7).
+    expect(face.querySelector('[data-card-rules]')?.textContent).toContain('Congela il pezzo: non può muoversi per 2 suoi turni.');
+    // Rarità comune: cornice grigia (M14).
     expect(face.querySelector('[data-card-face]')?.className).toContain('border-rarity-common');
   });
 
   it("la carta giocabile avvia il cast, e l'etichetta dice nome, costo e regole", () => {
     const { onPick, card } = setup();
     expect(card('frostbolt').dataset['playable']).toBe('true');
-    expect(card('frostbolt').getAttribute('aria-label')).toBe('Frost Bolt, costo 2. Congela un pezzo avversario per 2 turni: non può muoversi.');
+    expect(card('frostbolt').getAttribute('aria-label')).toBe('Frost Bolt, costo 2. Congela il pezzo: non può muoversi per 2 suoi turni.');
     fireEvent.click(card('frostbolt'));
     expect(onPick).toHaveBeenCalledWith(CARDS[0], CATALOG['frostbolt']);
   });

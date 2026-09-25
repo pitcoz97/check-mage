@@ -42,7 +42,10 @@ interface Ctx {
   report: Report;
 }
 
-/** Casta le carte abbordabili con bersagli semplici (pedoni sulle colonne a/h). Restituisce i cast riusciti. */
+/**
+ * Casta le carte abbordabili con un solo bersaglio pezzo: un pedone nemico della colonna h o uno proprio della c (fuori dalle
+ * mosse dello scenario). Restituisce i cast riusciti.
+ */
 function caster(catalog: readonly Spell[], counter: { casts: number; insufficientChecked: boolean }, report: Report) {
   return async (c: E2EClient): Promise<void> => {
     const color = c.color as Color;
@@ -77,17 +80,13 @@ function caster(catalog: readonly Spell[], counter: { casts: number; insufficien
       if (c.gameOver !== null || !c.isMyTurn || !isMain(c)) return;
       const card = c.hand.find((h) => {
         const spell = catalog.find((s) => s.id === h.spellId);
-        return spell !== undefined && !tried.has(h.spellId) && spell.manaCost <= c.myMana && spell.targetType !== 'piece_move';
+        return spell !== undefined && !tried.has(h.spellId) && spell.manaCost <= c.myMana && spell.targets.length === 1 && spell.targets[0]?.type !== 'square';
       });
       if (card === undefined) return;
       tried.add(card.spellId);
       const spell = catalog.find((s) => s.id === card.spellId) as Spell;
-      const target =
-        spell.targetType === 'none'
-          ? []
-          : spell.targetType === 'enemy_piece'
-            ? [pawnOn('h', color === 'white' ? 'black' : 'white')]
-            : [pawnOn('a', color)];
+      // Un solo bersaglio pezzo: un pedone nemico o proprio. Il server può rifiutarlo (filtri dello spec): conta come esito.
+      const target = spell.targets[0]?.type === 'enemy_piece' ? [pawnOn('h', color === 'white' ? 'black' : 'white')] : [pawnOn('c', color)];
       if (target.some((t) => t === null)) continue;
       const from = c.send({ type: 'cast_spell', card, targets: target as Square[] });
       const outcome = await c.event(
@@ -152,7 +151,7 @@ const SCENARIOS: Record<string, Scenario> = {
     await white.refresh();
     report.expect((await white.me()).email === white.email, 'refresh del token e /me con il token nuovo');
     const catalog = await white.catalog();
-    report.expect(catalog.spells.length === 11, `catalogo: ${catalog.spells.length} magie da ${catalog.source}`);
+    report.expect(catalog.spells.length === 9, `catalogo: ${catalog.spells.length} magie da ${catalog.source}`);
     report.expect(catalog.source === 'server', 'catalogo da GET /spells');
 
     await white.connect('pvp');
@@ -274,12 +273,12 @@ const SCENARIOS: Record<string, Scenario> = {
     return [c];
   },
 
-  /** Il bot casta tutti e sette i kind di effetto. */
+  /** Il bot casta tutti i kind di effetto del catalogo. */
   async spells(ctx) {
     const c = await newPlayer(ctx.server, ctx.pacer, `dario`);
     await c.connect('spells');
     await ensureColor(ctx, c, 'white');
-    const wanted = ['noop', 'destroy_piece', 'freeze_piece', 'shield_piece', 'draw_card', 'gain_mana', 'move_piece'];
+    const wanted = ['destroy_piece', 'freeze_piece', 'shield_piece', 'gain_mana', 'move_piece', 'summon_pawn'];
     const seen = () => new Set<string>(c.events.filter(isType('spell_cast')).flatMap((e) => e.effects.map((x) => x.kind)));
     for (let turn = 0; turn < 6 && c.gameOver === null && !wanted.every((k) => seen().has(k)); turn++) await playTurn(c);
     await c.until(() => wanted.every((k) => seen().has(k)) || c.gameOver !== null, 'tutti gli effetti', 10_000).catch(() => undefined);
@@ -289,7 +288,7 @@ const SCENARIOS: Record<string, Scenario> = {
       await expectSnapshot(ctx, c, 'spells, dopo tutti gli effetti');
     }
     ctx.report.expect(
-      c.events.some((e) => e.type === 'game_state' && e.state.activeEffects.some((s) => s.effects.some((x) => x.sourceSpellId === 'frostbolt'))),
+      c.events.some((e) => e.type === 'game_state' && e.state.activeEffects.some((s) => s.effects.some((x) => x.sourceSpellId === 'frost'))),
       'active_effects con source_spell_id',
     );
     await resignAndWait(c);

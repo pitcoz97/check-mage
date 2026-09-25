@@ -134,6 +134,7 @@ export type AppliedEffect =
   | { readonly kind: 'move_piece'; readonly from: Square; readonly to: Square }
   | { readonly kind: 'draw_card'; readonly count: number }
   | { readonly kind: 'gain_mana'; readonly amount: number; readonly manaAfter: number }
+  | { readonly kind: 'summon_pawn'; readonly target: Square; readonly piece: PieceKind | 'unknown' }
   /** Effetto sconosciuto o malformato: si mostra neutro, non blocca il resto (§5.1.6). */
   | { readonly kind: 'unknown'; readonly rawKind: string };
 
@@ -162,6 +163,7 @@ export const PROTOCOL_ERROR_CODES = [
   'invalid_target_count',
   'invalid_target',
   'illegal_position',
+  'limit_reached',
   'draw_offer_pending',
   'no_draw_offer',
   'own_draw_offer',
@@ -187,4 +189,9 @@ export interface ProtocolErrorInfo {
   readonly received: number | null;
   /** `illegal_position`: il re che resterebbe sotto scacco. */
   readonly king: Color | null;
+  /** `invalid_target`: quale bersaglio (0-based) e perché (`effects/targets.go`, stringa aperta). */
+  readonly index: number | null;
+  readonly reason: string | null;
+  /** `limit_reached`: cast ammessi per turno. */
+  readonly perTurn: number | null;
 }

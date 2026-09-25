@@ -1,6 +1,5 @@
 import type { TFunction } from 'i18next';
 
-import type { PlacedPiece } from '../game/position';
 import type { EffectIconName } from './icons/EffectIcon';
 import { StateIcon, type StateIconName } from './icons/StateIcon';
 import type { SpellEffect } from './schema';
@@ -42,11 +41,6 @@ export interface EffectPresentation {
   label(t: TFunction): string;
   /** Testo di regole dell'effetto, costruito dai `params` del catalogo. */
   describe(t: TFunction, params: Record<string, unknown>): string;
-  /**
-   * Restringe i bersagli ammessi dal `target_type` della magia, per il **primo** bersaglio. È qui che stanno le
-   * regole che dipendono dall'effetto e non dal tipo di bersaglio (il re non si può distruggere).
-   */
-  allowsTarget?(piece: PlacedPiece | undefined): boolean;
 }
 
 function intParam(params: Record<string, unknown>, key: string, fallback: number): number {
@@ -54,8 +48,8 @@ function intParam(params: Record<string, unknown>, key: string, fallback: number
   return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : fallback;
 }
 
-/** I `kind` prodotti dal server (`spells/spells.go:51-57`, porting in `mock-server/game/room.ts:307-372`). */
-export const EFFECT_KINDS = ['noop', 'destroy_piece', 'freeze_piece', 'shield_piece', 'draw_card', 'gain_mana', 'move_piece'] as const;
+/** I `kind` degli effetti del server (`spells/spells.go`, porting in `mock-server/game/room.ts`). */
+export const EFFECT_KINDS = ['destroy_piece', 'freeze_piece', 'shield_piece', 'draw_card', 'gain_mana', 'move_piece', 'summon_pawn'] as const;
 export type KnownEffectKind = (typeof EFFECT_KINDS)[number];
 
 const UNKNOWN_EFFECT: EffectPresentation = {
@@ -66,38 +60,36 @@ const UNKNOWN_EFFECT: EffectPresentation = {
 };
 
 const EFFECTS: Record<KnownEffectKind, EffectPresentation> = {
-  noop: {
-    icon: 'spark',
-    art: ART.quiet,
-    label: (t) => t('spells.effect.noop.label'),
-    describe: (t) => t('spells.effect.noop.text'),
-  },
   destroy_piece: {
     icon: 'burst',
     art: ART.doom,
     label: (t) => t('spells.effect.destroy_piece.label'),
     describe: (t) => t('spells.effect.destroy_piece.text'),
-    // `effects.go:181-209` (porting `mock-server/game/fen.ts:107`): il re non si distrugge.
-    allowsTarget: (piece) => piece !== undefined && piece.kind !== 'king',
   },
   freeze_piece: {
     icon: 'frost',
     art: ART.frost,
     label: (t) => t('spells.effect.freeze_piece.label'),
-    describe: (t, params) => t('spells.effect.freeze_piece.text', { turns: intParam(params, 'turns', 1) }),
+    describe: (t, params) => {
+      const count = intParam(params, 'duration', 1);
+      return t(count === 1 ? 'spells.effect.freeze_piece.textOne' : 'spells.effect.freeze_piece.textMany', { count });
+    },
   },
   shield_piece: {
     icon: 'shield',
     art: ART.gold,
     label: (t) => t('spells.effect.shield_piece.label'),
-    describe: (t, params) => t('spells.effect.shield_piece.text', { turns: intParam(params, 'turns', 1) }),
+    describe: (t, params) => {
+      const count = intParam(params, 'duration', 1);
+      return t(count === 1 ? 'spells.effect.shield_piece.textOne' : 'spells.effect.shield_piece.textMany', { count });
+    },
   },
   draw_card: {
     icon: 'card',
     art: ART.arcane,
     label: (t) => t('spells.effect.draw_card.label'),
     describe: (t, params) => {
-      const count = intParam(params, 'count', 1);
+      const count = intParam(params, 'amount', 1);
       return t(count === 1 ? 'spells.effect.draw_card.textOne' : 'spells.effect.draw_card.textMany', { count });
     },
   },
@@ -114,7 +106,18 @@ const EFFECTS: Record<KnownEffectKind, EffectPresentation> = {
     icon: 'arrow',
     art: ART.leap,
     label: (t) => t('spells.effect.move_piece.label'),
-    describe: (t) => t('spells.effect.move_piece.text'),
+    // Con `relative` il server calcola l'arrivo: il pezzo avanza di `squares` case (`game/room.go`, moveEndpoints).
+    describe: (t, params) => {
+      if (params['relative'] !== 'forward') return t('spells.effect.move_piece.text');
+      const count = intParam(params, 'squares', 1);
+      return t(count === 1 ? 'spells.effect.move_piece.forwardOne' : 'spells.effect.move_piece.forwardMany', { count });
+    },
+  },
+  summon_pawn: {
+    icon: 'spark',
+    art: ART.gold,
+    label: (t) => t('spells.effect.summon_pawn.label'),
+    describe: (t, params) => t('spells.effect.summon_pawn.text', { max: intParam(params, 'max_pawns', 8) }),
   },
 };
 
@@ -130,11 +133,6 @@ export function effectPresentation(kind: string): EffectPresentation {
 /** Testo di regole di una magia: una riga per effetto, nell'ordine del catalogo. */
 export function spellRulesText(t: TFunction, effects: readonly SpellEffect[]): string[] {
   return effects.map((effect) => effectPresentation(effect.kind).describe(t, effect.params));
-}
-
-/** Filtro dei bersagli imposto dagli effetti della magia (intersezione: tutti devono accettare). */
-export function effectsAllowTarget(effects: readonly SpellEffect[], piece: PlacedPiece | undefined): boolean {
-  return effects.every((effect) => effectPresentation(effect.kind).allowsTarget?.(piece) ?? true);
 }
 
 // ---------------------------------------------------------------------------------------------------

@@ -199,7 +199,7 @@ describe('schermata di partita contro il mock', () => {
   );
 
   it(
-    'magie dalla mano: tutti gli effetti, cast in main1 e main2, targeting annullabile, Teleport non avanza la fase',
+    'magie dalla mano: tutti gli effetti, cast in main1 e main2, targeting annullabile, Blink non avanza la fase',
     async () => {
       const { session } = await startMatch('spellbook', 'ui_spellbook');
       const seen = new Set<string>();
@@ -207,46 +207,49 @@ describe('schermata di partita contro il mock', () => {
       await waitFor(() => expect(turnOf(session).phase).toBe('main1'), { timeout: 10_000 });
 
       // Targeting annullabile: si apre la scelta del bersaglio e si annulla con Esc, senza mandare nulla.
-      await waitFor(() => expect(cardOf('teleport')?.getAttribute('aria-disabled')).toBe('false'), { timeout: 10_000 });
-      fireEvent.click(cardOf('teleport') as HTMLButtonElement);
-      expect(document.querySelector('[data-hint-box="panel"]')?.textContent).toContain('Teleport · 3 mana');
+      await waitFor(() => expect(cardOf('blink')?.getAttribute('aria-disabled')).toBe('false'), { timeout: 10_000 });
+      fireEvent.click(cardOf('blink') as HTMLButtonElement);
+      expect(document.querySelector('[data-hint-box="panel"]')?.textContent).toContain('Blink · 4 mana');
       fireEvent.keyDown(document, { key: 'Escape' });
       await waitFor(() => expect(document.querySelector('[data-hint-box="panel"]')?.getAttribute('data-mode')).not.toBe('casting'));
       expect(session.match.getState().lastCast).toBeNull();
 
-      // main1: congela, protegge, distrugge.
-      await cast(session, 'frostbolt', ['e7']);
-      await cast(session, 'aegis', ['e2']);
-      await cast(session, 'disintegrate', ['b8']);
+      // main1: Brina → Frantumare, scudo, Patto di sangue.
+      await cast(session, 'frost', ['e7']);
       expect(square('e7').getAttribute('aria-label')).toContain('Congelato');
+      await cast(session, 'shatter', ['e7']);
+      await cast(session, 'shield', ['e2']);
+      await cast(session, 'blood_pact', ['a2']);
+      expect(square('e7').getAttribute('aria-label')).toBe('e7');
       expect(square('e2').getAttribute('aria-label')).toContain('Protetto');
-      expect(square('b8').getAttribute('aria-label')).toBe('b8');
+      expect(square('a2').getAttribute('aria-label')).toBe('a2');
 
       // In fase di mossa le carte restano visibili, spente, col motivo nell'etichetta (D5).
       fireEvent.click(passButton());
       await waitFor(() => expect(turnOf(session).phase).toBe('move'), { timeout: 10_000 });
-      expect(cardOf('spark')?.getAttribute('aria-disabled')).toBe('true');
-      expect(cardOf('spark')?.getAttribute('aria-label')).toContain('Non puoi lanciare magie in questa fase');
+      expect(cardOf('ice_chain')?.getAttribute('aria-disabled')).toBe('true');
+      expect(cardOf('ice_chain')?.getAttribute('aria-label')).toContain('Non puoi lanciare magie in questa fase');
 
       // L'effetto segue il pezzo: lo scudo era su e2, il pedone va in e4.
       fireEvent.click(square('e2'));
       fireEvent.click(square('e4'));
       await waitFor(() => expect(square('e4').getAttribute('aria-label')).toContain('Protetto'), { timeout: 10_000 });
 
-      // main2: si casta anche qui.
+      // main2: si casta anche qui. Marcia forzata calcola da sé la casa d'arrivo; Leva militare evoca un pedone.
       await waitFor(() => expect(turnOf(session).phase).toBe('main2'), { timeout: 10_000 });
-      await cast(session, 'spark', []);
+      await cast(session, 'forced_march', ['d2']);
+      expect(square('d3').getAttribute('aria-label')).toBe('d3, pedone Bianco');
+      await cast(session, 'conscription', ['a2']);
+      expect(square('a2').getAttribute('aria-label')).toBe('a2, pedone Bianco');
 
-      // Turno successivo: Teleport sposta un pezzo senza consumare la mossa, quindi la fase resta main1.
-      fireEvent.click(passButton());
+      // Senza mana la main2 si chiude da sola. Al turno dopo Blink sposta un pezzo senza consumare la mossa.
       await waitFor(() => expect(turnOf(session).mine && turnOf(session).phase === 'main1').toBe(true), { timeout: 20_000 });
-      await cast(session, 'teleport', ['b1', 'a3']);
+      await cast(session, 'blink', ['b1', 'a3']);
       expect(turnOf(session).phase).toBe('main1');
       expect(square('a3').getAttribute('aria-label')).toBe('a3, cavallo Bianco');
-      await cast(session, 'insight', []);
-      await cast(session, 'channel', []);
+      await cast(session, 'royal_shield', ['d1']);
 
-      expect([...seen].sort()).toEqual(['destroy_piece', 'draw_card', 'freeze_piece', 'gain_mana', 'move_piece', 'noop', 'shield_piece']);
+      expect([...seen].sort()).toEqual(['destroy_piece', 'freeze_piece', 'gain_mana', 'move_piece', 'shield_piece', 'summon_pawn']);
     },
     90_000,
   );

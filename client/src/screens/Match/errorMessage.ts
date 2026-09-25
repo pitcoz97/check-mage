@@ -1,6 +1,6 @@
 import type { TFunction } from 'i18next';
 
-import type { ProtocolErrorInfo } from '../../game/model';
+import type { Color, ProtocolErrorInfo } from '../../game/model';
 import type { PickupRefusal } from '../../game/board/selection';
 
 /**
@@ -13,8 +13,36 @@ function phaseName(t: TFunction, phase: ProtocolErrorInfo['phase']): string {
   return t(`match.phase.${phase ?? 'unknown'}`);
 }
 
-export function protocolErrorMessage(t: TFunction, info: ProtocolErrorInfo): string {
+/** Motivi di `invalid_target` che il client sa spiegare (`effects/targets.go`); gli altri restano generici. */
+const TARGET_REASONS = [
+  'off_board',
+  'duplicate',
+  'not_empty',
+  'no_piece',
+  'wrong_owner',
+  'king',
+  'piece_kind',
+  'missing_effect',
+  'too_far',
+  'rank',
+  'max_pawns',
+  'promotion',
+] as const;
+type TargetReason = (typeof TARGET_REASONS)[number];
+
+function isTargetReason(reason: string | null): reason is TargetReason {
+  return reason !== null && (TARGET_REASONS as readonly string[]).includes(reason);
+}
+
+/** `myColor` distingue lo scacco al proprio re da quello dato all'avversario (`illegal_position`). */
+export function protocolErrorMessage(t: TFunction, info: ProtocolErrorInfo, myColor: Color | null = null): string {
+  if (info.code === 'invalid_target' && isTargetReason(info.reason)) return t(`match.error.target.${info.reason}`);
+  if (info.code === 'illegal_position' && info.king !== null && myColor !== null) {
+    return t(info.king === myColor ? 'match.error.illegalPositionOwnKing' : 'match.error.illegalPositionCheck');
+  }
+  if (info.code === 'limit_reached' && info.perTurn === 1) return t('match.error.limitReachedOnce');
   const params = {
+    perTurn: info.perTurn ?? 0,
     phase: phaseName(t, info.phase),
     square: info.square ?? '',
     needed: info.needed ?? 0,
