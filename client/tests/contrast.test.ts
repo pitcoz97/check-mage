@@ -61,6 +61,32 @@ const TEXT_ON_COLOR: readonly [string, string][] = [
   ['bg-app', 'bg-parchment'],
 ];
 
+/** Testi della carta magia (componente Carta del design). */
+const CARD_TEXT: readonly [string, string][] = [
+  ['text-primary', 'bg-elevated'],
+  ['card-type-text', 'bg-elevated'],
+  ['text-on-gold', 'gold'],
+  ['text-on-parchment', 'bg-parchment'],
+];
+
+/** Un token `rgba(r, g, b, a)`. */
+function rgbaToken(name: string): { rgb: [number, number, number]; alpha: number } {
+  const match = new RegExp(`--${name}:\\s*rgba\\(([^)]+)\\);`).exec(ROOT);
+  const parts = match?.[1]?.split(',').map((part) => Number(part.trim()));
+  if (parts?.length !== 4) throw new Error(`token --${name} non è un rgba`);
+  const [r, g, b, alpha] = parts as [number, number, number, number];
+  return { rgb: [r, g, b], alpha };
+}
+
+/** Colore visto attraverso un velo semitrasparente (composizione in sRGB, come fa il browser). */
+function blend(hex: string, veil: { rgb: [number, number, number]; alpha: number }): string {
+  const channels = [1, 3, 5].map((i, index) => {
+    const base = parseInt(hex.slice(i, i + 2), 16);
+    return Math.round(base * (1 - veil.alpha) + (veil.rgb[index] ?? 0) * veil.alpha);
+  });
+  return `#${channels.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+}
+
 describe('contrasto dei token (AA, 4.5:1)', () => {
   it.each(TEXT_ON_DARK.flatMap(([text, surfaces]) => surfaces.map((surface) => [text, surface] as const)))(
     '%s su %s',
@@ -71,6 +97,12 @@ describe('contrasto dei token (AA, 4.5:1)', () => {
 
   it.each(TEXT_ON_COLOR)('%s su %s', (text, surface) => {
     expect(contrast(token(text), token(surface))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(CARD_TEXT)('carta: %s su %s, anche sotto il velo della carta non giocabile (D5)', (text, surface) => {
+    expect(contrast(token(text), token(surface))).toBeGreaterThanOrEqual(4.5);
+    const veil = rgbaToken('card-disabled-veil');
+    expect(contrast(blend(token(text), veil), blend(token(surface), veil))).toBeGreaterThanOrEqual(4.5);
   });
 
   it('il colore spento del design (#7F786E) non passerebbe: la correzione è necessaria', () => {

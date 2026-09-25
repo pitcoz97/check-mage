@@ -227,10 +227,14 @@ export const it = {
     unknownSpell: 'Magia sconosciuta',
     cast: 'Lancia',
     casting: 'Lancio in corso…',
+    card: {
+      type: 'Magia · {{kind}}',
+      typePlain: 'Magia',
+      label: '{{name}}, costo {{cost}}',
+    },
     targeting: {
       title: 'Bersaglio per {{name}}',
-      cancel: 'Annulla',
-      cancelHint: 'Esc per annullare',
+      cancelHint: 'Tocca di nuovo la carta o premi Esc per annullare',
     },
     castByYou: 'Hai lanciato {{name}}: {{effects}}',
     castByOpponent: 'L’avversario ha lanciato {{name}}: {{effects}}',
@@ -278,6 +282,7 @@ export const it = {
     dev: {
       title: 'Catalogo magie',
       source: 'Sorgente: {{source}} — {{count}} magie',
+      hand: 'Mano a ventaglio',
       stateLabel: 'Stato delle carte',
       state: {
         playable: 'Giocabile',

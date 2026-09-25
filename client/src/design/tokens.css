@@ -92,13 +92,34 @@
     0 3px 5px rgba(0, 0, 0, 0.35);
   --piece-dark-outline: 0 1px 0 rgba(245, 239, 226, 0.55), 0 -1px 0 rgba(245, 239, 226, 0.35), 0 3px 5px rgba(0, 0, 0, 0.35);
 
-  /* --- Layer magie (valori ponte: carta e mana si ridisegnano in R3/R4) --- */
+  /* --- Mana (valori ponte: la barra si ridisegna in R4) --- */
   --mana-full: var(--gold);
   --mana-empty: #3d3945;
-  --spell-frame: var(--gold);
-  --effect-freeze: #7fc8e0;
-  --effect-shield: var(--gold);
-  --effect-doom: #ffd9a0;
+
+  /* --- Carta magia (componente Carta del design) --- */
+  --card-frame: #15131a;
+  --card-inner: #2b2731;
+  --card-type-text: #d6cfc2;
+  --rarity-common: #8c8577;
+  --rarity-rare: var(--gold);
+  --rarity-mythic: #e0703e;
+  /* Carta non giocabile (D5): velo scuro invece della trasparenza. 30% è il massimo che tiene ogni testo della carta
+     sopra 4.5:1 (moneta del costo 4.6, riga del tipo 4.9): tests/contrast.test.ts lo verifica. */
+  --card-disabled-veil: rgba(27, 26, 31, 0.3);
+  /* Arte per kind di effetto: fondo e colore dell'icona. Salto, gelo, scudo e fulmine sono del design; pesca, mana e
+     "nessun effetto" ne riusano la palette (D20). */
+  --art-leap: #3b3556;
+  --art-frost: #24485a;
+  --art-gold: #4a3c22;
+  --art-arcane: #3a2f58;
+  --art-doom: #5a2e24;
+  --art-quiet: #2f2b35;
+  --art-ink-gold: var(--gold-bright);
+  --art-ink-frost: #bfe6f3;
+  --art-ink-arcane: var(--arcane-pale);
+  --art-ink-doom: #ffd9a0;
+  --art-ink-quiet: var(--text-tertiary);
+  --art-ring: rgba(242, 211, 138, 0.28);
 
   /* --- Ombre ed elevazione: bordo inferiore "3D", anelli di stato, aloni --- */
   --edge-play: inset 0 -4px 0 var(--play-edge);
@@ -111,6 +132,9 @@
   --ring-quiet: inset 0 0 0 1px var(--border-subtle);
   --ring-gold: inset 0 0 0 1.5px var(--gold);
   --glow-selected: 0 0 0 3px var(--arcane), 0 0 28px rgba(155, 123, 224, 0.7);
+  --glow-selected-sm: 0 0 0 2.5px var(--arcane), 0 0 22px rgba(155, 123, 224, 0.7);
+  --edge-coin: inset 0 -2px 0 var(--gold-edge), 0 0 0 1.5px var(--card-frame);
+  --ring-card-frame: 0 0 0 1.5px var(--card-frame);
   --glow-mana: 0 0 10px rgba(217, 168, 69, 0.55), inset 0 -2px 0 var(--gold-edge);
   --drop-card: 0 10px 24px rgba(0, 0, 0, 0.45);
   --drop-board: 0 12px 32px rgba(0, 0, 0, 0.45);

@@ -80,7 +80,9 @@ describe('router e layout shell', () => {
     expect(screen.getByText('Sorgente: server — 11 magie')).toBeTruthy();
     // Stato scelto dal selettore: con mana 0 resta giocabile solo la magia che costa 0.
     fireEvent.click(screen.getByRole('button', { name: 'Mana insufficiente' }));
-    expect([...document.querySelectorAll('[data-playable="true"]')].map((card) => card.getAttribute('data-card'))).toEqual(['channel']);
+    // La griglia e la mano a ventaglio mostrano le stesse carte: conta la griglia.
+    const grid = [...document.querySelectorAll('[data-playable="true"]')].filter((card) => card.closest('[data-hand]') === null);
+    expect(grid.map((card) => card.getAttribute('data-card'))).toEqual(['channel']);
   });
 
   it('/match senza una partita in corso → lobby (aprire il socket metterebbe in coda)', async () => {

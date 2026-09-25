@@ -151,10 +151,13 @@ describe('schermata di partita', () => {
     // Il catalogo arriva in modo asincrono: prima le carte non ci sono.
     const card = await waitFor(() => document.querySelector('[data-card="frostbolt"]') as HTMLButtonElement);
     expect(card.textContent).toContain('Frost Bolt');
-    // Nova costa 5 e il mana è 3: resta visibile, disabilitata, col motivo.
+    // Nova costa 5 e il mana è 3: resta visibile, spenta; il motivo è nell'etichetta e compare al tocco (D5).
     const nova = document.querySelector('[data-card="nova"]') as HTMLButtonElement;
-    expect(nova.disabled).toBe(true);
-    expect(nova.textContent).toContain('Servono 5 mana');
+    expect(nova.getAttribute('aria-disabled')).toBe('true');
+    expect(nova.getAttribute('aria-label')).toContain('Servono 5 mana');
+    fireEvent.click(nova);
+    expect(screen.getAllByText('Servono 5 mana.').length).toBeGreaterThan(0);
+    expect(sent()).toEqual([]);
     fireEvent.click(card);
 
     // Modalità targeting: la scacchiera evidenzia solo i pezzi avversari.
@@ -173,7 +176,7 @@ describe('schermata di partita', () => {
     expect(sent()).toHaveLength(1);
   });
 
-  it('il targeting si annulla con Esc, senza disturbare il server', async () => {
+  it('il targeting si annulla con Esc o con un secondo tocco sulla carta, senza disturbare il server', async () => {
     const { receive, sent } = await setup();
     receive(gameState({ phase: 'main1', white_mana: 5, white_max_mana: 5 }));
     receive({ type: 'hand', payload: { hand: ['frostbolt'], mana: 5, max_mana: 5, deck_size: 35 } });
@@ -183,6 +186,15 @@ describe('schermata di partita', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByText('Bersaglio per Frost Bolt')).toBeNull());
     expect(square('e7').dataset['castTarget']).toBe('false');
+    expect(sent()).toEqual([]);
+
+    // Secondo tocco sulla carta selezionata: annulla anche quello, senza pulsante (D8).
+    const card = document.querySelector('[data-card="frostbolt"]') as HTMLButtonElement;
+    fireEvent.click(card);
+    expect(card.dataset['selected']).toBe('true');
+    expect(screen.queryByRole('button', { name: 'Annulla' })).toBeNull();
+    fireEvent.click(card);
+    await waitFor(() => expect(screen.queryByText('Bersaglio per Frost Bolt')).toBeNull());
     expect(sent()).toEqual([]);
   });
 

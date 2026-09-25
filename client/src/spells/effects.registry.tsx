@@ -18,21 +18,27 @@ import type { SpellEffect } from './schema';
  * magia; più sotto i **kind di stato** (`freeze`), che descrivono cosa resta addosso al pezzo.
  */
 
-export type EffectTone = 'doom' | 'freeze' | 'shield' | 'mana' | 'arcane' | 'neutral';
+/**
+ * Arte della carta per kind di effetto: fondo e colore dell'icona (componente Carta del design). Classi intere,
+ * perché Tailwind le legge dal sorgente; i colori stanno in tokens.css.
+ */
+export interface EffectArt {
+  readonly bg: string;
+  readonly ink: string;
+}
 
-/** Classi di colore per tono: stringhe intere, perché Tailwind le legge dal sorgente. */
-export const TONE_TEXT: Record<EffectTone, string> = {
-  doom: 'text-effect-doom',
-  freeze: 'text-effect-freeze',
-  shield: 'text-effect-shield',
-  mana: 'text-mana-full',
-  arcane: 'text-spell-frame',
-  neutral: 'text-muted',
-};
+const ART = {
+  leap: { bg: 'bg-art-leap', ink: 'text-art-ink-gold' },
+  frost: { bg: 'bg-art-frost', ink: 'text-art-ink-frost' },
+  gold: { bg: 'bg-art-gold', ink: 'text-art-ink-gold' },
+  arcane: { bg: 'bg-art-arcane', ink: 'text-art-ink-arcane' },
+  doom: { bg: 'bg-art-doom', ink: 'text-art-ink-doom' },
+  quiet: { bg: 'bg-art-quiet', ink: 'text-art-ink-quiet' },
+} as const satisfies Record<string, EffectArt>;
 
 export interface EffectPresentation {
   readonly icon: EffectIconName;
-  readonly tone: EffectTone;
+  readonly art: EffectArt;
   label(t: TFunction): string;
   /** Testo di regole dell'effetto, costruito dai `params` del catalogo. */
   describe(t: TFunction, params: Record<string, unknown>): string;
@@ -54,7 +60,7 @@ export type KnownEffectKind = (typeof EFFECT_KINDS)[number];
 
 const UNKNOWN_EFFECT: EffectPresentation = {
   icon: 'question',
-  tone: 'neutral',
+  art: ART.quiet,
   label: (t) => t('spells.effect.unknown.label'),
   describe: (t) => t('spells.effect.unknown.text'),
 };
@@ -62,13 +68,13 @@ const UNKNOWN_EFFECT: EffectPresentation = {
 const EFFECTS: Record<KnownEffectKind, EffectPresentation> = {
   noop: {
     icon: 'spark',
-    tone: 'neutral',
+    art: ART.quiet,
     label: (t) => t('spells.effect.noop.label'),
     describe: (t) => t('spells.effect.noop.text'),
   },
   destroy_piece: {
     icon: 'burst',
-    tone: 'doom',
+    art: ART.doom,
     label: (t) => t('spells.effect.destroy_piece.label'),
     describe: (t) => t('spells.effect.destroy_piece.text'),
     // `effects.go:181-209` (porting `mock-server/game/fen.ts:107`): il re non si distrugge.
@@ -76,19 +82,19 @@ const EFFECTS: Record<KnownEffectKind, EffectPresentation> = {
   },
   freeze_piece: {
     icon: 'frost',
-    tone: 'freeze',
+    art: ART.frost,
     label: (t) => t('spells.effect.freeze_piece.label'),
     describe: (t, params) => t('spells.effect.freeze_piece.text', { turns: intParam(params, 'turns', 1) }),
   },
   shield_piece: {
     icon: 'shield',
-    tone: 'shield',
+    art: ART.gold,
     label: (t) => t('spells.effect.shield_piece.label'),
     describe: (t, params) => t('spells.effect.shield_piece.text', { turns: intParam(params, 'turns', 1) }),
   },
   draw_card: {
     icon: 'card',
-    tone: 'arcane',
+    art: ART.arcane,
     label: (t) => t('spells.effect.draw_card.label'),
     describe: (t, params) => {
       const count = intParam(params, 'count', 1);
@@ -97,7 +103,7 @@ const EFFECTS: Record<KnownEffectKind, EffectPresentation> = {
   },
   gain_mana: {
     icon: 'crystal',
-    tone: 'mana',
+    art: ART.gold,
     label: (t) => t('spells.effect.gain_mana.label'),
     describe: (t, params) => {
       const amount = intParam(params, 'amount', 1);
@@ -106,7 +112,7 @@ const EFFECTS: Record<KnownEffectKind, EffectPresentation> = {
   },
   move_piece: {
     icon: 'arrow',
-    tone: 'arcane',
+    art: ART.leap,
     label: (t) => t('spells.effect.move_piece.label'),
     describe: (t) => t('spells.effect.move_piece.text'),
   },

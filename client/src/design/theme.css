@@ -58,10 +58,25 @@
 
   --color-mana-full: var(--mana-full);
   --color-mana-empty: var(--mana-empty);
-  --color-spell-frame: var(--spell-frame);
-  --color-effect-freeze: var(--effect-freeze);
-  --color-effect-shield: var(--effect-shield);
-  --color-effect-doom: var(--effect-doom);
+  --color-card-frame: var(--card-frame);
+  --color-card-inner: var(--card-inner);
+  --color-card-type: var(--card-type-text);
+  --color-rarity-common: var(--rarity-common);
+  --color-rarity-rare: var(--rarity-rare);
+  --color-rarity-mythic: var(--rarity-mythic);
+  --color-card-disabled: var(--card-disabled-veil);
+  --color-art-leap: var(--art-leap);
+  --color-art-frost: var(--art-frost);
+  --color-art-gold: var(--art-gold);
+  --color-art-arcane: var(--art-arcane);
+  --color-art-doom: var(--art-doom);
+  --color-art-quiet: var(--art-quiet);
+  --color-art-ink-gold: var(--art-ink-gold);
+  --color-art-ink-frost: var(--art-ink-frost);
+  --color-art-ink-arcane: var(--art-ink-arcane);
+  --color-art-ink-doom: var(--art-ink-doom);
+  --color-art-ink-quiet: var(--art-ink-quiet);
+  --color-art-ring: var(--art-ring);
 
   --shadow-*: initial;
   --shadow-edge-play: var(--edge-play);
@@ -74,6 +89,9 @@
   --shadow-ring-quiet: var(--ring-quiet);
   --shadow-ring-gold: var(--ring-gold);
   --shadow-glow-selected: var(--glow-selected);
+  --shadow-glow-selected-sm: var(--glow-selected-sm);
+  --shadow-edge-coin: var(--edge-coin);
+  --shadow-ring-card-frame: var(--ring-card-frame);
   --shadow-glow-mana: var(--glow-mana);
   --shadow-card: var(--drop-card);
   --shadow-board: var(--drop-board);

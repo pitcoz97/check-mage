@@ -224,10 +224,14 @@ export const en: Translation = {
     unknownSpell: 'Unknown spell',
     cast: 'Cast',
     casting: 'Casting…',
+    card: {
+      type: 'Spell · {{kind}}',
+      typePlain: 'Spell',
+      label: '{{name}}, cost {{cost}}',
+    },
     targeting: {
       title: 'Target for {{name}}',
-      cancel: 'Cancel',
-      cancelHint: 'Esc to cancel',
+      cancelHint: 'Tap the card again or press Esc to cancel',
     },
     castByYou: 'You cast {{name}}: {{effects}}',
     castByOpponent: 'The opponent cast {{name}}: {{effects}}',
@@ -273,6 +277,7 @@ export const en: Translation = {
     dev: {
       title: 'Spell catalogue',
       source: 'Source: {{source}} — {{count}} spells',
+      hand: 'Fanned hand',
       stateLabel: 'Card state',
       state: {
         playable: 'Playable',

@@ -155,7 +155,7 @@ const passButton = () => screen.getAllByRole('button', { name: 'Passa fase' })[0
 
 /** Lancia una magia dalla mano: tap sulla carta, tap sui bersagli, e si aspetta lo `spell_cast` del server. */
 async function cast(session: Session, spellId: string, targets: readonly string[]): Promise<void> {
-  await waitFor(() => expect(cardOf(spellId)?.disabled).toBe(false), { timeout: 10_000 });
+  await waitFor(() => expect(cardOf(spellId)?.getAttribute('aria-disabled')).toBe('false'), { timeout: 10_000 });
   fireEvent.click(cardOf(spellId) as HTMLButtonElement);
   for (const target of targets) fireEvent.click(square(target));
   await waitFor(() => expect(session.match.getState().lastCast?.spellId).toBe(spellId), { timeout: 10_000 });
@@ -207,7 +207,7 @@ describe('schermata di partita contro il mock', () => {
       await waitFor(() => expect(turnOf(session).phase).toBe('main1'), { timeout: 10_000 });
 
       // Targeting annullabile: si apre la scelta del bersaglio e si annulla con Esc, senza mandare nulla.
-      await waitFor(() => expect(cardOf('teleport')?.disabled).toBe(false), { timeout: 10_000 });
+      await waitFor(() => expect(cardOf('teleport')?.getAttribute('aria-disabled')).toBe('false'), { timeout: 10_000 });
       fireEvent.click(cardOf('teleport') as HTMLButtonElement);
       expect(screen.getAllByText('Bersaglio per Teleport').length).toBeGreaterThan(0);
       fireEvent.keyDown(document, { key: 'Escape' });
@@ -222,11 +222,11 @@ describe('schermata di partita contro il mock', () => {
       expect(square('e2').getAttribute('aria-label')).toContain('Protetto');
       expect(square('b8').getAttribute('aria-label')).toBe('b8');
 
-      // In fase di mossa le carte restano visibili, disabilitate col motivo.
+      // In fase di mossa le carte restano visibili, spente, col motivo nell'etichetta (D5).
       fireEvent.click(passButton());
       await waitFor(() => expect(turnOf(session).phase).toBe('move'), { timeout: 10_000 });
-      expect(cardOf('spark')?.disabled).toBe(true);
-      expect(cardOf('spark')?.textContent).toContain('Non puoi lanciare magie in questa fase');
+      expect(cardOf('spark')?.getAttribute('aria-disabled')).toBe('true');
+      expect(cardOf('spark')?.getAttribute('aria-label')).toContain('Non puoi lanciare magie in questa fase');
 
       // L'effetto segue il pezzo: lo scudo era su e2, il pedone va in e4.
       fireEvent.click(square('e2'));

@@ -9,6 +9,7 @@ import { Panel } from '../../design/components/Panel';
 import { Spinner } from '../../design/components/Spinner';
 import { useCatalog } from '../../spells/CatalogProvider';
 import { effectPresentation } from '../../spells/effects.registry';
+import { cardRefusalMessage } from '../../spells/playability';
 import { useMatch, useMatchSession, useSessionStatus } from '../../store/MatchProvider';
 import type { GameOutcome } from '../../store/matchStore';
 import { useCasting, type Casting } from './useCasting';
@@ -129,7 +130,8 @@ function effectSquares(effect: AppliedEffect): Square[] {
 }
 
 /** La mano del giocatore, con il catalogo caricato all'ingresso in partita. */
-function PlayerHand({ casting }: { casting: Casting }) {
+function PlayerHand({ casting, onRefused }: { casting: Casting; onRefused(message: string): void }) {
+  const { t } = useTranslation();
   const byId = useCatalog((s) => s.byId);
   const loading = useCatalog((s) => s.status !== 'ready');
   const hand = useMatch((s) => s.hand);
@@ -156,11 +158,14 @@ function PlayerHand({ casting }: { casting: Casting }) {
       selectedInstanceId={casting.selectedInstanceId}
       loading={loading}
       onPick={casting.pick}
+      onCancel={casting.cancel}
+      // La carta spenta non porta scritto il motivo (D5): lo dice il tocco.
+      onRefused={(refusal, spell) => onRefused(cardRefusalMessage(t, refusal, spell))}
     />
   );
 }
 
-/** Barra della modalità targeting: cosa si sta lanciando, cosa scegliere, come annullare. */
+/** Barra della modalità targeting: cosa si sta lanciando, cosa scegliere, come annullare (senza pulsante, D8). */
 function TargetingBar({ casting }: { casting: Casting }) {
   const { t } = useTranslation();
   if (casting.spellName === null) return null;
@@ -168,10 +173,7 @@ function TargetingBar({ casting }: { casting: Casting }) {
     <Panel role="status" data-targeting className="flex flex-wrap items-center gap-2 px-3 py-2 text-14">
       <span className="font-semibold">{t('spells.targeting.title', { name: casting.spellName })}</span>
       <span className="text-muted">{casting.prompt}</span>
-      <Button variant="secondary" className="ml-auto" onClick={casting.cancel}>
-        {t('spells.targeting.cancel')}
-      </Button>
-      <span className="text-12 text-muted">{t('spells.targeting.cancelHint')}</span>
+      <span className="ml-auto text-12 text-muted">{t('spells.targeting.cancelHint')}</span>
     </Panel>
   );
 }
@@ -208,7 +210,7 @@ function MatchScreen() {
         )
       }
       self={<PlayerPanel side="self" />}
-      hand={outcome === null ? <PlayerHand casting={casting} /> : null}
+      hand={outcome === null ? <PlayerHand casting={casting} onRefused={notice.show} /> : null}
     />
   );
 }
