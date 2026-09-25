@@ -157,7 +157,7 @@ export function Board({
     <div
       role="grid"
       aria-label={t('match.board')}
-      className="grid aspect-square w-full grid-cols-8 grid-rows-8 touch-none overflow-hidden rounded-sm select-none"
+      className="grid aspect-square w-full grid-cols-8 grid-rows-8 touch-none overflow-hidden rounded-8 select-none"
     >
       {squares.map((square) => {
         const piece = pieceOn.get(square);

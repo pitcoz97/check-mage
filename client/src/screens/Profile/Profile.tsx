@@ -70,19 +70,19 @@ export function Profile() {
   return (
     <div className="flex flex-col gap-4">
       <Panel className="flex flex-col gap-4 p-6">
-        <h1 className="text-xl font-bold">{account.username}</h1>
+        <h1 className="text-28 font-bold">{account.username}</h1>
         <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
-            <dt className="text-sm text-muted">{t('profile.elo')}</dt>
-            <dd className="text-lg font-semibold">{account.elo}</dd>
+            <dt className="text-14 text-muted">{t('profile.elo')}</dt>
+            <dd className="text-20 font-semibold">{account.elo}</dd>
           </div>
           <div>
-            <dt className="text-sm text-muted">{t('profile.email')}</dt>
+            <dt className="text-14 text-muted">{t('profile.email')}</dt>
             <dd className="break-all">{account.email}</dd>
           </div>
           {joined !== null && !Number.isNaN(joined.getTime()) && (
             <div>
-              <dt className="text-sm text-muted">{t('profile.memberSince')}</dt>
+              <dt className="text-14 text-muted">{t('profile.memberSince')}</dt>
               <dd>{joined.toLocaleDateString(i18n.language, DATE_FORMAT)}</dd>
             </div>
           )}
@@ -90,12 +90,12 @@ export function Profile() {
       </Panel>
 
       <Panel className="flex flex-col gap-3 p-6">
-        <h2 className="text-lg font-semibold">{t('profile.stats')}</h2>
+        <h2 className="text-20 font-semibold">{t('profile.stats')}</h2>
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {stats.map(([key, value]) => (
-            <div key={key} data-stat={key} className="rounded-md bg-elevated p-3 text-center">
-              <dt className="text-sm text-muted">{t(`profile.${key}`)}</dt>
-              <dd className="text-xl font-bold">{value}</dd>
+            <div key={key} data-stat={key} className="rounded-10 bg-elevated p-3 text-center">
+              <dt className="text-14 text-muted">{t(`profile.${key}`)}</dt>
+              <dd className="text-28 font-bold">{value}</dd>
             </div>
           ))}
         </dl>

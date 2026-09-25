@@ -86,9 +86,9 @@ function OutcomePanel({ outcome }: { outcome: GameOutcome }) {
   const myColor = useMatch((s) => s.myColor);
   return (
     <Panel role="status" className="flex flex-col gap-3 p-4">
-      <h2 className="text-lg font-bold">{t('match.over.title')}</h2>
+      <h2 className="text-20 font-bold">{t('match.over.title')}</h2>
       <p className="font-semibold">{t(`match.over.${outcomeHeadline(outcome, myColor)}`)}</p>
-      <p className="text-sm text-muted">{t(`match.over.reason.${outcome.reason}`)}</p>
+      <p className="text-14 text-muted">{t(`match.over.reason.${outcome.reason}`)}</p>
       <Button
         onClick={() => {
           session.leave();
@@ -165,13 +165,13 @@ function TargetingBar({ casting }: { casting: Casting }) {
   const { t } = useTranslation();
   if (casting.spellName === null) return null;
   return (
-    <Panel role="status" data-targeting className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+    <Panel role="status" data-targeting className="flex flex-wrap items-center gap-2 px-3 py-2 text-14">
       <span className="font-semibold">{t('spells.targeting.title', { name: casting.spellName })}</span>
       <span className="text-muted">{casting.prompt}</span>
       <Button variant="secondary" className="ml-auto" onClick={casting.cancel}>
         {t('spells.targeting.cancel')}
       </Button>
-      <span className="text-xs text-muted">{t('spells.targeting.cancelHint')}</span>
+      <span className="text-12 text-muted">{t('spells.targeting.cancelHint')}</span>
     </Panel>
   );
 }
@@ -187,7 +187,7 @@ function MatchScreen() {
         <>
           <ConnectionBanner />
           {notice.text !== null && outcome === null && (
-            <p role="status" aria-live="polite" className="bg-elevated px-4 py-2 text-center text-sm">
+            <p role="status" aria-live="polite" className="bg-elevated px-4 py-2 text-center text-14">
               {notice.text}
             </p>
           )}

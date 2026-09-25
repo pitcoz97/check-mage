@@ -1,6 +1,6 @@
 import type { HTMLAttributes } from 'react';
 
-/** Superficie silenziosa attorno alla scacchiera: pannelli, barre laterali, card. */
+/** Superficie piatta del design: pannelli, barre laterali, card. Nessun bordo né ombra, la separa il colore. */
 export function Panel({ className = '', ...rest }: HTMLAttributes<HTMLElement>) {
-  return <section className={`rounded-md border border-subtle bg-panel ${className}`} {...rest} />;
+  return <section className={`rounded-12 bg-panel ${className}`} {...rest} />;
 }

@@ -41,14 +41,14 @@ export function SpellCard({ spell, spellId, refusal, selected = false, onPick }:
       onClick={onPick}
       aria-label={name}
       className={[
-        'flex h-40 w-32 shrink-0 flex-col gap-1 rounded-md border-2 p-2 text-left',
+        'flex h-40 w-32 shrink-0 flex-col gap-1 rounded-10 border-2 p-2 text-left',
         // La carta spenta si distingue per superficie e cornice, non per opacità: il testo deve restare leggibile.
         playable ? 'border-spell-frame bg-elevated' : 'border-subtle bg-panel',
         selected ? 'outline outline-2 outline-offset-2 outline-accent' : '',
       ].join(' ')}
     >
       <span className="flex items-center gap-1">
-        <span className="flex items-center gap-0.5 rounded-sm bg-panel px-1 py-0.5 text-xs font-bold tabular-nums">
+        <span className="flex items-center gap-0.5 rounded-8 bg-panel px-1 py-0.5 text-12 font-bold tabular-nums">
           <EffectIcon name="crystal" className="size-3 text-mana-full" />
           {spell === undefined ? t('spells.costUnknown') : spell.manaCost}
         </span>
@@ -60,16 +60,16 @@ export function SpellCard({ spell, spellId, refusal, selected = false, onPick }:
         </span>
       </span>
 
-      <span className="font-spell text-sm leading-tight font-semibold break-words">{name}</span>
+      <span className="font-display text-14 leading-tight font-semibold break-words">{name}</span>
 
-      <span className="flex flex-col gap-0.5 text-xs leading-tight text-muted">
+      <span className="flex flex-col gap-0.5 text-12 leading-tight text-muted">
         {rules.map((line) => (
           <span key={line}>{line}</span>
         ))}
       </span>
 
       {refusal !== null && (
-        <span data-refusal className="mt-auto text-xs leading-tight font-semibold text-primary">
+        <span data-refusal className="mt-auto text-12 leading-tight font-semibold text-primary">
           {cardRefusalMessage(t, refusal, spell)}
         </span>
       )}

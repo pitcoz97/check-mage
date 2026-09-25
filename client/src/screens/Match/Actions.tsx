@@ -29,7 +29,7 @@ export function Actions() {
   if (drawOffer.incoming) {
     return (
       <Panel role="group" aria-label={t('match.actions')} className="flex flex-wrap items-center gap-2 p-3">
-        <span className="text-sm">{t('match.action.drawIncoming')}</span>
+        <span className="text-14">{t('match.action.drawIncoming')}</span>
         <Button disabled={!canAct} onClick={() => session.send({ type: 'draw_accepted' })}>
           {t('match.action.accept')}
         </Button>
@@ -50,7 +50,7 @@ export function Actions() {
       </Button>
       {confirmResign ? (
         <>
-          <span className="text-sm">{t('match.action.resignConfirm')}</span>
+          <span className="text-14">{t('match.action.resignConfirm')}</span>
           <Button
             variant="danger"
             onClick={() => {

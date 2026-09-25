@@ -31,14 +31,14 @@ export function ConnectionBanner() {
   if (since !== null) {
     const seconds = Math.ceil((RECONNECT_WINDOW_MS - Math.max(0, now - since)) / 1_000);
     return (
-      <div role="status" aria-live="polite" className="bg-elevated px-4 py-2 text-center text-sm font-semibold text-accent">
+      <div role="status" aria-live="polite" className="bg-elevated px-4 py-2 text-center text-14 font-semibold text-accent">
         {seconds > 0 ? t('match.connection.reconnecting', { seconds }) : t('match.connection.reconnectingLate')}
       </div>
     );
   }
   if (connection.kind === 'replaced') {
     return (
-      <div role="alert" className="flex flex-wrap items-center justify-center gap-3 bg-elevated px-4 py-2 text-sm">
+      <div role="alert" className="flex flex-wrap items-center justify-center gap-3 bg-elevated px-4 py-2 text-14">
         <span>{t('match.connection.replaced')}</span>
         <Button variant="secondary" onClick={() => session.resume()}>
           {t('match.connection.resumeHere')}
@@ -48,7 +48,7 @@ export function ConnectionBanner() {
   }
   if (connection.kind === 'unauthorized') {
     return (
-      <div role="alert" className="bg-elevated px-4 py-2 text-center text-sm text-danger">
+      <div role="alert" className="bg-elevated px-4 py-2 text-center text-14 text-danger">
         {t('match.connection.unauthorized')}
       </div>
     );

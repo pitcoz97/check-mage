@@ -51,7 +51,7 @@ export function MatchLayout(slots: MatchLayoutSlots) {
         <div data-region="self" className="flex flex-col gap-2 lg:col-start-1 lg:row-start-3">
           {slots.self}
           <details className="lg:hidden">
-            <summary className="flex min-h-[var(--hit-target)] cursor-pointer items-center text-sm font-semibold text-muted">
+            <summary className="flex min-h-[var(--hit-target)] cursor-pointer items-center text-14 font-semibold text-muted">
               {t('match.showHistory')}
             </summary>
             {slots.history}

@@ -46,7 +46,7 @@ export function PlayerPanel({ side }: { side: 'self' | 'opponent' }) {
     <Panel
       data-player={side}
       data-active={active}
-      className={`flex items-center gap-3 px-3 py-2 ${active ? 'border-accent' : ''}`}
+      className={`flex items-center gap-3 px-3 py-2 ${active ? 'shadow-ring-gold' : ''}`}
     >
       <span aria-hidden="true" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-elevated font-bold">
         {(player?.username ?? '?').slice(0, 1).toUpperCase()}
@@ -54,7 +54,7 @@ export function PlayerPanel({ side }: { side: 'self' | 'opponent' }) {
       <div className="flex min-w-0 flex-col">
         <span className="truncate font-semibold">{player?.username ?? t(side === 'self' ? 'match.you' : 'match.opponent')}</span>
         {mana !== null && <ManaBar current={mana[color].current} max={mana[color].max} />}
-        <span className="flex flex-wrap gap-2 text-xs text-muted">
+        <span className="flex flex-wrap gap-2 text-12 text-muted">
           <span>{t(color === 'white' ? 'match.colorWhite' : 'match.colorBlack')}</span>
           {elo !== null && <span>{t('match.panel.elo', { elo })}</span>}
           {handSizes !== null && <span>{t('match.panel.cards', { count: handSizes[color] })}</span>}
@@ -64,7 +64,7 @@ export function PlayerPanel({ side }: { side: 'self' | 'opponent' }) {
       <span
         data-clock={side}
         aria-label={t('match.panel.clock', { name: player?.username ?? '' })}
-        className={`ml-auto rounded-sm px-2 py-1 font-mono text-lg tabular-nums ${active ? 'bg-elevated' : ''} ${
+        className={`ml-auto rounded-8 px-2 py-1 font-mono text-20 tabular-nums ${active ? 'bg-elevated' : ''} ${
           remaining !== null && isLowTime(remaining) ? 'text-danger' : ''
         }`}
       >

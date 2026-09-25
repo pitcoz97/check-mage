@@ -24,11 +24,11 @@ export function MoveHistory() {
 
   return (
     <Panel className="flex h-full min-h-0 flex-col gap-2 p-3">
-      <h2 className="text-sm font-semibold text-muted">{t('match.history')}</h2>
+      <h2 className="text-14 font-semibold text-muted">{t('match.history')}</h2>
       {moves.length === 0 ? (
-        <p className="text-sm text-muted">{t('match.moveList.empty')}</p>
+        <p className="text-14 text-muted">{t('match.moveList.empty')}</p>
       ) : (
-        <ol data-history className="min-h-0 flex-1 overflow-y-auto font-mono text-sm tabular-nums">
+        <ol data-history className="min-h-0 flex-1 overflow-y-auto font-mono text-14 tabular-nums">
           {pairs(moves).map((row) => (
             <li key={row.number} className="flex gap-3">
               <span className="w-6 text-muted">{row.number}.</span>

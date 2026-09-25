@@ -17,7 +17,7 @@ export function ManaBar({ current, max, className = '' }: { current: number; max
           <EffectIcon key={index} name="crystal" className={`size-2.5 ${index < filled ? 'text-mana-full' : 'text-mana-empty'}`} />
         ))}
       </span>
-      <span aria-hidden="true" className="text-xs tabular-nums text-muted">
+      <span aria-hidden="true" className="text-12 tabular-nums text-muted">
         {t('spells.manaShort', { current, max })}
       </span>
     </span>

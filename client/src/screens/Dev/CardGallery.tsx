@@ -39,8 +39,8 @@ export function CardGallery() {
 
   return (
     <div className="safe-area mx-auto flex w-full max-w-7xl flex-col gap-4 p-4">
-      <h1 className="text-xl font-bold">{t('spells.dev.title')}</h1>
-      <Panel className="flex flex-wrap items-center gap-2 p-3 text-sm">
+      <h1 className="text-28 font-bold">{t('spells.dev.title')}</h1>
+      <Panel className="flex flex-wrap items-center gap-2 p-3 text-14">
         <span className="text-muted">{t('spells.dev.source', { source: source ?? '…', count: spells.length })}</span>
         <span role="group" aria-label={t('spells.dev.stateLabel')} className="ml-auto flex flex-wrap gap-2">
           {STATES.map((state) => (

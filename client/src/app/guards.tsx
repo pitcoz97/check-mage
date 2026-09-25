@@ -48,7 +48,7 @@ export function SessionGate() {
   if (status === 'unreachable') {
     return (
       <div className="safe-area flex min-h-full flex-col items-center justify-center gap-4 px-4 text-center">
-        <h1 className="text-xl font-bold">{t('session.unreachableTitle')}</h1>
+        <h1 className="text-28 font-bold">{t('session.unreachableTitle')}</h1>
         <p className="max-w-sm text-muted">{t('session.unreachableLead')}</p>
         <Button onClick={() => void bootstrap()}>{t('session.retry')}</Button>
       </div>

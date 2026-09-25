@@ -7,7 +7,7 @@ import { useAuth } from '../store/AuthProvider';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   [
-    'inline-flex min-h-[var(--hit-target)] items-center rounded-md px-3 text-sm font-semibold',
+    'inline-flex min-h-[var(--hit-target)] items-center rounded-10 px-3 text-14 font-semibold',
     isActive ? 'bg-elevated text-primary' : 'text-muted hover:text-primary',
   ].join(' ');
 
@@ -17,9 +17,9 @@ export function AppShell() {
   const logout = useAuth((s) => s.logout);
   return (
     <div className="safe-area flex min-h-full flex-col">
-      <header className="border-b border-subtle bg-panel">
+      <header className="border-b border-nav-border bg-nav">
         <div className="mx-auto flex min-h-[var(--header-height)] max-w-5xl flex-wrap items-center gap-2 px-4">
-          <Link to="/lobby" className="mr-auto text-lg font-bold text-primary">
+          <Link to="/lobby" className="mr-auto text-20 font-bold text-primary">
             {t('app.name')}
           </Link>
           <nav aria-label={t('nav.main')} className="flex items-center gap-1">

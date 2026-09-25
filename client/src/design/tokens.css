@@ -1,60 +1,137 @@
 /*
- * Token di design (briefing §6). È l'UNICO file del client che contiene valori di colore:
+ * Token di design. È l'UNICO file del client che contiene valori di colore:
  * tutto il resto li usa tramite queste variabili o le utility Tailwind collegate in theme.css.
+ *
+ * I valori vengono dal design in `design-reference/` (REDESIGN_PLAN.md §1). I nomi descrivono il ruolo, non il
+ * colore. Dove il design non disegna un elemento (errori, pericolo, focus) il valore è ricavato dalla sua palette
+ * (REDESIGN_PLAN.md §10, D20). `tests/contrast.test.ts` verifica le coppie testo/superficie.
  */
 
 :root {
   color-scheme: dark;
 
-  /* --- Chrome dell'interfaccia (linguaggio visivo chess.com) --- */
-  --bg-app: #302e2b;
-  --bg-panel: #262421;
-  --bg-elevated: #3a3835;
-  --border-subtle: #4a4844;
+  /* --- Superfici, dalla più scura --- */
+  --bg-nav: #141318; /* barre di navigazione */
+  --bg-app: #1b1a1f; /* Notte */
+  --bg-sunken: #1f1d24; /* campi, fasi future, controlli spenti */
+  --bg-panel: #26242b; /* Pietra: pannelli, card, chip */
+  --bg-quiet: #2f2b35; /* fasi passate, orologio inattivo */
+  --bg-elevated: #37313f; /* Ardesia: pulsante secondario, voce selezionata */
+  --bg-arcane: #3a2f58; /* viola scuro: fase corrente, selezione */
+  --bg-parchment: #ede6d6; /* Pergamena: orologio attivo, testo della carta */
 
-  --board-light: #eeeed2;
-  --board-dark: #769656;
+  --border-nav: #2a2730;
+  --border-subtle: #2f2b35;
+
+  /* --- Testo --- */
+  --text-primary: #ede8de;
+  --text-muted: #a59e92;
+  --text-tertiary: #bdb5a8;
+  /* Nel design #7F786E, che su #1F1D24 sta a 3.8:1: alzato del minimo per l'AA (D4). */
+  --text-faint: #928b81;
+  --text-on-play: #ffffff;
+  --text-on-gold: #1b1710;
+  --text-on-parchment: #2a241c;
+
+  /* --- Oro arcano: mana, rarità, accento dell'interfaccia --- */
+  --gold: #d9a845;
+  --gold-edge: #a57a26;
+  --gold-bright: #f2d38a;
+
+  /* --- Incanto: tutto ciò che è magia --- */
+  --arcane: #9b7be0;
+  --arcane-bright: #b9a2f0;
+  --arcane-pale: #d8c6ff;
+
+  /* --- Gioca: solo la CTA primaria e ciò che è "tuo e attivo" --- */
+  --play: #3a8230;
+  --play-edge: #265a1e;
+  --play-bright: #7fbf6a;
+
+  --elevated-edge: #26222c;
+
+  --accent: var(--gold);
+  --accent-hover: var(--gold-bright);
+
+  /* --- Non disegnati (D20). Pericolo: dalla carta "fulmine" del design. --- */
+  --danger: #ee7b6a;
+  --danger-surface: #5a2e24;
+  --danger-edge: #3f1f19;
+  --text-on-danger: #ffd9a0;
+
+  /* --- Scacchiera: tema arcano di default (D1); gli altri temi sotto --- */
+  --board-light: #dcd5e8;
+  --board-dark: #5e5578;
+  --board-last: rgba(246, 214, 72, 0.45);
+  /* Suggerimenti, selezione, scacco e lampeggio: valori precedenti al redesign, li ridisegna R2 (D3). */
   --board-hint: rgba(20, 85, 30, 0.5);
-  --board-last: rgba(255, 255, 51, 0.5);
   --board-check: #e02b2b;
   --board-select: rgba(255, 255, 51, 0.75);
-  /* Lampeggio della casella toccata da una magia: oro della carta, trasparente */
   --board-cast: rgba(201, 162, 39, 0.45);
 
-  /* Pezzi: set disegnato in casa (CREDITS.md), stessa forma per i due colori, contorno unico */
-  --piece-light: #f7f6f2;
-  --piece-dark: #2b2926;
-  --piece-edge: #16150f;
+  --piece-light: #fbf8f0;
+  --piece-dark: #1f1b17;
+  --piece-edge: #1a1714;
 
-  --accent: #81b64c;
-  --accent-hover: #a3d160;
-  --text-primary: #ffffff;
-  --text-muted: #b8b8b8;
-  --danger: #ca3431;
+  /* --- Layer magie (valori ponte: carta e mana si ridisegnano in R3/R4) --- */
+  --mana-full: var(--gold);
+  --mana-empty: #3d3945;
+  --spell-frame: var(--gold);
+  --effect-freeze: #7fc8e0;
+  --effect-shield: var(--gold);
+  --effect-doom: #ffd9a0;
 
-  /* --- Layer magie: palette separata, usata solo lì --- */
-  --mana-full: #3aa0e8;
-  --mana-empty: #1e3a52;
-  --spell-frame: #c9a227;
-  --effect-freeze: #7fd8f7;
-  --effect-shield: #f0d264;
-  --effect-doom: #b5479b;
+  /* --- Ombre ed elevazione: bordo inferiore "3D", anelli di stato, aloni --- */
+  --edge-play: inset 0 -4px 0 var(--play-edge);
+  --edge-play-lg: inset 0 -5px 0 var(--play-edge);
+  --edge-gold: inset 0 -3px 0 var(--gold-edge);
+  --edge-elevated: inset 0 -3px 0 var(--elevated-edge);
+  --edge-danger: inset 0 -3px 0 var(--danger-edge);
+  --ring-arcane: inset 0 0 0 2px var(--arcane);
+  --ring-play: 0 0 0 2px var(--play);
+  --ring-quiet: inset 0 0 0 1px var(--border-subtle);
+  --ring-gold: inset 0 0 0 1.5px var(--gold);
+  --glow-selected: 0 0 0 3px var(--arcane), 0 0 28px rgba(155, 123, 224, 0.7);
+  --glow-mana: 0 0 10px rgba(217, 168, 69, 0.55), inset 0 -2px 0 var(--gold-edge);
+  --drop-card: 0 10px 24px rgba(0, 0, 0, 0.45);
+  --drop-board: 0 12px 32px rgba(0, 0, 0, 0.45);
 
-  /* --- Tipografia: Montserrat per la chrome, Cinzel solo per il nome della magia --- */
-  --font-ui: 'Montserrat', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-spell-name: 'Cinzel', Georgia, serif;
-  --text-12: 0.75rem;
-  --text-14: 0.875rem;
-  --text-16: 1rem;
-  --text-20: 1.25rem;
-  --text-28: 1.75rem;
-  --text-40: 2.5rem;
+  /* --- Tipografia --- */
+  --family-ui: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --family-display: 'Cinzel', Georgia, serif;
+  --family-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
+  --family-pieces: 'CheckMage Pieces', 'Noto Sans Symbols 2', 'Segoe UI Symbol', serif;
+  --size-11: 0.6875rem;
+  --size-12: 0.75rem;
+  --size-13: 0.8125rem;
+  --size-14: 0.875rem;
+  --size-15: 0.9375rem;
+  --size-16: 1rem;
+  --size-18: 1.125rem;
+  --size-20: 1.25rem;
+  --size-22: 1.375rem;
+  --size-24: 1.5rem;
+  --size-28: 1.75rem;
+  --size-30: 1.875rem;
+  --size-32: 2rem;
+  --size-36: 2.25rem;
+  --size-46: 2.875rem;
+  --letter-label: 0.12em;
+  --letter-display: 0.03em;
 
   /* --- Interazione e forma --- */
-  --focus-ring: var(--accent-hover);
+  --focus-ring: var(--gold-bright);
   --hit-target: 44px;
-  --radius-chip: 4px;
-  --radius-control: 8px;
   --side-column: 320px;
   --header-height: 56px;
+}
+
+[data-board-theme='salvia'] {
+  --board-light: #e9dfc6;
+  --board-dark: #6f8a5e;
+}
+
+[data-board-theme='noce'] {
+  --board-light: #eadbc0;
+  --board-dark: #9a6f4c;
 }

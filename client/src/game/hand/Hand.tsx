@@ -27,8 +27,8 @@ export function Hand({ cards, spellOf, context, selectedInstanceId, loading = fa
   const { t } = useTranslation();
   return (
     <section data-hand aria-label={t('spells.hand')} className="flex items-stretch gap-2 overflow-x-auto p-1">
-      {loading && <p className="self-center px-2 text-sm text-muted">{t('spells.handLoading')}</p>}
-      {!loading && cards.length === 0 && <p className="self-center px-2 text-sm text-muted">{t('spells.handEmpty')}</p>}
+      {loading && <p className="self-center px-2 text-14 text-muted">{t('spells.handLoading')}</p>}
+      {!loading && cards.length === 0 && <p className="self-center px-2 text-14 text-muted">{t('spells.handEmpty')}</p>}
       {!loading &&
         cards.map((card) => {
           const spell = spellOf(card.spellId);

@@ -11,8 +11,8 @@
     margin: 0;
     background-color: var(--bg-app);
     color: var(--text-primary);
-    font-family: var(--font-ui);
-    font-size: var(--text-16);
+    font-family: var(--family-ui);
+    font-size: var(--size-16);
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }

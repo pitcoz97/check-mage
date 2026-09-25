@@ -17,7 +17,7 @@ export function PhaseTrack() {
   return (
     <Panel className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
       <h2 className="sr-only">{t('match.phases')}</h2>
-      <ol className="flex flex-wrap items-center gap-x-2 text-sm">
+      <ol className="flex flex-wrap items-center gap-x-2 text-14">
         {VISIBLE_PHASES.map((step) => (
           <li
             key={step}
@@ -29,7 +29,7 @@ export function PhaseTrack() {
           </li>
         ))}
       </ol>
-      <span className={`ml-auto text-sm ${mine ? 'font-semibold text-accent' : 'text-muted'}`}>
+      <span className={`ml-auto text-14 ${mine ? 'font-semibold text-accent' : 'text-muted'}`}>
         {t(mine ? 'match.turn.yours' : 'match.turn.opponent')}
       </span>
     </Panel>

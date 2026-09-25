@@ -38,17 +38,17 @@ export function Login() {
   return (
     <form className="flex flex-col gap-4" onSubmit={(e) => void onSubmit(e)} noValidate>
       <div className="flex flex-col gap-1">
-        <h1 className="text-lg font-bold">{t('auth.loginTitle')}</h1>
-        <p className="text-sm text-muted">{t('auth.loginLead')}</p>
+        <h1 className="text-20 font-bold">{t('auth.loginTitle')}</h1>
+        <p className="text-14 text-muted">{t('auth.loginLead')}</p>
       </div>
 
       {notice === 'session_expired' && error === null && (
-        <p role="status" className="rounded-md border border-subtle bg-elevated px-3 py-2 text-sm">
+        <p role="status" className="rounded-10 border border-subtle bg-elevated px-3 py-2 text-14">
           {t('session.expired')}
         </p>
       )}
       {state.accountCreated === true && error === null && (
-        <p role="status" className="rounded-md border border-subtle bg-elevated px-3 py-2 text-sm">
+        <p role="status" className="rounded-10 border border-subtle bg-elevated px-3 py-2 text-14">
           {t('auth.accountCreatedLoginFailed')}
         </p>
       )}
@@ -74,7 +74,7 @@ export function Login() {
       />
 
       {error !== null && (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="text-14 text-danger">
           {httpErrorMessage(t, error)}
         </p>
       )}
@@ -83,7 +83,7 @@ export function Login() {
         {submitting ? t('auth.submitting') : t('auth.submitLogin')}
       </Button>
 
-      <Link to="/register" className="inline-flex min-h-[var(--hit-target)] items-center text-sm font-semibold text-accent hover:text-accent-hover">
+      <Link to="/register" className="inline-flex min-h-[var(--hit-target)] items-center text-14 font-semibold text-accent hover:text-accent-hover">
         {t('auth.toRegister')}
       </Link>
     </form>
