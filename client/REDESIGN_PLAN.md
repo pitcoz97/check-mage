@@ -2,7 +2,7 @@
 
 Analisi del design in `design-reference/` rispetto al client attuale (branch `feat/redesign`, partito da `main` a
 `c9c4e22`). Le decisioni sui conflitti sono state prese il 2026-09-25 e sono nella **sezione 10**; il lavoro è diviso
-negli step R1–R6 della sezione 9.
+negli step R1–R6 della sezione 9, tutti fatti. L'esito e le differenze che restano sono nella **sezione 11**.
 
 **Regola adottata:** l'HTML del design è la fonte di verità per colori, tipografia, spaziature e layout. Restano
 validi i vincoli del progetto (CLAUDE.md, briefing): server autoritativo, nessuna informazione nascosta nel client,
@@ -424,7 +424,7 @@ Ogni step è a sé: piano breve → implementazione → verifica (test verdi e s
 | **R3 — Carta e mano** (fatto) | nuova carta (rarità comune di default, moneta del costo, arte per kind, riga del tipo, pergamena, stato scurito, nome che si riduce), icone a tratto, mano a ventaglio, annullo col tocco sulla carta | 3.3, F3, D5–D8 |
 | **R4 — Partita** (fatto) | layout desktop e Android (Menu con foglio), pannelli giocatore, orologio, fasi a pillole con "Turno N", mana a 10 rombi, box del suggerimento unico (targeting, avvisi, motivo della carta spenta, pezzi congelati), CTA con la fase successiva, schede Mosse (UCI) / Grimorio / Chat, magie nello storico | 3.4, F4–F8, F11, D16–D18, D21 |
 | **R5 — Shell e home** (fatto) | barra laterale / verticale / inferiore, home del design (Gioca con Classificata, card «Presto»), Partita in corso in background con miniatura live, Classifica, Impostazioni (tema, lingua, Esci), redirect solo coda → partita | 3.5, F14, F16, F18, D9–D15 |
-| **R6 — Parti senza design e chiusura** | tutto ciò che è nella sezione 6, nel linguaggio del design; Android sincronizzato; PROGRESS | 6, 8, D20 |
+| **R6 — Parti senza design e chiusura** (fatto) | tutto ciò che è nella sezione 6, nel linguaggio del design; Android sincronizzato; PROGRESS | 6, 8, D20 |
 
 ---
 
@@ -458,3 +458,32 @@ Ogni step è a sé: piano breve → implementazione → verifica (test verdi e s
 Conseguenze sui documenti, da applicare nello step che tocca il codice: ASSUMPTIONS C14 (oggi "motivo scritto sulla
 carta") cambia con D5 in R3; il briefing §6 ("Cinzel solo per il nome della magia") è superato dal design per la sola
 resa tipografica.
+
+---
+
+## 11. Esito (redesign completo)
+
+Tutti gli step R1–R6 sono fatti; le misure le ho confrontate via DOM con le tavole, nelle anteprime di sviluppo
+(`/dev/cards`, `/dev/board`, `/dev/match`, `/dev/home`), a 1440×900 e 390×844.
+
+**Coincide con le tavole:** palette, tipografia, raggi e ombre; scacchiera (casa, glifo, coordinate, stati, badge);
+carta (tutte le misure del componente); partita desktop e Android (righe, scacchiera, colonna laterale, fasi, mana,
+CTA, mano, barre); home desktop e Android (barra, card, CTA, riga di card).
+
+**Differenze che restano, volute o dichiarate:**
+- partita desktop: scacchiera a x 266 invece di 264 (centrata fra le colonne, la tavola usa posizioni fisse);
+- nomi delle fasi e tutti i testi: i nostri i18n, non quelli delle tavole;
+- testo spento #928B81 invece di #7F786E (D4) e carta spenta con un velo al 30% invece dell'opacità 0.55 (D5): AA;
+- funzioni senza backend (modalità, mazzi, collezione, amici, notifiche, chat) visibili ma «Presto», senza dati finti
+  (D9); cadenze e riga del mazzo assenti (D9, D10); variazione dell'ELO, stagione e nome del mazzo omessi (D10);
+- rarità: tutte le carte con la cornice comune finché il catalogo non la manda (D7, P2-15);
+- Android: icona Impostazioni al posto del selettore IT/EN (D15), voce Home nel foglio della partita (D13), niente
+  frecce di navigazione fra le posizioni (D17);
+- anteprima grande della carta al passaggio, al focus e alla pressione prolungata: non è nelle tavole, rende leggibili
+  le carte in mano;
+- parti non disegnate (§6) estese nel linguaggio del design (D20): accesso, stati dell'app, coda, profilo, banner,
+  patta ricevuta, resa, promozione, fine partita, Classifica, Impostazioni.
+
+**Costi:** JS iniziale da 520 a 554 kB (+9 kB gzip: miniatura, scacchiera e orologio servono anche alla home); font dei
+pezzi 4,5 KB; i font si scaricano per sottoinsieme Unicode.
+

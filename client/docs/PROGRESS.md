@@ -3,97 +3,50 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Redesign, step R5 (shell e home) — fatto, in attesa di review.** R1–R4 approvati. Branch `feat/redesign`. Analisi, decisioni (D1–D22)
-e step R1–R6 in `REDESIGN_PLAN.md`; il design sta in `design-reference/` (fuori da git).
+**Redesign completo (R1–R6), in attesa di review.** Branch `feat/redesign`, locale, non ancora unito in `main`.
+Analisi, decisioni D1–D22 ed esito in `REDESIGN_PLAN.md` (§10–11); il design sta in `design-reference/` (fuori da git).
 Prima del redesign: Step 0–7 completi, Step 6 in attesa dell'APK (`docs/ANDROID.md`).
 Server: `C:\Projects\chess-server` (sola lettura, qui non eseguibile), branch `fix/backend-requests` (`62475c9`).
 
 ## Completo
-- **Step 0–5:** contratto sul codice Go e mock che lo porta; shell, i18n, token; REST con refresh, sessione, guardie;
-  WebSocket con ticket e `applyServerEvent`; scacchiera, orologi, partita; layer magie (catalogo, registry di effetti
-  e bersagli, targeting, giocabilità, `/dev/cards` solo in sviluppo).
-- **Step 6 (la parte fattibile qui):** Capacitor 8, `android/` versionato, storage nativo, `connection.wake()`.
-- **Step 7:** `npm run verify:server` (47/0 contro il server reale, 45/0 contro il mock), `docs/INTEGRAZIONE.md`,
-  fix del socket rifiutato in Node.
-- **Redesign R1:**
-  - `tokens.css` con la palette del design, per ruolo (l'accento diventa l'oro, il verde è solo la CTA), i tre temi
-    della scacchiera (arcano di default, salvia e noce sotto `[data-board-theme]`), bordi 3D, anelli e aloni;
-  - `theme.css` con scale **numeriche** (`text-13`, `rounded-10`, `shadow-edge-play`…); classi esistenti migrate a
-    parità di valore;
-  - Figtree, Cinzel 600–800, JetBrains Mono; font dei pezzi ritagliato ai sei glifi pieni (4,5 KB,
-    `npm run fonts:pieces`, riproducibile);
-  - `Button` (primario, secondario, oro, pericolo; `md` 48px e `lg` 60px), `Panel` senza bordo, `TextField`, `Spinner`;
-  - `tests/contrast.test.ts`: ogni coppia testo/superficie ≥ 4.5:1. Unico colore corretto: #7F786E → #928B81 (D4);
-  - sfondo nativo Android #1B1A1F; icona non toccata (D22).
-- **Redesign R2:**
-  - pezzi = glifi pieni del font ritagliato (80% della casa con le container query, contorni del design; U+FE0E contro
-    la forma emoji di ♟), il set SVG dello Step 4 esce;
-  - `BoardSquare`: strati del componente Scacchiera del design (ultima mossa, congelato, protetto, bersagli viola,
-    badge in alto a destra coi turni residui, coordinate dentro le case); mosse legali, selezione e scacco ridisegnati
-    (D3); lampeggio della magia in viola. Il registry degli stati possiede velo e badge;
-  - temi con preferenza salvata (`board-theme`), letta prima del primo render; manca il selettore (R5);
-  - `MiniBoard` senza chess.js per la home; `fen.ts` legge la FEN senza regole;
-  - `/dev/board`: la posizione del design in tutti gli stati e nei tre temi. Confronto via DOM col design: casa 70px,
-    glifo 56px, colori, ombre, coordinate 13px, badge 18px a 3px dall'angolo — coincidono.
-- **Redesign R3:**
-  - carta nella struttura del componente Carta (200×280: cornice per rarità, moneta del costo, arte per kind, riga del
-    tipo, regole su pergamena); rarità comune finché il catalogo non la manda (P2-15); icone a tratto del design;
-  - nome lungo: scende fino a 10px, poi va a capo (anche dentro un id senza spazi);
-  - carta spenta: velo scuro al **30%**, il massimo che tiene ogni testo AA (al 50% la moneta scende a 3:1, lo ha
-    trovato il test di contrasto); resta toccabile e il motivo compare nell'avviso (in R4 nel box);
-  - mano a ventaglio del design, geometria in CSS (`.hand-fan`), passo che si stringe se le carte non entrano; secondo
-    tocco annulla, niente pulsante Annulla; anteprima grande al passaggio, al focus e alla pressione prolungata;
-  - `/dev/cards` a grandezza di design, con la mano a ventaglio.
-- **Redesign R4:**
-  - layout delle tavole "Partita": desktop con colonna della scacchiera e colonna laterale 380 (turno, mana, schede,
-    azioni), mano sotto la scacchiera che sborda di 20px; Android con fasi e CTA compatta, riga del suggerimento,
-    mano sotto la barra inferiore, foglio del Menu (patta, resa, schede; niente frecce, D17). Misure verificate via
-    DOM contro le tavole;
-  - `PlayerRow`/`Clock` (esaurimento sotto il minuto, D19), `TurnPanel` ("Turno N" = numero di mossa), box del
-    suggerimento unico con avvisi di 5 s (D16), `ManaPanel` e dieci rombi (C16), schede Mosse/Grimorio/Chat con le
-    magie della sessione nello storico (`spellLog` nel matchStore, D11);
-  - `/dev/match`: la partita vera con un socket finto e lo scenario delle tavole, senza account.
-- **Redesign R5:**
-  - barre delle tavole: laterale 220 (desktop), verticale 72 in partita, intestazione e barra 76 su Android; voci
-    «Presto» visibili e inerti (D9); su Android un'icona Impostazioni al posto del selettore IT/EN (D15) e la voce
-    Home nel foglio della partita (unica uscita, D13);
-  - home: benvenuto e rating (senza delta, D10), card della partita in corso con miniatura live o solo il flag (C11),
-    Gioca con Classificata e Amichevole/Bot «Presto» (D12), card in basso con la classifica vera; niente più rimbalzo
-    a /match: ci si entra solo dalla coda (D13, in `AppShell`);
-  - `/leaderboard` (`fetchLeaderboard`) e `/settings` (tema, lingua, Esci con conferma, D14);
-  - `/dev/home` (`?match=1`, `/leaderboard`, `/settings`) con l'impianto finto condiviso con `/dev/match`.
-  Misure via DOM contro le tavole: coincidono (partita: scacchiera a x 266 contro 264).
-- **Verifica R5:** typecheck, lint, build puliti; 455 test verdi; e2e 10/10. JS iniziale 554 kB (+34: miniatura e
-  scacchiera servono anche alla home e non stanno più solo nel chunk della partita).
-- **Verifica R4:** typecheck, lint, build puliti; 448 test verdi; e2e 10/10.
-- **Verifica R3:** typecheck, lint, build puliti; 439 test verdi; e2e 10/10. Confronto via DOM col componente Carta:
-  tutte le misure coincidono.
-- **Verifica R2:** typecheck, lint, build puliti; 432 test verdi; e2e 10/10. JS iniziale invariato (311 + 210 kB).
-- **Verifica R1:** typecheck, lint, build puliti; 416 test verdi; e2e 10/10; `cap sync android` pulito. JS invariato
-  (520 kB iniziali); i font si scaricano per sottoinsieme Unicode, solo quelli usati.
+- **Step 0–7:** contratto sul codice Go e mock che lo porta; REST, sessione, WebSocket con ticket e
+  `applyServerEvent`; scacchiera, partita, layer magie; Capacitor 8 (`android/` versionato); `npm run verify:server`
+  (47/0 contro il server reale).
+- **Redesign:**
+  - **R1** token del design per ruolo, temi della scacchiera, scale numeriche, Figtree/Cinzel/JetBrains Mono, font dei
+    pezzi ritagliato (`npm run fonts:pieces`), pulsanti 3D, test di contrasto (unica correzione #7F786E → #928B81);
+  - **R2** scacchiera del componente del design (glifi, coordinate, stati, bersagli viola), `MiniBoard`, temi salvati;
+  - **R3** carta 200×280 del design (velo della carta spenta al 30%, il massimo AA), mano a ventaglio, anteprima grande;
+  - **R4** partita desktop e Android delle tavole, box del suggerimento unico, 10 rombi del mana, schede con le magie
+    della sessione nello storico, foglio del Menu;
+  - **R5** barre di navigazione, home con la partita in background, Classifica, Impostazioni (tema, lingua, Esci);
+  - **R6** accesso, stati dell'app, coda, profilo, banner, patta ricevuta, resa, promozione, fine partita nel
+    linguaggio del design; pulizia di token e testi morti.
+  - Anteprime solo di sviluppo, senza account: `/dev/cards`, `/dev/board`, `/dev/match` (`?scenario=over|draw|
+    reconnecting|replaced|disconnected|promotion`), `/dev/home` (`?match=1`, `/leaderboard`, `/settings`, `/profile`).
+- **Verifica finale:** typecheck, lint, build puliti; 457 test verdi; e2e 10/10; `cap sync android` pulito. JS
+  iniziale 554 kB (172 kB gzip), partita 82 kB a richiesta.
 
 ## Prossima azione concreta
-Review di R5: `/dev/home` e `/dev/match` in sviluppo, poi il giro vero col login (coda → partita → home → Riprendi).
-Poi R6 — parti senza design e chiusura.
+Review del redesign: le anteprime in sviluppo, poi il giro vero col mock e il login (coda → partita → home →
+Riprendi → fine partita). Poi merge di `feat/redesign` in `main` e l'APK di `docs/ANDROID.md`.
 
 ## Decisioni prese
-- Redesign: tutte in `REDESIGN_PLAN.md` §10 (D1–D22). Il design vince sulla resa, CLAUDE.md sul resto.
-- Pezzi: glifi di Noto Sans Symbols 2 ritagliati (D2), al posto del set SVG disegnato allo Step 4.
-- Mosse legali = stessa forma dei bersagli di magia in un altro colore; scacco = alone arancio "Mitica" (D3).
-- Storico in UCI (D18). Niente flavour text nel client (P2-15). Cadenza unica (P2-1 non più necessaria).
+- Redesign: `REDESIGN_PLAN.md` §10 (D1–D22). Il design vince su colori, tipografia, spaziature e layout; testi e
+  vincoli di CLAUDE.md restano nostri. Le parti non disegnate le ho estese io (D20).
+- Storico in UCI (D18). Cadenza unica (P2-1 non più necessaria). Funzioni senza backend visibili ma «Presto» (D9).
 - WebSocket con ticket monouso; il colore arriva da `game_state`. Token in `localStorage` sul web, in
   `@capacitor/preferences` su dispositivo.
 
 ## Decisioni aperte
 - **Licenza del progetto** (il repo contiene grafica originale, CREDITS.md). **Icona dell'app** (D22: dopo).
-- Merge di `fix/backend-requests` in `main` e deploy. Richieste aperte: P2-11 (sospesa), P2-12…P2-21.
+- Merge di `fix/backend-requests` in `main` e deploy. Richieste aperte: P2-11 (sospesa), P2-12…P2-21 (le nuove del
+  redesign: rarità e tipo delle carte, tetto del mana, magie al rientro, delta ELO, posizione in classifica, «Presto»).
 
-## Da ricordare negli Step successivi
-- R5: selettore del tema (`boardThemeStore.set`) nelle Impostazioni; la miniatura della home è `MiniBoard`.
-- R6: banner di connessione, patta ricevuta, conferma della resa, promozione e fine partita funzionano ma hanno
-  ancora la resa di prima.
+## Da ricordare
 - APK mai costruito qui: se Gradle si lamenta, guardare `android/app/src/main/res/`.
 - Rilanciare `verify:server` a ogni cambiamento del server.
+- Quando il server manderà rarità e tipo (P2-15), la carta li ha già in token (`--rarity-*`): va solo letto il campo.
 
 ## Note d'ambiente
 - La shell dello strumento non vede Node nel PATH: prima dei comandi npm va ricaricato il PATH di Machine e User.
@@ -101,6 +54,6 @@ Poi R6 — parti senza design e chiusura.
 - `.env` punta al server reale `http://192.168.222.128:8080`; per il mock `localhost:8080` e `npm run mock`.
   `.claude/launch.json`: `dev` (5173), `mock` (8080). Il design si apre su `http://localhost:5173/design-reference/Design.html`.
 - `tests/auth-flow.test.ts` aspetta 2,1 s una scadenza vera: sotto carico ha fallito una volta; alzare quel tempo.
-- Prove a mano rimaste a te (io non creo account né digito password nel browser): lobby e partita nel nuovo
-  aspetto, due schede con due utenti, prova sul telefono.
+- Prove a mano rimaste a te (io non creo account né digito password nel browser): giro completo col login, due
+  schede con due utenti, prova sul telefono.
 - Identità git locale del repo: Riccardo Picozzi <riccardo.picozzi97@gmail.com>.
