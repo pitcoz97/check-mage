@@ -13,11 +13,19 @@ const (
 )
 
 // ActiveEffect è un effetto persistente attivo su un pezzo.
+//
+// RemainingTurns conta i turni dell'avversario di Caster ancora coperti: scende
+// alla fine di ciascuno di quei turni. 0 = l'effetto vale solo fino alla fine
+// del turno di Caster; Permanent = non scade.
 type ActiveEffect struct {
 	Kind           string `json:"kind"`
 	RemainingTurns int    `json:"remaining_turns"`
 	SourceSpellID  string `json:"source_spell_id,omitempty"`
+	Caster         Color  `json:"caster,omitempty"`
 }
+
+// Permanent è la durata di un effetto che non scade.
+const Permanent = -1
 
 // PieceState è lo stato parallelo di un pezzo: identità (ID) ed effetti. Gli
 // effetti seguono il PEZZO (via ID), non la casella — così spostare un pezzo
@@ -152,8 +160,18 @@ func (t *Tracker) colorAt(square string) (Color, bool) {
 	return pieceColor(t.pieces[id].Type), true
 }
 
+// Add registra un pezzo nuovo (es. un pedone evocato) con un ID nuovo e nessun
+// effetto. Un eventuale pezzo già registrato sulla casella viene rimosso.
+func (t *Tracker) Add(square string, piece byte) {
+	t.RemoveAt(square)
+	id := t.nextID
+	t.nextID++
+	t.pieces[id] = &PieceState{ID: id, Type: piece, Square: square}
+	t.bySquare[square] = id
+}
+
 // addEffect aggiunge (o rinnova) un effetto sul pezzo nella casella.
-func (t *Tracker) addEffect(square, kind string, turns int, source string) error {
+func (t *Tracker) addEffect(square, kind string, turns int, source string, caster Color) error {
 	id, ok := t.bySquare[square]
 	if !ok {
 		return gameerr.Newf(gameerr.InvalidTarget, "nessun pezzo in %s", square)
@@ -163,10 +181,11 @@ func (t *Tracker) addEffect(square, kind string, turns int, source string) error
 		if ps.Effects[i].Kind == kind {
 			ps.Effects[i].RemainingTurns = turns
 			ps.Effects[i].SourceSpellID = source
+			ps.Effects[i].Caster = caster
 			return nil
 		}
 	}
-	ps.Effects = append(ps.Effects, ActiveEffect{Kind: kind, RemainingTurns: turns, SourceSpellID: source})
+	ps.Effects = append(ps.Effects, ActiveEffect{Kind: kind, RemainingTurns: turns, SourceSpellID: source, Caster: caster})
 	return nil
 }
 
@@ -179,7 +198,7 @@ func FreezePiece(t *Tracker, square string, caster Color, turns int, source stri
 	if col == caster {
 		return gameerr.Newf(gameerr.InvalidTarget, "non puoi congelare un tuo pezzo (%s)", square)
 	}
-	return t.addEffect(square, KindFreeze, turns, source)
+	return t.addEffect(square, KindFreeze, turns, source, caster)
 }
 
 // ShieldPiece applica "shield" a un pezzo PROPRIO per il numero di turni dato.
@@ -191,16 +210,18 @@ func ShieldPiece(t *Tracker, square string, caster Color, turns int, source stri
 	if col != caster {
 		return gameerr.Newf(gameerr.InvalidTarget, "puoi proteggere solo i tuoi pezzi (%s)", square)
 	}
-	return t.addEffect(square, KindShield, turns, source)
+	return t.addEffect(square, KindShield, turns, source, caster)
 }
 
-func (t *Tracker) hasEffect(square, kind string) bool {
+// HasEffect indica se il pezzo nella casella ha l'effetto dato. Gli effetti
+// scaduti sono già stati tolti da TickTurnEnd, quindi basta la presenza.
+func (t *Tracker) HasEffect(square, kind string) bool {
 	id, ok := t.bySquare[square]
 	if !ok {
 		return false
 	}
 	for _, e := range t.pieces[id].Effects {
-		if e.Kind == kind && e.RemainingTurns > 0 {
+		if e.Kind == kind {
 			return true
 		}
 	}
@@ -208,10 +229,10 @@ func (t *Tracker) hasEffect(square, kind string) bool {
 }
 
 // IsFrozen indica se il pezzo nella casella è congelato.
-func (t *Tracker) IsFrozen(square string) bool { return t.hasEffect(square, KindFreeze) }
+func (t *Tracker) IsFrozen(square string) bool { return t.HasEffect(square, KindFreeze) }
 
 // HasShield indica se il pezzo nella casella è protetto da scudo.
-func (t *Tracker) HasShield(square string) bool { return t.hasEffect(square, KindShield) }
+func (t *Tracker) HasShield(square string) bool { return t.HasEffect(square, KindShield) }
 
 // ConsumeShield rimuove lo scudo dal pezzo nella casella (assorbita una cattura).
 func (t *Tracker) ConsumeShield(square string) {
@@ -236,18 +257,29 @@ type ExpiredEffect struct {
 	Kind    string
 }
 
-// TickColor decrementa di 1 gli effetti dei pezzi del colore dato (il giocatore
-// che ha appena finito il turno), rimuove quelli arrivati a 0 e li restituisce.
-// Così "freeze 2" dura 2 turni del proprietario del pezzo colpito.
-func (t *Tracker) TickColor(color Color) []ExpiredEffect {
+// TickTurnEnd aggiorna gli effetti alla fine del turno di finishing e
+// restituisce quelli scaduti, ordinati per casella.
+//
+// La durata conta i turni dell'avversario di chi ha lanciato l'effetto: alla fine
+// di un turno di quell'avversario il contatore scende di 1 e a 0 l'effetto
+// scade. Un effetto con durata 0 scade invece alla fine del turno di chi l'ha
+// lanciato. Così "freeze 1" copre il prossimo turno del pezzo colpito e "shield
+// 1" il prossimo turno avversario, e sparisce all'inizio del turno dopo.
+func (t *Tracker) TickTurnEnd(finishing Color) []ExpiredEffect {
 	var expired []ExpiredEffect
 	for _, ps := range t.pieces {
-		if pieceColor(ps.Type) != color || len(ps.Effects) == 0 {
+		if len(ps.Effects) == 0 {
 			continue
 		}
 		kept := ps.Effects[:0]
 		for _, e := range ps.Effects {
-			e.RemainingTurns--
+			if e.RemainingTurns == Permanent {
+				kept = append(kept, e)
+				continue
+			}
+			if e.Caster != finishing {
+				e.RemainingTurns--
+			}
 			if e.RemainingTurns <= 0 {
 				expired = append(expired, ExpiredEffect{PieceID: ps.ID, Square: ps.Square, Kind: e.Kind})
 			} else {
@@ -256,6 +288,7 @@ func (t *Tracker) TickColor(color Color) []ExpiredEffect {
 		}
 		ps.Effects = kept
 	}
+	sort.Slice(expired, func(i, j int) bool { return expired[i].Square < expired[j].Square })
 	return expired
 }
 
@@ -267,13 +300,43 @@ type PieceEffectInfo struct {
 
 // RestoreEffect riattacca effetti persistiti al pezzo nella casella data (usato
 // in fase di ripristino: il Tracker è ricostruito dalla FEN, poi si riapplicano
-// gli effetti salvati per casella).
+// gli effetti salvati per casella). Gli snapshot salvati prima che esistesse
+// Caster lo ricavano dal tipo: il gelo lo lancia l'avversario del pezzo, lo
+// scudo il suo proprietario.
 func (t *Tracker) RestoreEffect(square string, effs []ActiveEffect) {
 	id, ok := t.bySquare[square]
 	if !ok {
 		return
 	}
-	t.pieces[id].Effects = append(t.pieces[id].Effects, effs...)
+	ps := t.pieces[id]
+	for _, e := range effs {
+		if e.Caster == "" {
+			e.Caster = pieceColor(ps.Type)
+			if e.Kind == KindFreeze {
+				e.Caster = e.Caster.Opponent()
+			}
+		}
+		ps.Effects = append(ps.Effects, e)
+	}
+}
+
+// Clone restituisce una copia indipendente del Tracker: gli effetti di una magia
+// si applicano sulla copia, che sostituisce l'originale solo se tutto riesce.
+func (t *Tracker) Clone() *Tracker {
+	c := &Tracker{
+		bySquare: make(map[string]int, len(t.bySquare)),
+		pieces:   make(map[int]*PieceState, len(t.pieces)),
+		nextID:   t.nextID,
+	}
+	for sq, id := range t.bySquare {
+		c.bySquare[sq] = id
+	}
+	for id, ps := range t.pieces {
+		cp := *ps
+		cp.Effects = append([]ActiveEffect(nil), ps.Effects...)
+		c.pieces[id] = &cp
+	}
+	return c
 }
 
 // ActiveEffects elenca gli effetti attivi su tutti i pezzi (per game_state).

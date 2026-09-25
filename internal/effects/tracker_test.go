@@ -84,7 +84,7 @@ func TestFreeze_AndValidation(t *testing.T) {
 	tr := NewTracker(startFEN)
 
 	// Il bianco congela un pezzo nero (e7): ok.
-	if err := FreezePiece(tr, "e7", White, 2, "frostbolt"); err != nil {
+	if err := FreezePiece(tr, "e7", White, 2, "frost"); err != nil {
 		t.Fatalf("freeze su pezzo nemico fallito: %v", err)
 	}
 	if !tr.IsFrozen("e7") {
@@ -92,11 +92,11 @@ func TestFreeze_AndValidation(t *testing.T) {
 	}
 
 	// Congelare un proprio pezzo → errore.
-	if err := FreezePiece(tr, "e2", White, 2, "frostbolt"); err == nil {
+	if err := FreezePiece(tr, "e2", White, 2, "frost"); err == nil {
 		t.Error("congelare un proprio pezzo dovrebbe fallire")
 	}
 	// Casella vuota → errore.
-	if err := FreezePiece(tr, "e4", White, 2, "frostbolt"); err == nil {
+	if err := FreezePiece(tr, "e4", White, 2, "frost"); err == nil {
 		t.Error("congelare una casella vuota dovrebbe fallire")
 	}
 }
@@ -105,7 +105,7 @@ func TestShield_AndConsume(t *testing.T) {
 	tr := NewTracker(startFEN)
 
 	// Il bianco protegge un proprio pezzo.
-	if err := ShieldPiece(tr, "e2", White, 2, "aegis"); err != nil {
+	if err := ShieldPiece(tr, "e2", White, 2, "shield"); err != nil {
 		t.Fatalf("shield su pezzo proprio fallito: %v", err)
 	}
 	if !tr.HasShield("e2") {
@@ -117,32 +117,34 @@ func TestShield_AndConsume(t *testing.T) {
 	}
 
 	// Proteggere un pezzo nemico → errore.
-	if err := ShieldPiece(tr, "e7", White, 2, "aegis"); err == nil {
+	if err := ShieldPiece(tr, "e7", White, 2, "shield"); err == nil {
 		t.Error("proteggere un pezzo nemico dovrebbe fallire")
 	}
 }
 
-// TestTickColor_Duration verifica che freeze N duri N turni del proprietario.
-func TestTickColor_Duration(t *testing.T) {
+// TestTickTurnEnd_FreezeDuration verifica che freeze N duri N turni del pezzo
+// colpito (l'avversario di chi lancia).
+func TestTickTurnEnd_FreezeDuration(t *testing.T) {
 	tr := NewTracker(startFEN)
-	FreezePiece(tr, "e7", White, 2, "frostbolt") // pezzo NERO, freeze 2
+	FreezePiece(tr, "e7", White, 2, "frost") // pezzo NERO, freeze 2
 
-	// Fine turno del bianco: non tocca i pezzi neri.
-	tr.TickColor(White)
+	// Fine turno del bianco (chi lancia): non scala.
+	tr.TickTurnEnd(White)
 	if !tr.IsFrozen("e7") {
 		t.Error("dopo il turno bianco il pezzo nero deve restare congelato (2)")
 	}
 
 	// Fine 1° turno nero: 2 -> 1.
-	if exp := tr.TickColor(Black); len(exp) != 0 {
+	if exp := tr.TickTurnEnd(Black); len(exp) != 0 {
 		t.Errorf("nessun effetto dovrebbe scadere ancora, scaduti = %d", len(exp))
 	}
+	tr.TickTurnEnd(White)
 	if !tr.IsFrozen("e7") {
 		t.Error("dopo 1 turno nero deve essere ancora congelato (1)")
 	}
 
 	// Fine 2° turno nero: 1 -> 0, scade.
-	exp := tr.TickColor(Black)
+	exp := tr.TickTurnEnd(Black)
 	if len(exp) != 1 || exp[0].Square != "e7" || exp[0].Kind != KindFreeze {
 		t.Errorf("il freeze dovrebbe scadere su e7, scaduti = %+v", exp)
 	}
@@ -153,8 +155,8 @@ func TestTickColor_Duration(t *testing.T) {
 
 func TestActiveEffects(t *testing.T) {
 	tr := NewTracker(startFEN)
-	FreezePiece(tr, "e7", White, 2, "frostbolt")
-	ShieldPiece(tr, "d2", White, 2, "aegis")
+	FreezePiece(tr, "e7", White, 2, "frost")
+	ShieldPiece(tr, "d2", White, 2, "shield")
 
 	eff := tr.ActiveEffects()
 	if len(eff) != 2 {
@@ -168,7 +170,7 @@ func TestActiveEffects(t *testing.T) {
 func TestTracker_RelocateNoChessSemantics(t *testing.T) {
 	const fen = "4k3/8/8/3pP3/8/8/8/4K2R w K - 0 1"
 	tr := NewTracker(fen)
-	if err := ShieldPiece(tr, "h1", White, 2, "aegis"); err != nil {
+	if err := ShieldPiece(tr, "h1", White, 2, "shield"); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 

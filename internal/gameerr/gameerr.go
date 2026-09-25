@@ -34,8 +34,9 @@ const (
 	CardNotInHand      Code = "card_not_in_hand"     // details: spell_id
 	InsufficientMana   Code = "insufficient_mana"    // details: needed, available
 	InvalidTargetCount Code = "invalid_target_count" // details: expected, received
-	InvalidTarget      Code = "invalid_target"       // casella non valida, vuota, pezzo del colore sbagliato, re…
-	IllegalPosition    Code = "illegal_position"     // l'effetto lascerebbe un re sotto scacco in modo illegale
+	InvalidTarget      Code = "invalid_target"       // details: index, reason (vedi effects.Reason*)
+	IllegalPosition    Code = "illegal_position"     // l'effetto lascerebbe un re sotto scacco; details: king
+	LimitReached       Code = "limit_reached"        // details: spell_id, per_turn
 
 	// Patta
 	DrawOfferPending Code = "draw_offer_pending"

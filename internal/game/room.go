@@ -322,6 +322,17 @@ func roomFromSnapshot(snap roomSnapshot) *Room {
 	if room.Board.Moves == nil {
 		room.Board.Moves = []string{}
 	}
+	// Le carte di un catalogo precedente non esistono più: si tolgono, così la
+	// partita riprende senza carte che nessuno può lanciare.
+	for _, ps := range []*spells.PlayerState{room.Match.White, room.Match.Black} {
+		if ps == nil {
+			continue
+		}
+		if removed := ps.DropUnknownCards(); removed > 0 {
+			logger.L.Warn("Carte fuori catalogo tolte al ripristino",
+				zap.String("room", room.ID), zap.Int("removed", removed))
+		}
+	}
 	// Ricostruisci l'identità dei pezzi dalla FEN, poi riapplica gli effetti.
 	room.Tracker = effects.NewTracker(snap.FEN)
 	for _, e := range snap.Effects {
@@ -516,7 +527,7 @@ func (r *Room) handleMove(sender *Client, move string) {
 		zap.Duration("black_time", r.BlackTime.Round(time.Second)),
 	)
 
-	status := engine.SF.GetGameStatus(r.Board.FEN)
+	status := r.gameStatus()
 	if status == engine.StatusOngoing && r.isThreefold() {
 		status = engine.StatusDraw
 	}
@@ -654,9 +665,14 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 	// fase main si auto-avanza di conseguenza.
 	autoResults := r.Match.AutoAdvance()
 	expired := r.tickEffectsOnNewTurn(autoResults)
-	// Una magia che edita la board (es. Disintegrate/Teleport) può dare scacco
-	// matto: se il cast chiude il turno, verifica la posizione dell'avversario.
+	// Se il cast chiude il turno, verifica la posizione del nuovo giocatore
+	// attivo (una magia può avergli tolto le mosse). Se invece chi lancia ha
+	// ancora il tratto (main1) e la scacchiera è cambiata, verifica la sua: un
+	// Patto di sangue può lasciarlo senza mosse.
 	end := r.checkRolloverGameEnd(autoResults)
+	if end == nil && boardChanged && sideToMove(r.Board.FEN) == string(r.Match.ActivePlayer) {
+		end = r.checkActivePlayerEnd()
+	}
 	if end == nil {
 		r.persist()
 	}
@@ -717,174 +733,255 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 	r.announceEnd(end)
 }
 
-// validateBoardEdit rifiuta una posizione illegale prodotta da una magia: il re
-// del lato che NON ha il tratto non può essere sotto scacco. Succede, ad
-// esempio, se in main1 un Teleport dà scacco o un Disintegrate rimuove il pezzo
-// che copriva il re avversario: toccherebbe a chi lancia muovere con il re
-// avversario già attaccato.
-func validateBoardEdit(fen string) error {
-	waiting := effects.SideToMove(fen).Opponent()
-	if effects.IsKingAttacked(fen, waiting) {
-		return gameerr.Newf(gameerr.IllegalPosition,
-			"posizione illegale: il re %s resterebbe sotto scacco senza avere il tratto", waiting).
-			With("king", waiting)
+/// validateNoCheck applica la regola globale "niente scacco da magia" alla
+// posizione prodotta dagli effetti di una magia, in main1 come in main2:
+//   - il re di chi lancia non può restare sotto scacco (se lo era già, la magia
+//     deve risolvere lo scacco);
+//   - la magia non può dare scacco al re avversario. Se era già sotto scacco
+//     (gliel'ha dato una mossa, prima della main2) la magia è ammessa: lo
+//     scacco non viene da lei.
+//
+// Il matto arriva quindi solo da una mossa.
+func validateNoCheck(before, after string, caster effects.Color) error {
+	if effects.IsKingAttacked(after, caster) {
+		return gameerr.Newf(gameerr.IllegalPosition, "il re %s resterebbe sotto scacco", caster).
+			With("king", caster)
+	}
+	opponent := caster.Opponent()
+	if effects.IsKingAttacked(after, opponent) && !effects.IsKingAttacked(before, opponent) {
+		return gameerr.Newf(gameerr.IllegalPosition, "una magia non può dare scacco al re %s", opponent).
+			With("king", opponent)
 	}
 	return nil
 }
 
-// applySpellEffects esegue gli effetti di una magia sulla board (FEN). Ritorna
-// gli effetti applicati (arricchiti per il broadcast), se la board è cambiata, e
-// un eventuale errore (che annulla il cast senza spendere mana). Ogni modifica
-// della board è validata prima di toccare il Tracker. Va invocata con r.mu
-// tenuto.
+// applySpellEffects esegue gli effetti di una magia. Ritorna gli effetti
+// applicati (arricchiti per il broadcast), se la scacchiera è cambiata, le carte
+// pescate e un eventuale errore, che annulla il cast senza spendere mana.
+//
+// Prima valida i bersagli contro i TargetSpec; poi applica gli effetti in
+// ordine su una copia della FEN e del Tracker e controlla la posizione finale.
+// Solo se tutto riesce la copia sostituisce lo stato della partita e si
+// applicano pesca e mana: un cast rifiutato non lascia tracce. Va invocata con
+// r.mu tenuto.
 func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster match.Player) ([]interface{}, bool, []match.DrawResult, error) {
 	casterColor := toEffectsColor(caster)
+	if err := effects.ValidateTargets(r.Board.FEN, r.Tracker, def.Targets, targets, casterColor); err != nil {
+		return nil, false, nil, err
+	}
 
-	applied := make([]interface{}, 0, len(def.Effects))
-	var drawn []match.DrawResult
 	fen := r.Board.FEN
+	tracker := r.Tracker.Clone()
 	changed := false
+	applied := make([]interface{}, 0, len(def.Effects))
+	var deferred []func() // pesca e mana: dopo che la scacchiera è convalidata
+	var drawn []match.DrawResult
 
-	missingTarget := func(expected int) error {
-		return gameerr.Newf(gameerr.InvalidTargetCount, "la magia %s richiede %d bersagli", def.Name, expected).
-			With("expected", expected).With("received", len(targets))
+	target := func() (string, error) {
+		if len(targets) == 0 {
+			return "", gameerr.Newf(gameerr.InvalidTargetCount, "la magia %s richiede un bersaglio", def.Name).
+				With("expected", 1).With("received", 0)
+		}
+		return targets[0], nil
 	}
 
 	for _, eff := range def.Effects {
+		entry := map[string]interface{}{"kind": eff.Kind}
 		switch eff.Kind {
-		case spells.EffectNoop:
-			applied = append(applied, map[string]interface{}{"kind": eff.Kind})
-
 		case spells.EffectDestroyPiece:
-			if len(targets) == 0 {
-				return nil, false, nil, missingTarget(1)
-			}
-			newFEN, destroyed, err := effects.DestroyPiece(fen, targets[0], casterColor)
+			sq, err := target()
 			if err != nil {
 				return nil, false, nil, err
 			}
-			if err := validateBoardEdit(newFEN); err != nil {
+			newFEN, destroyed, err := effects.DestroyPiece(fen, sq)
+			if err != nil {
 				return nil, false, nil, err
 			}
-			fen = newFEN
-			changed = true
-			r.Tracker.RemoveAt(targets[0]) // l'identità del pezzo distrutto sparisce
-			applied = append(applied, map[string]interface{}{
-				"kind":            eff.Kind,
-				"target":          targets[0],
-				"piece_destroyed": destroyed,
-			})
+			fen, changed = newFEN, true
+			tracker.RemoveAt(sq) // l'identità del pezzo distrutto sparisce
+			entry["target"], entry["piece_destroyed"] = sq, destroyed
 
-		case spells.EffectFreezePiece:
-			if len(targets) == 0 {
-				return nil, false, nil, missingTarget(1)
-			}
-			turns := paramInt(eff.Params, "turns", 1)
-			if err := effects.FreezePiece(r.Tracker, targets[0], casterColor, turns, def.ID); err != nil {
+		case spells.EffectFreezePiece, spells.EffectShieldPiece:
+			sq, err := target()
+			if err != nil {
 				return nil, false, nil, err
 			}
-			applied = append(applied, map[string]interface{}{
-				"kind": eff.Kind, "target": targets[0], "remaining_turns": turns,
-			})
-
-		case spells.EffectShieldPiece:
-			if len(targets) == 0 {
-				return nil, false, nil, missingTarget(1)
+			duration := paramInt(eff.Params, "duration", 1)
+			apply := effects.FreezePiece
+			if eff.Kind == spells.EffectShieldPiece {
+				apply = effects.ShieldPiece
 			}
-			turns := paramInt(eff.Params, "turns", 1)
-			if err := effects.ShieldPiece(r.Tracker, targets[0], casterColor, turns, def.ID); err != nil {
+			if err := apply(tracker, sq, casterColor, duration, def.ID); err != nil {
 				return nil, false, nil, err
 			}
-			applied = append(applied, map[string]interface{}{
-				"kind": eff.Kind, "target": targets[0], "remaining_turns": turns,
-			})
+			entry["target"], entry["remaining_turns"] = sq, duration
 
 		case spells.EffectDrawCard:
-			count := paramInt(eff.Params, "count", 1)
-			for i := 0; i < count; i++ {
-				d := r.Match.DrawFor(caster)
-				if d.CardID != "" {
-					drawn = append(drawn, d)
+			amount := paramInt(eff.Params, "amount", 1)
+			deferred = append(deferred, func() {
+				count := 0
+				for i := 0; i < amount; i++ {
+					if d := r.Match.DrawFor(caster); d.CardID != "" {
+						drawn = append(drawn, d)
+						count++
+					}
 				}
-			}
-			applied = append(applied, map[string]interface{}{"kind": eff.Kind, "count": len(drawn)})
+				entry["count"] = count
+			})
 
 		case spells.EffectGainMana:
 			amount := paramInt(eff.Params, "amount", 1)
-			m := r.Match.GainMana(caster, amount)
-			applied = append(applied, map[string]interface{}{
-				"kind": eff.Kind, "amount": amount, "mana": m.Current,
+			exceedCap := paramBool(eff.Params, "can_exceed_cap")
+			deferred = append(deferred, func() {
+				m := r.Match.GainMana(caster, amount, exceedCap)
+				entry["amount"], entry["mana"] = amount, m.Current
 			})
 
 		case spells.EffectMovePiece:
-			if len(targets) < 2 {
-				return nil, false, nil, missingTarget(2)
-			}
-			newFEN, err := effects.MovePieceFEN(fen, targets[0], targets[1], casterColor)
+			from, to, err := moveEndpoints(fen, eff.Params, targets, casterColor)
 			if err != nil {
 				return nil, false, nil, err
 			}
-			// La posizione risultante non deve lasciare il proprio re sotto scacco.
-			if effects.IsKingAttacked(newFEN, casterColor) {
-				return nil, false, nil, gameerr.New(gameerr.IllegalPosition,
-					"mossa illegale: lascerebbe il re sotto scacco").With("king", casterColor)
-			}
-			if err := validateBoardEdit(newFEN); err != nil {
+			newFEN, err := effects.MovePieceFEN(fen, from, to, casterColor)
+			if err != nil {
 				return nil, false, nil, err
 			}
-			fen = newFEN
-			changed = true
+			fen, changed = newFEN, true
 			// Spostamento magico: niente semantica di arrocco/en passant.
-			r.Tracker.Relocate(targets[0], targets[1])
-			applied = append(applied, map[string]interface{}{
-				"kind": eff.Kind, "from": targets[0], "to": targets[1],
-			})
+			tracker.Relocate(from, to)
+			entry["from"], entry["to"] = from, to
+
+		case spells.EffectSummonPawn:
+			sq, err := target()
+			if err != nil {
+				return nil, false, nil, err
+			}
+			pawn := byte('P')
+			if casterColor == effects.Black {
+				pawn = 'p'
+			}
+			if limit := paramInt(eff.Params, "max_pawns", 0); limit > 0 && effects.CountPieces(fen, pawn) >= limit {
+				return nil, false, nil, gameerr.Newf(gameerr.InvalidTarget, "hai già %d pedoni", limit).
+					With("index", 0).With("reason", reasonMaxPawns).With("square", sq)
+			}
+			newFEN, err := effects.PlacePiece(fen, sq, pawn)
+			if err != nil {
+				return nil, false, nil, err
+			}
+			fen, changed = newFEN, true
+			tracker.Add(sq, pawn)
+			entry["target"], entry["piece"] = sq, "pawn"
 
 		default:
 			return nil, false, nil, gameerr.Newf(gameerr.Internal, "effetto non supportato: %s", eff.Kind)
 		}
+		applied = append(applied, entry)
 	}
 
 	if changed {
+		fen = effects.ClearStaleEnPassant(fen)
+		if err := validateNoCheck(r.Board.FEN, fen, casterColor); err != nil {
+			return nil, false, nil, err
+		}
 		// Una magia non passa il turno: il lato al tratto della FEN resta invariato.
 		r.Board.FEN = fen
+	}
+	r.Tracker = tracker
+	for _, apply := range deferred {
+		apply()
 	}
 	return applied, changed, drawn, nil
 }
 
-// tickEffectsOnNewTurn, se nei risultati c'è un nuovo turno, decrementa gli
-// effetti del giocatore che ha appena finito (così "freeze 2" dura 2 suoi turni)
-// e restituisce gli effetti scaduti. Va invocata con r.mu tenuto.
+// reasonMaxPawns: summon_pawn rifiutato perché il lanciatore ha già il numero
+// massimo di pedoni (details.reason di invalid_target).
+const reasonMaxPawns = "max_pawns"
+
+// reasonPromotion: movimento rifiutato perché porterebbe un pedone all'ultima
+// traversa con no_promotion.
+const reasonPromotion = "promotion"
+
+// moveEndpoints ricava partenza e arrivo di un move_piece: dai due bersagli
+// ([pezzo, casa]) oppure, con "relative": "forward", dal solo pezzo e dal numero
+// di passi ("squares") in avanti per chi lancia. Il movimento relativo non
+// cattura (la casa d'arrivo deve essere vuota) e con "no_promotion" non può
+// arrivare all'ultima traversa.
+func moveEndpoints(fen string, params map[string]interface{}, targets []string, caster effects.Color) (string, string, error) {
+	relative, _ := params["relative"].(string)
+	if relative == "" {
+		if len(targets) < 2 {
+			return "", "", gameerr.New(gameerr.InvalidTargetCount, "lo spostamento richiede pezzo e casa d'arrivo").
+				With("expected", 2).With("received", len(targets))
+		}
+		return targets[0], targets[1], nil
+	}
+	if relative != "forward" || len(targets) == 0 {
+		return "", "", gameerr.Newf(gameerr.Internal, "movimento relativo non supportato: %q", relative)
+	}
+	from := targets[0]
+	to, err := effects.ForwardSquare(from, caster, paramInt(params, "squares", 1))
+	if err != nil {
+		return "", "", err
+	}
+	if p, _ := effects.PieceAt(fen, to); p != 0 {
+		return "", "", gameerr.Newf(gameerr.InvalidTarget, "la casa %s davanti al pezzo è occupata", to).
+			With("index", 0).With("reason", effects.ReasonNotEmpty).With("square", to)
+	}
+	if paramBool(params, "no_promotion") && effects.RelativeRank(to, caster) == 8 {
+		return "", "", gameerr.Newf(gameerr.InvalidTarget, "%s porterebbe il pedone alla promozione", to).
+			With("index", 0).With("reason", reasonPromotion).With("square", to)
+	}
+	return from, to, nil
+}
+
+// tickEffectsOnNewTurn, se nei risultati c'è un nuovo turno, aggiorna le durate
+// degli effetti alla fine del turno di chi ha appena chiuso e restituisce gli
+// effetti scaduti. Va invocata con r.mu tenuto.
 func (r *Room) tickEffectsOnNewTurn(results []match.AdvanceResult) []effects.ExpiredEffect {
 	for _, res := range results {
 		if res.NewTurn {
 			finishing := res.ActivePlayer.Opponent() // chi ha appena chiuso il turno
-			return r.Tracker.TickColor(toEffectsColor(finishing))
+			return r.Tracker.TickTurnEnd(toEffectsColor(finishing))
 		}
 	}
 	return nil
 }
 
+// gameStatus valuta la posizione per il lato al tratto della FEN. Le mosse dei
+// pezzi congelati non contano come giocabili: se non ne resta nessuna valgono le
+// regole degli scacchi (re sotto scacco = matto, altrimenti stallo). Va
+// invocata con r.mu tenuto.
+func (r *Room) gameStatus() engine.GameStatus {
+	return engine.SF.GetGameStatusFiltered(r.Board.FEN, r.isPlayable)
+}
+
+// isPlayable indica se una mossa legale per gli scacchi è ammessa dagli stati
+// delle magie: un pezzo congelato non muove (lo stesso controllo di handleMove).
+func (r *Room) isPlayable(move string) bool {
+	return len(move) < 4 || !r.Tracker.IsFrozen(move[:2])
+}
+
 // checkRolloverGameEnd, dopo un rollover di turno, verifica se il nuovo
-// giocatore attivo è sotto scacco matto/stallo (anche per effetto di una magia
-// del turno precedente, es. Disintegrate/Teleport). Al rollover la FEN ha il
-// lato al tratto del nuovo giocatore attivo, quindi GetGameStatus lo valuta
-// correttamente. Se la partita è finita la conclude e ritorna l'esito da
-// annunciare. Va invocata con r.mu tenuto; il chiamante chiama announceEnd dopo
-// aver rilasciato il lock e fatto i broadcast.
+// giocatore attivo è in matto o stallo, anche per effetto di una magia del turno
+// precedente (es. un pezzo congelato o un pedone evocato che blocca). Va
+// invocata con r.mu tenuto; il chiamante chiama announceEnd dopo aver rilasciato
+// il lock e fatto i broadcast.
 func (r *Room) checkRolloverGameEnd(results []match.AdvanceResult) *gameEnd {
-	rolled := false
 	for _, res := range results {
 		if res.NewTurn {
-			rolled = true
-			break
+			return r.checkActivePlayerEnd()
 		}
 	}
-	if !rolled {
-		return nil
-	}
+	return nil
+}
 
-	switch engine.SF.GetGameStatus(r.Board.FEN) {
+// checkActivePlayerEnd valuta la posizione del giocatore attivo, che deve
+// essere il lato al tratto della FEN: all'inizio del suo turno, oppure in main1
+// dopo una sua magia che ha cambiato la scacchiera (un Patto di sangue può
+// lasciarlo senza mosse). Se la partita è finita la conclude e ritorna l'esito.
+// Va invocata con r.mu tenuto.
+func (r *Room) checkActivePlayerEnd() *gameEnd {
+	switch r.gameStatus() {
 	case engine.StatusCheckmate:
 		if r.Match.ActivePlayer == match.PlayerWhite {
 			return r.finishLocked(models.ResultBlackWins, "checkmate", StatusCheckmate) // il Bianco è matto
@@ -898,7 +995,7 @@ func (r *Room) checkRolloverGameEnd(results []match.AdvanceResult) *gameEnd {
 	return nil
 }
 
-// broadcastExpired notifica entrambi i client degli effetti scaduti.
+/ broadcastExpired notifica entrambi i client degli effetti scaduti.
 func (r *Room) broadcastExpired(expired []effects.ExpiredEffect) {
 	for _, e := range expired {
 		logger.L.Info("Effetto scaduto",
@@ -928,6 +1025,12 @@ func (r *Room) activeEffects() []effects.PieceEffectInfo {
 		return nil
 	}
 	return r.Tracker.ActiveEffects()
+}
+
+// paramBool legge un parametro booleano (false se assente o di altro tipo).
+func paramBool(params map[string]interface{}, key string) bool {
+	v, _ := params[key].(bool)
+	return v
 }
 
 // paramInt legge un parametro intero da una mappa (gestendo int e float64).

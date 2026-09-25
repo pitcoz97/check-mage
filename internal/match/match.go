@@ -171,6 +171,7 @@ func (s *State) Advance() AdvanceResult {
 	s.ActivePlayer = s.ActivePlayer.Opponent()
 	s.TurnNumber++
 	s.CurrentPhase = phase.PhaseDraw
+	s.player(s.ActivePlayer).CastsThisTurn = nil // i limiti per turno ripartono
 	mana := s.refreshMana(s.ActivePlayer)
 	draw := s.drawCard(s.ActivePlayer)
 	return s.snapshot(AdvanceResult{NewTurn: true, Draw: &draw, Mana: &mana})
@@ -181,13 +182,13 @@ func (s *State) DrawFor(p Player) DrawResult {
 	return s.drawCard(p)
 }
 
-// GainMana aggiunge mana al giocatore dato per questo turno (effetto gain_mana),
-// senza superare il cap assoluto. Il mana torna al massimo del turno alla
-// prossima ricarica.
-func (s *State) GainMana(p Player, amount int) ManaState {
+// GainMana aggiunge mana al giocatore dato per questo turno (effetto gain_mana).
+// Senza exceedCap non supera il cap assoluto (MaxManaCap), non il massimo del
+// turno. Il mana torna al massimo del turno alla prossima ricarica.
+func (s *State) GainMana(p Player, amount int, exceedCap bool) ManaState {
 	ps := s.player(p)
 	ps.Mana += amount
-	if ps.Mana > spells.MaxManaCap {
+	if !exceedCap && ps.Mana > spells.MaxManaCap {
 		ps.Mana = spells.MaxManaCap
 	}
 	return ManaState{Player: p, Current: ps.Mana, Max: ps.MaxMana}
@@ -202,7 +203,7 @@ func (s *State) CanCastAny() bool {
 	ps := s.player(s.ActivePlayer)
 	for _, id := range ps.Hand {
 		def, ok := spells.Catalog[id]
-		if ok && def.ManaCost <= ps.Mana && phaseAllowsSpell(def, s.CurrentPhase) {
+		if ok && def.ManaCost <= ps.Mana && phaseAllowsSpell(def, s.CurrentPhase) && withinLimits(def, ps) {
 			return true
 		}
 	}
@@ -324,10 +325,15 @@ func (s *State) CastSpell(p Player, spellID string, targets []string, apply Appl
 		return CastResult{}, gameerr.Newf(gameerr.InsufficientMana, "mana insufficiente: servono %d, hai %d", def.ManaCost, ps.Mana).
 			With("needed", def.ManaCost).With("available", ps.Mana)
 	}
-	if len(targets) != def.TargetType.TargetCount() {
+	if !withinLimits(def, ps) {
+		return CastResult{}, gameerr.Newf(gameerr.LimitReached, "%s si può lanciare al massimo %d volte per turno",
+			def.Name, def.Limits[spells.LimitPerTurn]).
+			With("spell_id", spellID).With("per_turn", def.Limits[spells.LimitPerTurn])
+	}
+	if len(targets) != len(def.Targets) {
 		return CastResult{}, gameerr.Newf(gameerr.InvalidTargetCount, "la magia %s richiede %d bersagli, ricevuti %d",
-			def.Name, def.TargetType.TargetCount(), len(targets)).
-			With("expected", def.TargetType.TargetCount()).With("received", len(targets))
+			def.Name, len(def.Targets), len(targets)).
+			With("expected", len(def.Targets)).With("received", len(targets))
 	}
 
 	// Esegue gli effetti sulla board PRIMA di spendere mana: se falliscono
@@ -340,6 +346,10 @@ func (s *State) CastSpell(p Player, spellID string, targets []string, apply Appl
 	ps.Mana -= def.ManaCost
 	ps.Hand = append(ps.Hand[:idx], ps.Hand[idx+1:]...)
 	ps.Discard = append(ps.Discard, spellID)
+	if ps.CastsThisTurn == nil {
+		ps.CastsThisTurn = make(map[string]int)
+	}
+	ps.CastsThisTurn[spellID]++
 
 	return CastResult{
 		Spell:          def,
@@ -349,6 +359,13 @@ func (s *State) CastSpell(p Player, spellID string, targets []string, apply Appl
 		ManaMax:        ps.MaxMana,
 		HandSize:       len(ps.Hand),
 	}, nil
+}
+
+// withinLimits indica se il giocatore può ancora lanciare la magia in questo
+// turno (Spell.Limits). Una magia senza limiti è sempre entro i limiti.
+func withinLimits(def spells.Spell, ps *spells.PlayerState) bool {
+	perTurn, ok := def.Limits[spells.LimitPerTurn]
+	return !ok || ps.CastsThisTurn[def.ID] < perTurn
 }
 
 // phaseAllowsSpell indica se la magia è giocabile nella fase data.

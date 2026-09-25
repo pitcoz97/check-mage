@@ -1,10 +1,9 @@
 // Package spells contiene il modello dati delle magie (carte), del mazzo e
-// della mano di un giocatore, più il catalogo hardcoded del set MVP.
+// della mano di un giocatore. Il catalogo sta in catalog.go.
 //
-// È volutamente data-driven: ogni magia è un record che compone uno o più
-// Effect; l'esecuzione vera degli effetti vive in internal/effects (step
-// successivi). In Step 2 gli effetti sono "noop": le magie costano mana e
-// finiscono nello scarto senza modificare la scacchiera.
+// È volutamente data-driven: ogni magia è un record che dichiara i bersagli
+// (TargetSpec) e compone uno o più Effect; l'esecuzione degli effetti vive in
+// internal/effects e internal/game. Nessuna logica dipende dall'ID della magia.
 package spells
 
 import (
@@ -14,7 +13,7 @@ import (
 	"chess-server/internal/phase"
 )
 
-// Parametri del card game (MVP).
+// Parametri del card game.
 const (
 	StartingHand = 4  // carte in mano iniziale
 	DeckSize     = 40 // dimensione del mazzo
@@ -22,39 +21,76 @@ const (
 	MaxManaCap   = 10 // tetto massimo del mana
 )
 
-// TargetType descrive cosa bersaglia una magia.
+// TargetType descrive cosa bersaglia un elemento di Spell.Targets.
 type TargetType string
 
 const (
-	TargetNone       TargetType = "none"
-	TargetSquare     TargetType = "square"
-	TargetPiece      TargetType = "piece"
-	TargetOwnPiece   TargetType = "own_piece"
-	TargetEnemyPiece TargetType = "enemy_piece"
-	TargetPieceMove  TargetType = "piece_move" // due caselle: partenza + arrivo
+	TargetSquare     TargetType = "square"      // una casa (vuota o no, secondo EmptySquare)
+	TargetOwnPiece   TargetType = "own_piece"   // un pezzo del lanciatore
+	TargetEnemyPiece TargetType = "enemy_piece" // un pezzo dell'avversario
 )
 
-// TargetCount restituisce quanti bersagli si attende un TargetType.
-func (t TargetType) TargetCount() int {
-	switch t {
-	case TargetNone:
-		return 0
-	case TargetPieceMove:
-		return 2
-	default:
-		return 1
-	}
+// PieceKind è il tipo di un pezzo, come nome inglese minuscolo.
+type PieceKind string
+
+const (
+	Pawn   PieceKind = "pawn"
+	Knight PieceKind = "knight"
+	Bishop PieceKind = "bishop"
+	Rook   PieceKind = "rook"
+	Queen  PieceKind = "queen"
+	King   PieceKind = "king"
+)
+
+// TargetSpec descrive un bersaglio di una magia e i filtri che deve rispettare.
+// I bersagli di un cast arrivano nello stesso ordine di Spell.Targets.
+type TargetSpec struct {
+	Type TargetType `json:"type"`
+	// Pezzi ammessi; vuoto = tutti tranne il re. Il re non è mai un bersaglio
+	// valido per un pezzo nemico, qualunque cosa dica la lista.
+	Pieces []PieceKind `json:"pieces,omitempty"`
+	// Stato che il pezzo bersaglio deve avere (es. "freeze").
+	RequireEffect string `json:"require_effect,omitempty"`
+	// Per TargetSquare: la casa deve essere vuota.
+	EmptySquare bool `json:"empty_square,omitempty"`
+	// Distanza massima (Chebyshev) dal bersaglio precedente; 0 = nessun limite.
+	MaxDistance int `json:"max_distance,omitempty"`
+	// Traverse ammesse, relative al lanciatore (1 = la sua prima traversa).
+	OwnRanks []int `json:"own_ranks,omitempty"`
+	// Traversa minima, relativa al lanciatore; 0 = nessun limite.
+	MinRank int `json:"min_rank,omitempty"`
 }
 
-// Kind degli effetti (cresce ad ogni step della roadmap).
+// Rarity è la rarità di una carta: decide quante copie ne può contenere un mazzo.
+type Rarity string
+
 const (
-	EffectNoop         = "noop"          // nessun effetto (placeholder)
-	EffectDestroyPiece = "destroy_piece" // distrugge un pezzo nemico (Step 3)
-	EffectFreezePiece  = "freeze_piece"  // congela un pezzo nemico (Step 4)
-	EffectShieldPiece  = "shield_piece"  // protegge un pezzo proprio (Step 4)
-	EffectDrawCard     = "draw_card"     // pesca carte (Step 5)
-	EffectGainMana     = "gain_mana"     // mana extra questo turno (Step 5)
-	EffectMovePiece    = "move_piece"    // sposta un pezzo proprio su casella vuota (Step 5)
+	Common    Rarity = "common"    // massimo 2 copie
+	Legendary Rarity = "legendary" // massimo 1 copia
+)
+
+// MaxCopies restituisce il numero massimo di copie ammesse in un mazzo.
+func (r Rarity) MaxCopies() int {
+	if r == Legendary {
+		return 1
+	}
+	return 2
+}
+
+// Chiavi di Spell.Limits.
+const (
+	LimitPerTurn = "per_turn" // cast massimi per turno del lanciatore
+)
+
+// Kind degli effetti.
+const (
+	EffectDestroyPiece = "destroy_piece" // rimuove il pezzo bersaglio
+	EffectFreezePiece  = "freeze_piece"  // congela un pezzo
+	EffectShieldPiece  = "shield_piece"  // protegge un pezzo
+	EffectDrawCard     = "draw_card"     // pesca carte
+	EffectGainMana     = "gain_mana"     // mana extra questo turno
+	EffectMovePiece    = "move_piece"    // sposta un pezzo proprio su una casa vuota
+	EffectSummonPawn   = "summon_pawn"   // crea un pedone del lanciatore
 )
 
 // Effect è un effetto componibile di una magia.
@@ -65,55 +101,15 @@ type Effect struct {
 
 // Spell è la definizione data-driven di una carta.
 type Spell struct {
-	ID         string        `json:"id"`
-	Name       string        `json:"name"`
-	ManaCost   int           `json:"mana_cost"`
-	Phases     []phase.Phase `json:"phases"` // fasi in cui è giocabile
-	TargetType TargetType    `json:"target_type"`
-	Effects    []Effect      `json:"effects"`
-}
-
-// noop è l'effetto placeholder.
-func noop() []Effect { return []Effect{{Kind: EffectNoop}} }
-
-// castableInMain elenca le fasi main (default per le magie del MVP).
-var castableInMain = []phase.Phase{phase.PhaseMain1, phase.PhaseMain2}
-
-// Catalog è la libreria delle magie indicizzata per ID. Set MVP: placeholder
-// noop + magie con effetti reali (destroy/freeze/shield).
-var Catalog = map[string]Spell{
-	"spark":        {ID: "spark", Name: "Spark", ManaCost: 1, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
-	"jolt":         {ID: "jolt", Name: "Jolt", ManaCost: 2, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
-	"pulse":        {ID: "pulse", Name: "Pulse", ManaCost: 2, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
-	"surge":        {ID: "surge", Name: "Surge", ManaCost: 3, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
-	"nova":         {ID: "nova", Name: "Nova", ManaCost: 5, Phases: castableInMain, TargetType: TargetNone, Effects: noop()},
-	"disintegrate": {ID: "disintegrate", Name: "Disintegrate", ManaCost: 4, Phases: castableInMain, TargetType: TargetEnemyPiece, Effects: []Effect{{Kind: EffectDestroyPiece}}},
-	"frostbolt":    {ID: "frostbolt", Name: "Frost Bolt", ManaCost: 2, Phases: castableInMain, TargetType: TargetEnemyPiece, Effects: []Effect{{Kind: EffectFreezePiece, Params: map[string]interface{}{"turns": 2}}}},
-	"aegis":        {ID: "aegis", Name: "Aegis", ManaCost: 3, Phases: castableInMain, TargetType: TargetOwnPiece, Effects: []Effect{{Kind: EffectShieldPiece, Params: map[string]interface{}{"turns": 2}}}},
-	"insight":      {ID: "insight", Name: "Insight", ManaCost: 1, Phases: castableInMain, TargetType: TargetNone, Effects: []Effect{{Kind: EffectDrawCard, Params: map[string]interface{}{"count": 1}}}},
-	"channel":      {ID: "channel", Name: "Channel", ManaCost: 0, Phases: castableInMain, TargetType: TargetNone, Effects: []Effect{{Kind: EffectGainMana, Params: map[string]interface{}{"amount": 2}}}},
-	"teleport":     {ID: "teleport", Name: "Teleport", ManaCost: 3, Phases: castableInMain, TargetType: TargetPieceMove, Effects: []Effect{{Kind: EffectMovePiece}}},
-}
-
-// deckRecipe definisce quante copie di ogni carta compongono il mazzo MVP.
-// In Fase 1 il mazzo è condiviso e identico per entrambi i giocatori; la
-// struttura per-giocatore è comunque già separata, pronta per il deckbuilding
-// di Fase 2. Totale = 40.
-var deckRecipe = []struct {
-	ID    string
-	Count int
-}{
-	{"spark", 8},
-	{"jolt", 6},
-	{"pulse", 5},
-	{"surge", 4},
-	{"insight", 4},
-	{"channel", 3},
-	{"frostbolt", 3},
-	{"aegis", 3},
-	{"disintegrate", 2},
-	{"teleport", 1},
-	{"nova", 1},
+	ID       string         `json:"id"`
+	Name     string         `json:"name"`
+	ManaCost int            `json:"mana_cost"`
+	Phases   []phase.Phase  `json:"phases"`  // fasi in cui è giocabile
+	Targets  []TargetSpec   `json:"targets"` // bersagli, in ordine; vuoto = nessun bersaglio
+	Effects  []Effect       `json:"effects"`
+	Tags     []string       `json:"tags"` // archetipi: gelo, necro, arcano, sacro, rune, falange
+	Rarity   Rarity         `json:"rarity"`
+	Limits   map[string]int `json:"limits,omitempty"` // es. {"per_turn": 1}
 }
 
 // BuildDeck costruisce un mazzo ordinato (non mischiato) dal deckRecipe.
@@ -135,6 +131,9 @@ type PlayerState struct {
 	Discard []string `json:"discard"`  // ID delle carte scartate
 	Mana    int      `json:"mana"`     // mana attuale
 	MaxMana int      `json:"max_mana"` // mana massimo del turno
+	// Cast di ogni magia nel turno corrente del giocatore (per Spell.Limits).
+	// Si azzera all'inizio di ogni suo turno.
+	CastsThisTurn map[string]int `json:"casts_this_turn,omitempty"`
 }
 
 // NewPlayerState costruisce e mischia (in modo deterministico, via rng) il
@@ -165,6 +164,28 @@ func (ps *PlayerState) HandIndex(spellID string) int {
 		}
 	}
 	return -1
+}
+
+// DropUnknownCards toglie da mano, mazzo e scarti le carte che il catalogo non
+// contiene più e restituisce quante ne ha tolte. Serve a ripristinare le partite
+// salvate con un catalogo precedente.
+func (ps *PlayerState) DropUnknownCards() int {
+	removed := 0
+	keep := func(ids []string) []string {
+		out := make([]string, 0, len(ids))
+		for _, id := range ids {
+			if _, ok := Catalog[id]; ok {
+				out = append(out, id)
+			} else {
+				removed++
+			}
+		}
+		return out
+	}
+	ps.Hand = keep(ps.Hand)
+	ps.Deck = keep(ps.Deck)
+	ps.Discard = keep(ps.Discard)
+	return removed
 }
 
 // List restituisce il catalogo come lista ordinata per costo e poi per id

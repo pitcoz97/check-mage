@@ -24,52 +24,58 @@ func paramInt(params map[string]interface{}, key string, def int) int {
 	return def
 }
 
-// applyEffects replica la logica di game.Room.applySpellEffects per il livello
-// non-scacchistico degli effetti (freeze/shield sul tracker, draw/mana sul
-// match). Serve a guidare CastSpell in un test end-to-end senza Stockfish.
-func applyEffects(s *State, tr *effects.Tracker, caster Player, def spells.Spell, targets []string) ([]interface{}, error) {
+// applyEffects replica, per il solo livello non scacchistico, la logica di
+// game.Room.applySpellEffects: valida i bersagli, applica gelo e scudo al
+// tracker, distrugge sulla FEN, pesca e guadagna mana sul match. Serve a guidare
+// CastSpell in un test end-to-end senza Stockfish.
+func applyEffects(s *State, fen *string, tr *effects.Tracker, caster Player, def spells.Spell, targets []string) ([]interface{}, error) {
 	col := effects.White
 	if caster == PlayerBlack {
 		col = effects.Black
 	}
+	if err := effects.ValidateTargets(*fen, tr, def.Targets, targets, col); err != nil {
+		return nil, err
+	}
 	var applied []interface{}
 	for _, eff := range def.Effects {
 		switch eff.Kind {
-		case spells.EffectNoop:
-			applied = append(applied, map[string]interface{}{"kind": eff.Kind})
+		case spells.EffectDestroyPiece:
+			newFEN, _, err := effects.DestroyPiece(*fen, targets[0])
+			if err != nil {
+				return nil, err
+			}
+			*fen = newFEN
+			tr.RemoveAt(targets[0])
 		case spells.EffectFreezePiece:
-			if err := effects.FreezePiece(tr, targets[0], col, paramInt(eff.Params, "turns", 1), def.ID); err != nil {
+			if err := effects.FreezePiece(tr, targets[0], col, paramInt(eff.Params, "duration", 1), def.ID); err != nil {
 				return nil, err
 			}
-			applied = append(applied, map[string]interface{}{"kind": eff.Kind})
 		case spells.EffectShieldPiece:
-			if err := effects.ShieldPiece(tr, targets[0], col, paramInt(eff.Params, "turns", 1), def.ID); err != nil {
+			if err := effects.ShieldPiece(tr, targets[0], col, paramInt(eff.Params, "duration", 1), def.ID); err != nil {
 				return nil, err
 			}
-			applied = append(applied, map[string]interface{}{"kind": eff.Kind})
 		case spells.EffectDrawCard:
-			for i := 0; i < paramInt(eff.Params, "count", 1); i++ {
+			for i := 0; i < paramInt(eff.Params, "amount", 1); i++ {
 				s.DrawFor(caster)
 			}
-			applied = append(applied, map[string]interface{}{"kind": eff.Kind})
 		case spells.EffectGainMana:
-			s.GainMana(caster, paramInt(eff.Params, "amount", 1))
-			applied = append(applied, map[string]interface{}{"kind": eff.Kind})
-		default:
-			applied = append(applied, map[string]interface{}{"kind": eff.Kind})
+			s.GainMana(caster, paramInt(eff.Params, "amount", 1), false)
 		}
+		applied = append(applied, map[string]interface{}{"kind": eff.Kind})
 	}
 	return applied, nil
 }
 
-// TestIntegration_MagicGame guida una partita completa attraverso il card game:
-// apertura, crescita mana, combo gain_mana, pesca, freeze con scadenza, shield,
-// esaurimento mazzo. Copre l'integrazione match + effects + spells.
+// TestIntegration_MagicGame guida una partita attraverso il card game: combo di
+// mana col Patto di sangue e suo limite per turno, Brina → Frantumare, durata
+// del gelo, scudo, esaurimento del mazzo. Copre l'integrazione match + effects
+// + spells.
 func TestIntegration_MagicGame(t *testing.T) {
 	s := New(7)
-	tr := effects.NewTracker(startFEN)
+	fen := startFEN
+	tr := effects.NewTracker(fen)
 	apply := func(def spells.Spell, targets []string) ([]interface{}, error) {
-		return applyEffects(s, tr, s.ActivePlayer, def, targets)
+		return applyEffects(s, &fen, tr, s.ActivePlayer, def, targets)
 	}
 
 	// Apertura: 4 carte a testa, tocca al Bianco.
@@ -77,79 +83,79 @@ func TestIntegration_MagicGame(t *testing.T) {
 		t.Fatalf("mani iniziali %d/%d, attese 4/4", len(s.White.Hand), len(s.Black.Hand))
 	}
 
-	// --- Turno 1 Bianco: combo gain_mana + magia altrimenti inaccessibile ---
+	// --- Bianco: il Patto di sangue sblocca una magia altrimenti inaccessibile ---
 	s.CurrentPhase = phase.PhaseMain1
-	s.White.Hand = []string{"channel", "surge", "insight"}
+	s.White.Hand = []string{"blood_pact", "blood_pact", "ice_chain"}
 	s.White.Mana = 1
 
-	// surge (costo 3) non è castabile con 1 mana.
-	if _, err := s.CastSpell(PlayerWhite, "surge", nil, apply); err == nil {
-		t.Fatal("surge non dovrebbe essere castabile con 1 mana")
+	// ice_chain (costo 3) non è castabile con 1 mana.
+	if _, err := s.CastSpell(PlayerWhite, "ice_chain", []string{"b8"}, apply); err == nil {
+		t.Fatal("ice_chain non dovrebbe essere castabile con 1 mana")
 	}
-	// channel (+2) porta il mana a 3.
-	if _, err := s.CastSpell(PlayerWhite, "channel", nil, apply); err != nil {
-		t.Fatalf("channel fallito: %v", err)
+	// Patto di sangue sul pedone a2: +2 mana.
+	if _, err := s.CastSpell(PlayerWhite, "blood_pact", []string{"a2"}, apply); err != nil {
+		t.Fatalf("patto di sangue fallito: %v", err)
 	}
 	if s.White.Mana != 3 {
-		t.Fatalf("dopo channel mana = %d, atteso 3", s.White.Mana)
+		t.Fatalf("dopo il patto mana = %d, atteso 3", s.White.Mana)
 	}
-	// Ora surge è castabile (combo).
-	if _, err := s.CastSpell(PlayerWhite, "surge", nil, apply); err != nil {
-		t.Fatalf("surge dopo channel fallito: %v", err)
+	if p, _ := effects.PieceAt(fen, "a2"); p != 0 {
+		t.Error("il pedone sacrificato deve sparire dalla scacchiera")
 	}
-	if s.White.Mana != 0 {
-		t.Fatalf("dopo surge mana = %d, atteso 0", s.White.Mana)
+	// Il secondo patto nello stesso turno è rifiutato.
+	if _, err := s.CastSpell(PlayerWhite, "blood_pact", []string{"b2"}, apply); err == nil {
+		t.Error("il secondo patto di sangue nello stesso turno dovrebbe fallire")
+	}
+	// Ora la Catena di ghiaccio è castabile (combo) sul cavallo nero in b8.
+	if _, err := s.CastSpell(PlayerWhite, "ice_chain", []string{"b8"}, apply); err != nil {
+		t.Fatalf("ice_chain dopo il patto fallita: %v", err)
+	}
+	if s.White.Mana != 0 || !tr.IsFrozen("b8") {
+		t.Fatalf("dopo la catena: mana %d, b8 congelato %v", s.White.Mana, tr.IsFrozen("b8"))
 	}
 
-	// --- Pesca: insight fa crescere la mano ---
+	// --- Brina → Frantumare nello stesso turno ---
+	s.White.Hand = []string{"frost", "shatter"}
 	s.White.Mana = 5
-	handBefore, deckBefore := len(s.White.Hand), len(s.White.Deck)
-	if _, err := s.CastSpell(PlayerWhite, "insight", nil, apply); err != nil {
-		t.Fatalf("insight fallito: %v", err)
+	if _, err := s.CastSpell(PlayerWhite, "shatter", []string{"e7"}, apply); err == nil {
+		t.Fatal("Frantumare su un pezzo non congelato dovrebbe fallire")
 	}
-	// insight esce dalla mano (-1) ma pesca 1 (+1) → dimensione invariata, mazzo -1.
-	if len(s.White.Hand) != handBefore {
-		t.Errorf("mano dopo insight = %d, attesa %d", len(s.White.Hand), handBefore)
+	if _, err := s.CastSpell(PlayerWhite, "frost", []string{"e7"}, apply); err != nil {
+		t.Fatalf("brina fallita: %v", err)
 	}
-	if len(s.White.Deck) != deckBefore-1 {
-		t.Errorf("mazzo dopo insight = %d, atteso %d", len(s.White.Deck), deckBefore-1)
+	if _, err := s.CastSpell(PlayerWhite, "shatter", []string{"e7"}, apply); err != nil {
+		t.Fatalf("frantumare dopo la brina fallito: %v", err)
+	}
+	if p, _ := effects.PieceAt(fen, "e7"); p != 0 {
+		t.Error("il pedone frantumato deve sparire")
 	}
 
-	// --- Freeze con scadenza dopo 2 turni del proprietario ---
-	// Il Nero congela il pedone bianco in e2.
+	// --- Durata del gelo: freeze 1 copre il turno del pezzo colpito ---
+	tr.TickTurnEnd(effects.White) // fine del turno del bianco
+	if !tr.IsFrozen("b8") {
+		t.Error("b8 deve restare congelato durante il turno del nero")
+	}
+	exp := tr.TickTurnEnd(effects.Black) // fine del turno del nero
+	if tr.IsFrozen("b8") {
+		t.Error("b8 deve tornare mobile all'inizio del turno dopo")
+	}
+	if len(exp) != 1 || exp[0].Square != "b8" {
+		t.Errorf("atteso 1 effetto scaduto su b8, ottenuto %+v", exp)
+	}
+
+	// --- Scudo: il Nero protegge un proprio pezzo, poi lo scudo è consumato ---
 	s.ActivePlayer = PlayerBlack
 	s.CurrentPhase = phase.PhaseMain1
-	s.Black.Hand = []string{"frostbolt"}
+	s.Black.Hand = []string{"shield"}
 	s.Black.Mana = 2
-	if _, err := s.CastSpell(PlayerBlack, "frostbolt", []string{"e2"}, apply); err != nil {
-		t.Fatalf("frostbolt fallito: %v", err)
+	if _, err := s.CastSpell(PlayerBlack, "shield", []string{"d7"}, apply); err != nil {
+		t.Fatalf("scudo fallito: %v", err)
 	}
-	if !tr.IsFrozen("e2") {
-		t.Fatal("e2 dovrebbe essere congelato dopo frostbolt")
+	if !tr.HasShield("d7") {
+		t.Fatal("d7 dovrebbe avere lo scudo")
 	}
-	tr.TickColor(effects.White) // fine 1° turno bianco: 2 -> 1
-	if !tr.IsFrozen("e2") {
-		t.Error("e2 dovrebbe restare congelato dopo 1 turno bianco")
-	}
-	exp := tr.TickColor(effects.White) // fine 2° turno bianco: 1 -> 0
-	if tr.IsFrozen("e2") {
-		t.Error("e2 dovrebbe tornare mobile dopo 2 turni bianchi")
-	}
-	if len(exp) != 1 || exp[0].Square != "e2" {
-		t.Errorf("atteso 1 effetto scaduto su e2, ottenuto %+v", exp)
-	}
-
-	// --- Shield: il Nero protegge un proprio pezzo, poi lo scudo è consumato ---
-	s.Black.Hand = []string{"aegis"}
-	s.Black.Mana = 3
-	if _, err := s.CastSpell(PlayerBlack, "aegis", []string{"e7"}, apply); err != nil {
-		t.Fatalf("aegis fallito: %v", err)
-	}
-	if !tr.HasShield("e7") {
-		t.Fatal("e7 dovrebbe avere lo scudo")
-	}
-	tr.ConsumeShield("e7")
-	if tr.HasShield("e7") {
+	tr.ConsumeShield("d7")
+	if tr.HasShield("d7") {
 		t.Error("lo scudo dovrebbe essere consumato")
 	}
 

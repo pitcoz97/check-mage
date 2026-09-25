@@ -1,6 +1,7 @@
 package spells
 
 import (
+	"encoding/json"
 	"math/rand"
 	"testing"
 )
@@ -61,15 +62,15 @@ func TestNewPlayerState_Deterministic(t *testing.T) {
 }
 
 func TestHandIndex(t *testing.T) {
-	ps := &PlayerState{Hand: []string{"spark", "jolt", "spark"}}
-	if got := ps.HandIndex("jolt"); got != 1 {
-		t.Errorf("HandIndex(jolt) = %d, atteso 1", got)
+	ps := &PlayerState{Hand: []string{"frost", "shield", "frost"}}
+	if got := ps.HandIndex("shield"); got != 1 {
+		t.Errorf("HandIndex(shield) = %d, atteso 1", got)
 	}
-	if got := ps.HandIndex("spark"); got != 0 {
-		t.Errorf("HandIndex(spark) = %d, atteso 0 (prima copia)", got)
+	if got := ps.HandIndex("frost"); got != 0 {
+		t.Errorf("HandIndex(frost) = %d, atteso 0 (prima copia)", got)
 	}
-	if got := ps.HandIndex("nova"); got != -1 {
-		t.Errorf("HandIndex(nova) = %d, atteso -1", got)
+	if got := ps.HandIndex("blink"); got != -1 {
+		t.Errorf("HandIndex(blink) = %d, atteso -1", got)
 	}
 }
 
@@ -83,5 +84,122 @@ func TestList_SortedAndComplete(t *testing.T) {
 		if a.ManaCost > b.ManaCost || (a.ManaCost == b.ManaCost && a.ID > b.ID) {
 			t.Errorf("ordine errato: %s (%d) prima di %s (%d)", a.ID, a.ManaCost, b.ID, b.ManaCost)
 		}
+	}
+}
+
+// Ogni voce del catalogo usa valori noti: rarità, tag, tipi di bersaglio,
+// pezzi, fasi main e kind di effetto implementati.
+func TestCatalog_WellFormed(t *testing.T) {
+	tags := map[string]bool{"gelo": true, "necro": true, "arcano": true, "sacro": true, "rune": true, "falange": true}
+	kinds := map[string]bool{
+		EffectDestroyPiece: true, EffectFreezePiece: true, EffectShieldPiece: true, EffectDrawCard: true,
+		EffectGainMana: true, EffectMovePiece: true, EffectSummonPawn: true,
+	}
+	targetTypes := map[TargetType]bool{TargetSquare: true, TargetOwnPiece: true, TargetEnemyPiece: true}
+	pieces := map[PieceKind]bool{Pawn: true, Knight: true, Bishop: true, Rook: true, Queen: true}
+
+	for id, sp := range Catalog {
+		if sp.Rarity != Common && sp.Rarity != Legendary {
+			t.Errorf("%s: rarità %q sconosciuta", id, sp.Rarity)
+		}
+		if len(sp.Tags) == 0 {
+			t.Errorf("%s: nessun archetipo", id)
+		}
+		for _, tag := range sp.Tags {
+			if !tags[tag] {
+				t.Errorf("%s: archetipo %q sconosciuto", id, tag)
+			}
+		}
+		if len(sp.Phases) == 0 {
+			t.Errorf("%s: nessuna fase", id)
+		}
+		for _, spec := range sp.Targets {
+			if !targetTypes[spec.Type] {
+				t.Errorf("%s: tipo di bersaglio %q sconosciuto", id, spec.Type)
+			}
+			for _, p := range spec.Pieces {
+				if !pieces[p] {
+					t.Errorf("%s: pezzo %q non ammesso come bersaglio", id, p)
+				}
+			}
+		}
+		for _, e := range sp.Effects {
+			if !kinds[e.Kind] {
+				t.Errorf("%s: effetto %q non implementato", id, e.Kind)
+			}
+		}
+		for key := range sp.Limits {
+			if key != LimitPerTurn {
+				t.Errorf("%s: limite %q sconosciuto", id, key)
+			}
+		}
+	}
+}
+
+// Il mazzo è di 40 carte e contiene solo magie del catalogo.
+func TestDeckRecipe(t *testing.T) {
+	total := 0
+	for _, entry := range deckRecipe {
+		if _, ok := Catalog[entry.ID]; !ok {
+			t.Errorf("ricetta: %s non è nel catalogo", entry.ID)
+		}
+		if entry.Count <= 0 {
+			t.Errorf("ricetta: %s ha %d copie", entry.ID, entry.Count)
+		}
+		total += entry.Count
+	}
+	if total != DeckSize {
+		t.Errorf("ricetta = %d carte, attese %d", total, DeckSize)
+	}
+}
+
+func TestRarity_MaxCopies(t *testing.T) {
+	if Common.MaxCopies() != 2 || Legendary.MaxCopies() != 1 {
+		t.Errorf("copie massime: common %d, legendary %d", Common.MaxCopies(), Legendary.MaxCopies())
+	}
+}
+
+// In JSON bersagli e tag sono sempre liste, mai null.
+func TestCatalog_JSONShape(t *testing.T) {
+	data, err := json.Marshal(List())
+	if err != nil {
+		t.Fatalf("marshal fallito: %v", err)
+	}
+	var raw []map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal fallito: %v", err)
+	}
+	for _, s := range raw {
+		for _, key := range []string{"id", "name", "mana_cost", "phases", "targets", "effects", "tags", "rarity"} {
+			if _, ok := s[key]; !ok {
+				t.Errorf("%v: campo %s assente", s["id"], key)
+			}
+		}
+		if _, ok := s["targets"].([]interface{}); !ok {
+			t.Errorf("%v: targets non è una lista", s["id"])
+		}
+		if _, ok := s["target_type"]; ok {
+			t.Errorf("%v: target_type non deve più esistere", s["id"])
+		}
+	}
+}
+
+func TestDropUnknownCards(t *testing.T) {
+	ps := &PlayerState{
+		Hand:    []string{"frost", "spark", "aegis"},
+		Deck:    []string{"nova", "shield"},
+		Discard: []string{"frostbolt"},
+	}
+	if removed := ps.DropUnknownCards(); removed != 4 {
+		t.Errorf("carte tolte = %d, attese 4", removed)
+	}
+	if len(ps.Hand) != 1 || ps.Hand[0] != "frost" {
+		t.Errorf("mano = %v, attesa [frost]", ps.Hand)
+	}
+	if len(ps.Deck) != 1 || ps.Deck[0] != "shield" {
+		t.Errorf("mazzo = %v, atteso [shield]", ps.Deck)
+	}
+	if len(ps.Discard) != 0 {
+		t.Errorf("scarti = %v, attesi vuoti", ps.Discard)
 	}
 }

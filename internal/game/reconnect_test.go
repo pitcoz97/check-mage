@@ -43,7 +43,7 @@ func TestReconnect_RestoresMagicState(t *testing.T) {
 		posCounts:         map[string]int{},
 	}
 	// Un effetto attivo su un pezzo bianco.
-	if err := effects.FreezePiece(room.Tracker, "e7", effects.White, 2, "frostbolt"); err != nil {
+	if err := effects.FreezePiece(room.Tracker, "e7", effects.White, 2, "frost"); err != nil {
 		t.Fatalf("setup freeze fallito: %v", err)
 	}
 

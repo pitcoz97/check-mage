@@ -11,7 +11,6 @@ import (
 	"chess-server/internal/match"
 	"chess-server/internal/models"
 	"chess-server/internal/phase"
-	"chess-server/internal/spells"
 )
 
 const startFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -219,52 +218,7 @@ func TestPublicState_PlayersAndTimeControl(t *testing.T) {
 	}
 }
 
-// B5/N1: in main1 (tratto a chi lancia) una magia non può lasciare il re
-// avversario sotto scacco; in main2 (tratto all'avversario) sì.
-func TestSpellEffects_RejectIllegalPositions(t *testing.T) {
-	disintegrate := spells.Catalog["disintegrate"]
-	teleport := spells.Catalog["teleport"]
-
-	// Bianco al tratto: il cavallo nero in e7 copre il re nero dalla torre in e1.
-	const pinnedFEN = "4k3/4n3/8/8/8/8/8/4R2K w - - 0 1"
-	room, _, _ := newTestRoom(pinnedFEN)
-	if err := effects.FreezePiece(room.Tracker, "e7", effects.White, 2, "frostbolt"); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	_, _, _, err := room.applySpellEffects(disintegrate, []string{"e7"}, match.PlayerWhite)
-	if code := gameerr.From(err).Code; code != gameerr.IllegalPosition {
-		t.Errorf("Disintegrate che scopre il re: code = %v, atteso illegal_position", code)
-	}
-	if room.Board.FEN != pinnedFEN {
-		t.Error("la FEN non deve cambiare se il cast è rifiutato")
-	}
-	if !room.Tracker.IsFrozen("e7") {
-		t.Error("il Tracker non deve perdere il pezzo se il cast è rifiutato")
-	}
-
-	// Teleport che dà scacco con il tratto a chi lancia: rifiutato.
-	const quietFEN = "4k3/8/8/8/8/8/8/R6K w - - 0 1"
-	room, _, _ = newTestRoom(quietFEN)
-	if _, _, _, err := room.applySpellEffects(teleport, []string{"a1", "e1"}, match.PlayerWhite); gameerr.From(err).Code != gameerr.IllegalPosition {
-		t.Errorf("Teleport che dà scacco in main1: err = %v, atteso illegal_position", err)
-	}
-
-	// Stesso Teleport dopo la mossa (tratto al nero): consentito.
-	const afterMoveFEN = "4k3/8/8/8/8/8/8/R6K b - - 0 1"
-	room, _, _ = newTestRoom(afterMoveFEN)
-	if _, changed, _, err := room.applySpellEffects(teleport, []string{"a1", "e1"}, match.PlayerWhite); err != nil || !changed {
-		t.Errorf("Teleport che dà scacco in main2: err = %v, changed = %v", err, changed)
-	}
-
-	// Teleport che lascia sotto scacco il proprio re: rifiutato.
-	const ownKingFEN = "4r2k/8/8/8/8/8/4B3/4K3 w - - 0 1"
-	room, _, _ = newTestRoom(ownKingFEN)
-	if _, _, _, err := room.applySpellEffects(teleport, []string{"e2", "a2"}, match.PlayerWhite); gameerr.From(err).Code != gameerr.IllegalPosition {
-		t.Errorf("Teleport che scopre il proprio re: err = %v, atteso illegal_position", err)
-	}
-}
-
-// B11: la casella catturata en passant è quella del pedone, non quella d'arrivo.
+/ B11: la casella catturata en passant è quella del pedone, non quella d'arrivo.
 func TestCaptureSquare(t *testing.T) {
 	const epFEN = "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1"
 	if got := captureSquare(epFEN, "e5", "d6"); got != "d5" {
