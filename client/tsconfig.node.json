@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    // DOM: i test d'integrazione importano moduli del client (storage, store) che ne usano i tipi.
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    // Alcuni test d'integrazione montano i componenti (tests/*.test.tsx).
+    "jsx": "react-jsx"
+  },
+  "include": ["scripts", "tests", "vite.config.ts", "vitest.config.ts", "capacitor.config.ts"]
+}

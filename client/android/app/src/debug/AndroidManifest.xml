@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Solo per la build di debug: il mock parla HTTP in chiaro sulla LAN (`http://192.168.x.x:8080`) e Android dalla
+  API 28 blocca il traffico non cifrato. La build di release resta senza questo permesso, quindi contro il server
+  vero varrà solo HTTPS.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:usesCleartextTraffic="true"
+        tools:targetApi="28" />
+</manifest>

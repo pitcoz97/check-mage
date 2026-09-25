@@ -1,0 +1,207 @@
+/*
+ * Token di design. È l'UNICO file del client che contiene valori di colore:
+ * tutto il resto li usa tramite queste variabili o le utility Tailwind collegate in theme.css.
+ *
+ * I valori vengono dal design in `design-reference/` (REDESIGN_PLAN.md §1). I nomi descrivono il ruolo, non il
+ * colore. Dove il design non disegna un elemento (errori, pericolo, focus) il valore è ricavato dalla sua palette
+ * (REDESIGN_PLAN.md §10, D20). `tests/contrast.test.ts` verifica le coppie testo/superficie.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* --- Superfici, dalla più scura --- */
+  --bg-nav: #141318; /* barre di navigazione */
+  --bg-app: #1b1a1f; /* Notte */
+  --bg-sunken: #1f1d24; /* campi, fasi future, controlli spenti */
+  --bg-panel: #26242b; /* Pietra: pannelli, card, chip */
+  --bg-quiet: #2f2b35; /* fasi passate, orologio inattivo */
+  --bg-elevated: #37313f; /* Ardesia: pulsante secondario, voce selezionata */
+  --bg-arcane: #3a2f58; /* viola scuro: fase corrente, selezione */
+  --bg-parchment: #ede6d6; /* Pergamena: orologio attivo, testo della carta */
+
+  --border-nav: #2a2730;
+  --border-subtle: #2f2b35;
+
+  /* --- Testo --- */
+  --text-primary: #ede8de;
+  --text-muted: #a59e92;
+  --text-tertiary: #bdb5a8;
+  /* Nel design #7F786E, che su #1F1D24 sta a 3.8:1: alzato del minimo per l'AA (D4). */
+  --text-faint: #928b81;
+  --text-on-play: #ffffff;
+  --text-on-gold: #1b1710;
+  --text-on-parchment: #2a241c;
+
+  /* --- Oro arcano: mana, rarità, accento dell'interfaccia --- */
+  --gold: #d9a845;
+  --gold-edge: #a57a26;
+  --gold-bright: #f2d38a;
+
+  /* --- Incanto: tutto ciò che è magia --- */
+  --arcane: #9b7be0;
+  --arcane-bright: #b9a2f0;
+  --arcane-pale: #d8c6ff;
+
+  /* --- Gioca: solo la CTA primaria e ciò che è "tuo e attivo" --- */
+  --play: #3a8230;
+  --play-edge: #265a1e;
+  --play-bright: #7fbf6a;
+
+  --elevated-edge: #26222c;
+
+  --accent: var(--gold);
+  --accent-hover: var(--gold-bright);
+
+  /* --- Non disegnati (D20). Pericolo: dalla carta "fulmine" del design. --- */
+  --danger: #ee7b6a;
+  --danger-surface: #5a2e24;
+  --danger-edge: #3f1f19;
+  --text-on-danger: #ffd9a0;
+
+  /* --- Scacchiera: tema arcano di default (D1); gli altri temi sotto --- */
+  --board-light: #dcd5e8;
+  --board-dark: #5e5578;
+  --board-last: rgba(246, 214, 72, 0.45);
+  /* Stati dei pezzi (componente Scacchiera del design). */
+  --board-frozen: rgba(127, 200, 224, 0.5);
+  --board-frozen-edge: rgba(214, 240, 250, 0.9);
+  --board-shield-glow: rgba(217, 168, 69, 0.6);
+  --state-frost-ink: #0f3e52;
+  --state-shield-ink: #5a3f0e;
+  /* Bersagli delle magie: viola. */
+  --board-cast-dot: rgba(155, 123, 224, 0.9);
+  --board-cast-glow: rgba(155, 123, 224, 0.8);
+  --board-cast-ring: rgba(155, 123, 224, 0.95);
+  --board-cast-veil: rgba(155, 123, 224, 0.18);
+  /* Lampeggio delle case alla risoluzione di una magia (D19): viola delle magie. */
+  --board-cast: rgba(155, 123, 224, 0.45);
+  /* Non disegnati dal design, ricavati dalla sua palette (D3): mosse legali nel colore della notte traslucido
+     (stessa forma dei bersagli di magia, colore diverso), selezione col velo dell'ultima mossa più intenso,
+     scacco con un alone arancio "Mitica". */
+  --board-hint: rgba(27, 26, 31, 0.3);
+  --board-select: rgba(246, 214, 72, 0.7);
+  --board-check: rgba(224, 112, 62, 0.9);
+
+  --piece-light: #fbf8f0;
+  --piece-dark: #1f1b17;
+  --piece-edge: #1a1714;
+  /* Contorno dei glifi: quattro ombre da 1px fanno il bordo, l'ultima stacca il pezzo dalla casa. */
+  --piece-light-outline:
+    0 1px 0 var(--piece-edge), 0 -1px 0 var(--piece-edge), 1px 0 0 var(--piece-edge), -1px 0 0 var(--piece-edge),
+    0 3px 5px rgba(0, 0, 0, 0.35);
+  --piece-dark-outline: 0 1px 0 rgba(245, 239, 226, 0.55), 0 -1px 0 rgba(245, 239, 226, 0.35), 0 3px 5px rgba(0, 0, 0, 0.35);
+
+  /* --- Mana: rombo acceso (oro), speso (contorno oro), bloccato oltre il massimo del turno --- */
+  --mana-spent-edge: rgba(217, 168, 69, 0.7);
+  --mana-locked-edge: #3d3945;
+
+  /* --- Orologio in esaurimento (D19, non disegnato): anello arancio "Mitica" --- */
+  --clock-low-ring: #e0703e;
+
+  /* --- Storico: righe alterne e mossa in corso --- */
+  --row-stripe: rgba(255, 255, 255, 0.025);
+  --row-current: rgba(217, 168, 69, 0.1);
+  --spell-chip: rgba(155, 123, 224, 0.12);
+  /* Classifica: podio e riga propria (tavola "Home · desktop"). */
+  --rank-silver: #d6cfc2;
+  --rank-bronze: #e0a07e;
+  --row-self: rgba(58, 130, 48, 0.18);
+  /* Box del suggerimento con una carta selezionata. */
+  --hint-casting: rgba(155, 123, 224, 0.14);
+  --hint-casting-edge: rgba(155, 123, 224, 0.6);
+
+  /* --- Carta magia (componente Carta del design) --- */
+  --card-frame: #15131a;
+  --card-inner: #2b2731;
+  --card-type-text: #d6cfc2;
+  --rarity-common: #8c8577;
+  --rarity-rare: var(--gold);
+  --rarity-mythic: #e0703e;
+  /* Carta non giocabile (D5): velo scuro invece della trasparenza. 30% è il massimo che tiene ogni testo della carta
+     sopra 4.5:1 (moneta del costo 4.6, riga del tipo 4.9): tests/contrast.test.ts lo verifica. */
+  --card-disabled-veil: rgba(27, 26, 31, 0.3);
+  /* Arte per kind di effetto: fondo e colore dell'icona. Salto, gelo, scudo e fulmine sono del design; pesca, mana e
+     "nessun effetto" ne riusano la palette (D20). */
+  --art-leap: #3b3556;
+  --art-frost: #24485a;
+  --art-gold: #4a3c22;
+  --art-arcane: #3a2f58;
+  --art-doom: #5a2e24;
+  --art-quiet: #2f2b35;
+  --art-ink-gold: var(--gold-bright);
+  --art-ink-frost: #bfe6f3;
+  --art-ink-arcane: var(--arcane-pale);
+  --art-ink-doom: #ffd9a0;
+  --art-ink-quiet: var(--text-tertiary);
+  --art-ring: rgba(242, 211, 138, 0.28);
+
+  /* --- Ombre ed elevazione: bordo inferiore "3D", anelli di stato, aloni --- */
+  --edge-play: inset 0 -4px 0 var(--play-edge);
+  --edge-play-lg: inset 0 -5px 0 var(--play-edge);
+  --edge-gold: inset 0 -3px 0 var(--gold-edge);
+  --edge-elevated: inset 0 -3px 0 var(--elevated-edge);
+  --edge-danger: inset 0 -3px 0 var(--danger-edge);
+  --ring-arcane: inset 0 0 0 2px var(--arcane);
+  --ring-play: 0 0 0 2px var(--play);
+  --ring-quiet: inset 0 0 0 1px var(--border-subtle);
+  --ring-gold: inset 0 0 0 1.5px var(--gold);
+  --glow-selected: 0 0 0 3px var(--arcane), 0 0 28px rgba(155, 123, 224, 0.7);
+  --glow-selected-sm: 0 0 0 2.5px var(--arcane), 0 0 22px rgba(155, 123, 224, 0.7);
+  --edge-coin: inset 0 -2px 0 var(--gold-edge), 0 0 0 1.5px var(--card-frame);
+  --ring-card-frame: 0 0 0 1.5px var(--card-frame);
+  --glow-mana: 0 0 10px rgba(217, 168, 69, 0.55), inset 0 -2px 0 var(--gold-edge);
+  --glow-mana-sm: 0 0 6px rgba(217, 168, 69, 0.55);
+  --glow-mana-chip: 0 0 8px rgba(217, 168, 69, 0.6);
+  --ring-mana-spent: inset 0 0 0 1.5px var(--mana-spent-edge);
+  --ring-mana-locked: inset 0 0 0 1.5px var(--mana-locked-edge);
+  --ring-clock-low: 0 0 0 2px var(--clock-low-ring);
+  --ring-hint-casting: inset 0 0 0 1.5px var(--hint-casting-edge);
+  --ring-self: inset 0 0 0 1.5px var(--play);
+  --ring-danger: inset 0 0 0 1.5px var(--danger);
+  --ring-elevated: inset 0 0 0 1px var(--bg-elevated);
+  --drop-card: 0 10px 24px rgba(0, 0, 0, 0.45);
+  --drop-board: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --ring-frozen: inset 0 0 0 2px var(--board-frozen-edge);
+  --ring-shielded: inset 0 0 0 3px var(--gold), 0 0 14px var(--board-shield-glow);
+  --ring-cast-target: inset 0 0 0 4px var(--board-cast-ring);
+  --ring-move-target: inset 0 0 0 4px var(--board-hint);
+  --glow-cast-dot: 0 0 10px var(--board-cast-glow);
+
+  /* --- Tipografia --- */
+  --family-ui: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --family-display: 'Cinzel', Georgia, serif;
+  --family-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
+  --family-pieces: 'CheckMage Pieces', 'Noto Sans Symbols 2', 'Segoe UI Symbol', serif;
+  --size-11: 0.6875rem;
+  --size-12: 0.75rem;
+  --size-13: 0.8125rem;
+  --size-14: 0.875rem;
+  --size-15: 0.9375rem;
+  --size-16: 1rem;
+  --size-18: 1.125rem;
+  --size-20: 1.25rem;
+  --size-22: 1.375rem;
+  --size-24: 1.5rem;
+  --size-28: 1.75rem;
+  --size-30: 1.875rem;
+  --size-32: 2rem;
+  --size-36: 2.25rem;
+  --size-46: 2.875rem;
+  --letter-label: 0.12em;
+  --letter-display: 0.03em;
+
+  /* --- Interazione e forma --- */
+  --focus-ring: var(--gold-bright);
+  --hit-target: 44px;
+}
+
+[data-board-theme='salvia'] {
+  --board-light: #e9dfc6;
+  --board-dark: #6f8a5e;
+}
+
+[data-board-theme='noce'] {
+  --board-light: #eadbc0;
+  --board-dark: #9a6f4c;
+}
