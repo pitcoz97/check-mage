@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next';
 
 import { Button } from '../../design/components/Button';
 import { Panel } from '../../design/components/Panel';
+import { Hand } from '../../game/hand/Hand';
 import { SpellCard } from '../../game/hand/SpellCard';
+import type { HandCard } from '../../game/model';
 import { useCatalog } from '../../spells/CatalogProvider';
 import { cardRefusal, type CastContext } from '../../spells/playability';
 
@@ -36,6 +38,9 @@ export function CardGallery() {
   const source = useCatalog((s) => s.source);
   const [active, setActive] = useState<StateKey>('playable');
   const current = STATES.find((state) => state.key === active) ?? STATES[0];
+  // La mano delle tavole della partita: cinque carte, la seconda selezionata finché non la si tocca di nuovo.
+  const hand: HandCard[] = spells.slice(0, 5).map((spell, index) => ({ instanceId: `dev-${index}`, spellId: spell.id }));
+  const [selectedCard, setSelectedCard] = useState<string | null>('dev-1');
 
   return (
     <div className="safe-area mx-auto flex w-full max-w-7xl flex-col gap-4 p-4">
@@ -55,7 +60,22 @@ export function CardGallery() {
         </span>
       </Panel>
 
-      <div className="flex flex-wrap gap-3">
+      <section className="flex flex-col gap-2">
+        <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('spells.dev.hand')}</h2>
+        {/* Spazio per l'anteprima sopra la mano e per le carte esterne che scendono lungo l'arco. */}
+        <div className="pt-72 pb-12">
+          <Hand
+            cards={hand}
+            spellOf={(id) => spells.find((spell) => spell.id === id)}
+            context={current.context}
+            selectedInstanceId={selectedCard}
+            onPick={(card) => setSelectedCard(card.instanceId)}
+            onCancel={() => setSelectedCard(null)}
+          />
+        </div>
+      </section>
+
+      <div className="flex flex-wrap gap-4">
         {spells.map((spell) => (
           <SpellCard
             key={spell.id}
