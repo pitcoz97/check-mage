@@ -3,7 +3,7 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Redesign, step R1 (fondamenta) — fatto, in attesa di review.** Branch `feat/redesign`. Analisi, decisioni (D1–D22)
+**Redesign, step R2 (scacchiera e pezzi) — fatto, in attesa di review.** R1 approvato. Branch `feat/redesign`. Analisi, decisioni (D1–D22)
 e step R1–R6 in `REDESIGN_PLAN.md`; il design sta in `design-reference/` (fuori da git).
 Prima del redesign: Step 0–7 completi, Step 6 in attesa dell'APK (`docs/ANDROID.md`).
 Server: `C:\Projects\chess-server` (sola lettura, qui non eseguibile), branch `fix/backend-requests` (`62475c9`).
@@ -21,20 +21,31 @@ Server: `C:\Projects\chess-server` (sola lettura, qui non eseguibile), branch `f
   - `theme.css` con scale **numeriche** (`text-13`, `rounded-10`, `shadow-edge-play`…); classi esistenti migrate a
     parità di valore;
   - Figtree, Cinzel 600–800, JetBrains Mono; font dei pezzi ritagliato ai sei glifi pieni (4,5 KB,
-    `npm run fonts:pieces`, riproducibile), non ancora usato dalla scacchiera (R2);
+    `npm run fonts:pieces`, riproducibile);
   - `Button` (primario, secondario, oro, pericolo; `md` 48px e `lg` 60px), `Panel` senza bordo, `TextField`, `Spinner`;
   - `tests/contrast.test.ts`: ogni coppia testo/superficie ≥ 4.5:1. Unico colore corretto: #7F786E → #928B81 (D4);
   - sfondo nativo Android #1B1A1F; icona non toccata (D22).
+- **Redesign R2:**
+  - pezzi = glifi pieni del font ritagliato (80% della casa con le container query, contorni del design; U+FE0E contro
+    la forma emoji di ♟), il set SVG dello Step 4 esce;
+  - `BoardSquare`: strati del componente Scacchiera del design (ultima mossa, congelato, protetto, bersagli viola,
+    badge in alto a destra coi turni residui, coordinate dentro le case); mosse legali, selezione e scacco ridisegnati
+    (D3); lampeggio della magia in viola. Il registry degli stati possiede velo e badge;
+  - temi con preferenza salvata (`board-theme`), letta prima del primo render; manca il selettore (R5);
+  - `MiniBoard` senza chess.js per la home; `fen.ts` legge la FEN senza regole;
+  - `/dev/board`: la posizione del design in tutti gli stati e nei tre temi. Confronto via DOM col design: casa 70px,
+    glifo 56px, colori, ombre, coordinate 13px, badge 18px a 3px dall'angolo — coincidono.
+- **Verifica R2:** typecheck, lint, build puliti; 432 test verdi; e2e 10/10. JS iniziale invariato (311 + 210 kB).
 - **Verifica R1:** typecheck, lint, build puliti; 416 test verdi; e2e 10/10; `cap sync android` pulito. JS invariato
   (520 kB iniziali); i font si scaricano per sottoinsieme Unicode, solo quelli usati.
 
 ## Prossima azione concreta
-Review di R1 (login e registrazione mostrano già il nuovo linguaggio; lobby e partita cambiano davvero da R2 in poi).
-Poi R2 — scacchiera e pezzi.
+Review di R2: `/dev/board` in sviluppo, e la partita vera col login. Poi R3 — carta e mano.
 
 ## Decisioni prese
 - Redesign: tutte in `REDESIGN_PLAN.md` §10 (D1–D22). Il design vince sulla resa, CLAUDE.md sul resto.
 - Pezzi: glifi di Noto Sans Symbols 2 ritagliati (D2), al posto del set SVG disegnato allo Step 4.
+- Mosse legali = stessa forma dei bersagli di magia in un altro colore; scacco = alone arancio "Mitica" (D3).
 - Storico in UCI (D18). Niente flavour text nel client (P2-15). Cadenza unica (P2-1 non più necessaria).
 - WebSocket con ticket monouso; il colore arriva da `game_state`. Token in `localStorage` sul web, in
   `@capacitor/preferences` su dispositivo.
@@ -44,8 +55,7 @@ Poi R2 — scacchiera e pezzi.
 - Merge di `fix/backend-requests` in `main` e deploy. Richieste aperte: P2-11 (sospesa), P2-12…P2-21.
 
 ## Da ricordare negli Step successivi
-- R2: la scacchiera deve impostare `data-board-theme` dalla preferenza (Impostazioni in R5); ridisegnare
-  `--board-hint/-check/-select/-cast`, oggi ai valori pre-redesign.
+- R5: selettore del tema (`boardThemeStore.set`) nelle Impostazioni; la miniatura della home è `MiniBoard`.
 - R3: ASSUMPTIONS C14 dice "motivo scritto sulla carta": cambia con D5.
 - R4: `--mana-*`, `--spell-frame`, `--effect-*` sono valori ponte.
 - APK mai costruito qui: se Gradle si lamenta, guardare `android/app/src/main/res/`.

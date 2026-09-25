@@ -419,8 +419,8 @@ Ogni step è a sé: piano breve → implementazione → verifica (test verdi e s
 
 | Step | Contenuto | Riferimenti |
 |---|---|---|
-| **R1 — Fondamenta** | token (palette, temi della scacchiera sotto `[data-board-theme]`), `theme.css` (font mono e pezzi, raggi, ombre), font Figtree / JetBrains Mono / Cinzel 700-800, font dei pezzi ritagliato ai 12 glifi con uno script, `Button`, `Panel`, `TextField`, `Spinner`, test di contrasto, sfondo nativo Android | 1, 3.1, D2, D4, D22 |
-| **R2 — Scacchiera e pezzi** | temi, coordinate, stati (velo, badge in alto a destra con turni residui), bersagli viola, mosse legali / selezione / scacco ridisegnati, glifi, miniatura per la home | 3.2, F1, F2, D1–D3, D19 |
+| **R1 — Fondamenta** (fatto) | token (palette, temi della scacchiera sotto `[data-board-theme]`), `theme.css` (font mono e pezzi, raggi, ombre), font Figtree / JetBrains Mono / Cinzel 700-800, font dei pezzi ritagliato ai 12 glifi con uno script, `Button`, `Panel`, `TextField`, `Spinner`, test di contrasto, sfondo nativo Android | 1, 3.1, D2, D4, D22 |
+| **R2 — Scacchiera e pezzi** (fatto) | temi, coordinate, stati (velo, badge in alto a destra con turni residui), bersagli viola, mosse legali / selezione / scacco ridisegnati, glifi, miniatura per la home | 3.2, F1, F2, D1–D3, D19 |
 | **R3 — Carta e mano** | nuova carta (rarità comune di default, moneta del costo, arte per kind, riga del tipo, pergamena, stato scurito, nome che si riduce), icone a tratto, mano a ventaglio, annullo col tocco sulla carta | 3.3, F3, D5–D8 |
 | **R4 — Partita** | layout desktop e Android (Menu con foglio), pannelli giocatore, orologio, fasi a pillole con "Turno N", mana a 10 rombi, box del suggerimento unico (targeting, avvisi, motivo della carta spenta, pezzi congelati), CTA con la fase successiva, schede Mosse (UCI) / Grimorio / Chat, magie nello storico | 3.4, F4–F8, F11, D16–D18, D21 |
 | **R5 — Shell e home** | barra laterale / verticale / inferiore, home del design (Gioca con Classificata, card «Presto»), Partita in corso in background con miniatura live, Classifica, Impostazioni (tema, lingua, Esci), redirect solo coda → partita | 3.5, F14, F16, F18, D9–D15 |
