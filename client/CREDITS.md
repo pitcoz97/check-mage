@@ -17,9 +17,9 @@ I file dei font sono serviti dal bundle (self-hosted): nessuna richiesta a servi
 
 | Asset | Uso | Provenienza | Licenza |
 |---|---|---|---|
-| Set di pezzi degli scacchi | Scacchiera | Disegnato per questo progetto (`src/game/pieces/PieceIcon.tsx`), nessun set di terzi | Licenza del progetto (ancora da scegliere) |
-| Icone degli effetti | Carte magia e badge sui pezzi | Disegnate per questo progetto (`src/spells/icons/EffectIcon.tsx`) | Licenza del progetto (ancora da scegliere) |
-| Icona dell'app Android | Launcher | Il re del set di pezzi, riportato in un'icona adattiva (`android/app/src/main/res/drawable/ic_launcher_foreground.xml`) | Licenza del progetto (ancora da scegliere) |
+| Icone degli effetti | Carte magia | Disegnate per questo progetto (`src/spells/icons/EffectIcon.tsx`) | Licenza del progetto (ancora da scegliere) |
+| Badge di stato sulla scacchiera (fiocco, scudo) | Pezzi congelati e protetti | Tracciati del design in `design-reference/` (`src/spells/icons/StateIcon.tsx`) | Licenza del progetto (ancora da scegliere) |
+| Icona dell'app Android | Launcher | Il re del set di pezzi SVG disegnato allo Step 4 (poi sostituito dai glifi Noto sulla scacchiera), riportato in un'icona adattiva (`android/app/src/main/res/drawable/ic_launcher_foreground.xml`) | Licenza del progetto (ancora da scegliere) |
 
 Il progetto Android non contiene grafica di Capacitor: lo splash e l'icona del template (logo Capacitor) sono stati
 rimossi. Lo splash è un colore pieno, l'icona è la nostra. Se un giorno servirà un logo vero e proprio, è quello il

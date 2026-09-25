@@ -47,6 +47,11 @@
   --color-board-last: var(--board-last);
   --color-board-check: var(--board-check);
   --color-board-select: var(--board-select);
+  --color-board-frozen: var(--board-frozen);
+  --color-board-cast-dot: var(--board-cast-dot);
+  --color-board-cast-veil: var(--board-cast-veil);
+  --color-state-frost-ink: var(--state-frost-ink);
+  --color-state-shield-ink: var(--state-shield-ink);
   --color-piece-light: var(--piece-light);
   --color-piece-dark: var(--piece-dark);
   --color-piece-edge: var(--piece-edge);
@@ -72,6 +77,11 @@
   --shadow-glow-mana: var(--glow-mana);
   --shadow-card: var(--drop-card);
   --shadow-board: var(--drop-board);
+  --shadow-ring-frozen: var(--ring-frozen);
+  --shadow-ring-shielded: var(--ring-shielded);
+  --shadow-ring-cast-target: var(--ring-cast-target);
+  --shadow-ring-move-target: var(--ring-move-target);
+  --shadow-glow-cast-dot: var(--glow-cast-dot);
 
   --font-*: initial;
   --font-sans: var(--family-ui);

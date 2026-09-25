@@ -63,6 +63,17 @@
     }
   }
 
+  /* Pezzi: glifi pieni colorati dal CSS, stesso glifo per i due colori (componente Scacchiera del design). */
+  .piece-light {
+    color: var(--piece-light);
+    text-shadow: var(--piece-light-outline);
+  }
+
+  .piece-dark {
+    color: var(--piece-dark);
+    text-shadow: var(--piece-dark-outline);
+  }
+
   /* Rispetta notch e barre di sistema su mobile (briefing §9). */
   .safe-area {
     padding-top: env(safe-area-inset-top, 0px);

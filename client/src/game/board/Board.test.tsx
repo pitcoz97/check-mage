@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { initI18n } from '../../i18n';
 import { createWebStorage } from '../../lib/storage';
 import type { Square, SquareEffects } from '../model';
 import { Board } from './Board';
+import { boardThemeStore } from './boardTheme';
 import type { BoardContext } from './selection';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -141,7 +142,42 @@ describe('Board', () => {
 
   it('il re sotto scacco è evidenziato', () => {
     const { square } = setup({ context: { fen: CHECK, myColor: 'black', activePlayer: 'black' } });
-    expect(square('e8').className).toContain('var(--board-check)');
-    expect(square('e1').className).not.toContain('var(--board-check)');
+    expect(square('e8').querySelector('[data-check]')).not.toBeNull();
+    expect(square('e1').querySelector('[data-check]')).toBeNull();
+  });
+
+  it("coordinate dentro le case: traversa sulla prima colonna, colonna sull'ultima traversa, secondo l'orientamento", () => {
+    const coordinates = (cell: HTMLElement) => [...cell.querySelectorAll('[data-coordinate]')].map((node) => node.textContent).join('');
+    const white = setup();
+    expect(coordinates(white.square('a8'))).toBe('8');
+    expect(coordinates(white.square('h1'))).toBe('h');
+    expect(coordinates(white.square('a1'))).toBe('1a');
+    expect(coordinates(white.square('e4'))).toBe('');
+    cleanup();
+    // Col nero in basso la colonna a sinistra è la h e l'ultima traversa è l'8.
+    const black = setup({ orientation: 'black' });
+    expect(coordinates(black.square('h8'))).toBe('8h');
+    expect(coordinates(black.square('a8'))).toBe('a');
+    expect(coordinates(black.square('h1'))).toBe('1');
+    expect(coordinates(black.square('a1'))).toBe('');
+  });
+
+  it('mossa legale e bersaglio di magia hanno la stessa forma ma marcatori distinti', () => {
+    const moves = setup();
+    fireEvent.click(moves.square('e2'));
+    expect(moves.square('e4').querySelector('[data-hint]')?.getAttribute('data-hint')).toBe('move');
+    cleanup();
+    const cast = setup({ targeting: { squares: new Set<Square>(['e7', 'e4']), onPick: vi.fn(), onCancel: vi.fn() } });
+    expect(cast.square('e4').querySelector('[data-hint]')?.getAttribute('data-hint')).toBe('cast');
+    expect(cast.square('e7').querySelector('[data-hint]')?.getAttribute('data-hint')).toBe('cast');
+  });
+
+  it('il tema della scacchiera segue la preferenza', async () => {
+    const view = setup().view;
+    const grid = () => view.container.querySelector('[role="grid"]');
+    expect(grid()?.getAttribute('data-board-theme')).toBe('arcano');
+    await act(() => boardThemeStore.getState().set('salvia'));
+    expect(grid()?.getAttribute('data-board-theme')).toBe('salvia');
+    await act(() => boardThemeStore.getState().set('arcano'));
   });
 });

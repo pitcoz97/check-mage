@@ -2,9 +2,12 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from 'react-i18next';
 
 import type { Color, Square, SquareEffects } from '../model';
-import { StateBadge, statePresentation } from '../../spells/effects.registry';
+import { statePresentation } from '../../spells/effects.registry';
 import { PieceIcon } from '../pieces/PieceIcon';
 import { isLightSquare, kingInCheckSquare, piecesOf, squaresInOrder, type PlacedPiece } from '../position';
+import { useBoardTheme } from './boardTheme';
+import { coordinateLabels } from '../fen';
+import { BoardSquare } from './BoardSquare';
 import { dropOnSquare, tapSquare, type BoardContext, type PickupRefusal, type Selection } from './selection';
 
 /**
@@ -63,6 +66,7 @@ export function Board({
   onRefused,
 }: BoardProps) {
   const { t } = useTranslation();
+  const theme = useBoardTheme();
   const [selection, setSelection] = useState<Selection>(null);
   /** Trascinamento in corso: porta con sé la selezione nata al pickup, così il tap-tap resta indipendente. */
   const [dragging, setDragging] = useState<{ square: Square; x: number; y: number; selection: Selection } | null>(null);
@@ -157,9 +161,10 @@ export function Board({
     <div
       role="grid"
       aria-label={t('match.board')}
-      className="grid aspect-square w-full grid-cols-8 grid-rows-8 touch-none overflow-hidden rounded-8 select-none"
+      data-board-theme={theme}
+      className="grid aspect-square w-full grid-cols-8 grid-rows-8 touch-none overflow-hidden rounded-6 shadow-board select-none"
     >
-      {squares.map((square) => {
+      {squares.map((square, index) => {
         const piece = pieceOn.get(square);
         const states = effectsOn.get(square) ?? [];
         const isTarget = targeting === null ? selection?.targets.includes(square) === true : targeting.squares.has(square);
@@ -176,12 +181,8 @@ export function Board({
             data-cast-target={targeting !== null && isTarget}
             aria-label={label}
             className={[
-              'relative flex items-center justify-center p-0',
+              '@container relative p-0',
               isLightSquare(square) ? 'bg-board-light' : 'bg-board-dark',
-              selection?.from === square ? 'outline outline-2 -outline-offset-2 outline-board-select' : '',
-              lastMove?.from === square || lastMove?.to === square ? 'shadow-[inset_0_0_0_100vmax_var(--board-last)]' : '',
-              checkSquare === square ? 'shadow-[inset_0_0_0_100vmax_var(--board-check)]' : '',
-              targeting !== null && isTarget ? 'outline outline-2 -outline-offset-2 outline-spell-frame' : '',
               flashing.has(square) ? 'spell-flash' : '',
             ].join(' ')}
             onPointerDown={(event) => onPointerDown(event, square)}
@@ -192,32 +193,17 @@ export function Board({
               else onSquareClick(square);
             }}
           >
-            {piece !== undefined && (
-              <span className={`pointer-events-none block size-[88%] ${dragging?.square === square ? 'opacity-30' : ''}`}>
-                <PieceIcon kind={piece.kind} color={piece.color} />
-              </span>
-            )}
-            {states.length > 0 && (
-              <span aria-hidden="true" data-effects className="pointer-events-none absolute top-0 left-0 flex flex-col gap-px p-px">
-                {states.map((state) => (
-                  <span key={state.kind} className="flex items-center">
-                    <StateBadge kind={state.kind} className="size-3" />
-                    <span className="text-[0.55rem] leading-none font-bold text-primary tabular-nums">{state.remainingTurns}</span>
-                  </span>
-                ))}
-              </span>
-            )}
-            {isTarget && targeting === null && (
-              <span
-                aria-hidden="true"
-                data-hint={piece === undefined ? 'move' : 'capture'}
-                className={
-                  piece === undefined
-                    ? 'pointer-events-none absolute size-1/3 rounded-full bg-board-hint'
-                    : 'pointer-events-none absolute inset-0 rounded-full border-[6px] border-board-hint'
-                }
-              />
-            )}
+            <BoardSquare
+              light={isLightSquare(square)}
+              piece={piece}
+              ghost={dragging?.square === square}
+              lastMove={lastMove?.from === square || lastMove?.to === square}
+              selected={selection?.from === square}
+              check={checkSquare === square}
+              states={states}
+              hint={isTarget ? (targeting === null ? 'move' : 'cast') : null}
+              {...coordinateLabels(square, index)}
+            />
           </button>
         );
       })}

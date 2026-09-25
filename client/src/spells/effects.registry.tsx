@@ -1,7 +1,8 @@
 import type { TFunction } from 'i18next';
 
 import type { PlacedPiece } from '../game/position';
-import { EffectIcon, type EffectIconName } from './icons/EffectIcon';
+import type { EffectIconName } from './icons/EffectIcon';
+import { StateIcon, type StateIconName } from './icons/StateIcon';
 import type { SpellEffect } from './schema';
 
 /**
@@ -135,27 +136,46 @@ export function effectsAllowTarget(effects: readonly SpellEffect[], piece: Place
 // ---------------------------------------------------------------------------------------------------
 
 export interface StatePresentation {
-  readonly icon: EffectIconName;
-  readonly tone: EffectTone;
+  /** Icona del badge in alto a destra della casa e sua classe di colore. */
+  readonly badge: StateIconName;
+  readonly badgeClass: string;
+  /** Resa sulla casa (velo, anello): classi intere, perché Tailwind le legge dal sorgente. */
+  readonly veil: string;
   label(t: TFunction): string;
 }
 
 export const PIECE_STATE_KINDS = ['freeze', 'shield'] as const;
 export type KnownStateKind = (typeof PIECE_STATE_KINDS)[number];
 
-const UNKNOWN_STATE: StatePresentation = { icon: 'question', tone: 'neutral', label: (t) => t('spells.state.unknown') };
+const UNKNOWN_STATE: StatePresentation = {
+  badge: 'question',
+  badgeClass: 'text-muted',
+  veil: '',
+  label: (t) => t('spells.state.unknown'),
+};
 
+/** Resa del componente Scacchiera del design (REDESIGN_PLAN.md §1.2). */
 const STATES: Record<KnownStateKind, StatePresentation> = {
-  freeze: { icon: 'frost', tone: 'freeze', label: (t) => t('spells.state.freeze') },
-  shield: { icon: 'shield', tone: 'shield', label: (t) => t('spells.state.shield') },
+  freeze: {
+    badge: 'frost',
+    badgeClass: 'text-state-frost-ink',
+    veil: 'inset-0 bg-board-frozen shadow-ring-frozen',
+    label: (t) => t('spells.state.freeze'),
+  },
+  shield: {
+    badge: 'shield',
+    badgeClass: 'text-gold',
+    veil: 'inset-[3px] rounded-4 shadow-ring-shielded',
+    label: (t) => t('spells.state.shield'),
+  },
 };
 
 export function statePresentation(kind: string): StatePresentation {
   return (PIECE_STATE_KINDS as readonly string[]).includes(kind) ? STATES[kind as KnownStateKind] : UNKNOWN_STATE;
 }
 
-/** Badge di uno stato: icona colorata dal tono, dimensione decisa da chi lo usa. */
+/** Badge di uno stato: icona del design colorata dal registry, dimensione decisa da chi lo usa. */
 export function StateBadge({ kind, className = '' }: { kind: string; className?: string }) {
   const presentation = statePresentation(kind);
-  return <EffectIcon name={presentation.icon} className={`${TONE_TEXT[presentation.tone]} ${className}`} />;
+  return <StateIcon name={presentation.badge} className={`${presentation.badgeClass} ${className}`} />;
 }
