@@ -16,6 +16,11 @@ import (
 // handleCastSpell ma senza broadcast né Stockfish. Mette la carta in mano al
 // giocatore e lo rende attivo nella fase data.
 func castIn(room *Room, p match.Player, ph phase.Phase, id string, targets ...string) error {
+	return castWith(room, p, ph, spells.Choice{}, id, targets...)
+}
+
+// castWith è castIn con la scelta del giocatore (cast_spell.choice).
+func castWith(room *Room, p match.Player, ph phase.Phase, choice spells.Choice, id string, targets ...string) error {
 	room.Match.ActivePlayer = p
 	room.Match.CurrentPhase = ph
 	ps := room.Match.White
@@ -24,8 +29,8 @@ func castIn(room *Room, p match.Player, ph phase.Phase, id string, targets ...st
 	}
 	ps.Hand = append(ps.Hand, id)
 	_, err := room.Match.CastSpell(p, id, targets, func(def spells.Spell, t []string) ([]interface{}, error) {
-		applied, _, _, err := room.applySpellEffects(def, t, p)
-		return applied, err
+		out, err := room.applySpellEffects(def, t, p, choice)
+		return out.applied, err
 	})
 	return err
 }

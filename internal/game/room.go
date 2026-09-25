@@ -391,14 +391,15 @@ func (r *Room) HandleMessage(sender *Client, msg models.WSMessage) {
 
 	case models.MsgCastSpell:
 		var spellData struct {
-			SpellID string   `json:"spell_id"`
-			Targets []string `json:"targets"`
+			SpellID string        `json:"spell_id"`
+			Targets []string      `json:"targets"`
+			Choice  spells.Choice `json:"choice"`
 		}
 		if err := json.Unmarshal(msg.Payload, &spellData); err != nil {
 			sender.sendErr(gameerr.New(gameerr.InvalidPayload, "Formato cast_spell non valido"))
 			return
 		}
-		r.handleCastSpell(sender, spellData.SpellID, spellData.Targets)
+		r.handleCastSpell(sender, spellData.SpellID, spellData.Targets, spellData.Choice)
 
 	case models.MsgResign:
 		r.handleResign(sender)
@@ -476,6 +477,7 @@ func (r *Room) handleMove(sender *Client, move string) {
 	// dell'attaccante (la cattura era l'unico modo di uscire dallo scacco), la
 	// posizione sarebbe illegale, quindi lo scudo si rompe e la cattura avviene.
 	captured := captureSquare(r.Board.FEN, from, to)
+	var graveyards []graveyardUpdate
 	shieldAbsorbed := captured != "" && r.Tracker.HasShield(captured)
 	if shieldAbsorbed && effects.IsKingAttacked(effects.PassTurn(r.Board.FEN), effects.Color(senderColor)) {
 		shieldAbsorbed = false
@@ -498,6 +500,12 @@ func (r *Room) handleMove(sender *Client, move string) {
 		r.Board.FEN = effects.PassTurn(r.Board.FEN)
 		r.Board.Moves = append(r.Board.Moves, NullMove)
 	} else {
+		// Il pezzo catturato (anche en passant) va nel cimitero del proprietario.
+		if captured != "" {
+			if owner, ok := r.buryCaptured(captured); ok {
+				graveyards = r.graveyardUpdates([]match.Player{owner})
+			}
+		}
 		r.Board.Moves = append(r.Board.Moves, move)
 		// La FEN è la fonte di verità (le magie possono editarla fuori dalle mosse).
 		r.Board.FEN = engine.SF.ApplyMove(r.Board.FEN, move)
@@ -573,6 +581,7 @@ func (r *Room) handleMove(sender *Client, move string) {
 	// Lo stato viene inviato anche a fine partita, così i client vedono la
 	// mossa decisiva prima del game_over.
 	r.broadcastState()
+	r.broadcastGraveyards(graveyards)
 	for _, res := range results {
 		r.applyAdvanceBroadcasts(res)
 	}
@@ -632,7 +641,7 @@ func (r *Room) handlePassPhase(sender *Client) {
 
 // handleCastSpell gestisce il gioco di una magia: il match valida turno, fase,
 // carta e mana; gli effetti sulla scacchiera sono applicati da applySpellEffects.
-func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string) {
+func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string, choice spells.Choice) {
 	r.mu.Lock()
 
 	if r.ended {
@@ -642,13 +651,11 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 	}
 
 	senderColor := match.Player(r.getColor(sender))
-	boardChanged := false
-	var drawnCards []match.DrawResult
+	var outcome spellOutcome
 	apply := func(def spells.Spell, t []string) ([]interface{}, error) {
-		applied, changed, drawn, err := r.applySpellEffects(def, t, senderColor)
-		boardChanged = changed
-		drawnCards = drawn
-		return applied, err
+		out, err := r.applySpellEffects(def, t, senderColor, choice)
+		outcome = out
+		return out.applied, err
 	}
 
 	res, err := r.Match.CastSpell(senderColor, spellID, targets, apply)
@@ -658,6 +665,8 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 		return
 	}
 
+	boardChanged, drawnCards := outcome.changed, outcome.drawn
+	graveyards := r.graveyardUpdates(outcome.graves)
 	if boardChanged {
 		r.recordPosition() // la board è cambiata: conta per la tripla ripetizione
 	}
@@ -723,6 +732,7 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string)
 	if boardChanged {
 		r.broadcastState()
 	}
+	r.broadcastGraveyards(graveyards)
 	for _, ar := range autoResults {
 		r.applyAdvanceBroadcasts(ar)
 	}
@@ -755,23 +765,37 @@ func validateNoCheck(before, after string, caster effects.Color) error {
 	return nil
 }
 
-// applySpellEffects esegue gli effetti di una magia. Ritorna gli effetti
-// applicati (arricchiti per il broadcast), se la scacchiera è cambiata, le carte
-// pescate e un eventuale errore, che annulla il cast senza spendere mana.
+// spellOutcome è l'esito di applySpellEffects: gli effetti applicati (per il
+// broadcast), se la scacchiera è cambiata, le carte pescate e i giocatori il cui
+// cimitero è cambiato.
+type spellOutcome struct {
+	applied []interface{}
+	changed bool
+	drawn   []match.DrawResult
+	graves  []match.Player
+}
+
+// applySpellEffects esegue gli effetti di una magia. Un errore annulla il cast
+// senza spendere mana.
 //
 // Prima valida i bersagli contro i TargetSpec; poi applica gli effetti in
-// ordine su una copia della FEN e del Tracker e controlla la posizione finale.
-// Solo se tutto riesce la copia sostituisce lo stato della partita e si
-// applicano pesca e mana: un cast rifiutato non lascia tracce. Va invocata con
-// r.mu tenuto.
-func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster match.Player) ([]interface{}, bool, []match.DrawResult, error) {
+// ordine su una copia della FEN, del Tracker e dei cimiteri e controlla la
+// posizione finale. Solo se tutto riesce le copie sostituiscono lo stato della
+// partita e si applicano pesca e mana: un cast rifiutato non lascia tracce. Va
+// invocata con r.mu tenuto.
+func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster match.Player, choice spells.Choice) (spellOutcome, error) {
 	casterColor := toEffectsColor(caster)
 	if err := effects.ValidateTargets(r.Board.FEN, r.Tracker, def.Targets, targets, casterColor); err != nil {
-		return nil, false, nil, err
+		return spellOutcome{}, err
 	}
 
 	fen := r.Board.FEN
 	tracker := r.Tracker.Clone()
+	graves := map[match.Player][]spells.GraveEntry{
+		match.PlayerWhite: r.Match.White.CopyGraveyard(),
+		match.PlayerBlack: r.Match.Black.CopyGraveyard(),
+	}
+	gravesChanged := map[match.Player]bool{}
 	changed := false
 	applied := make([]interface{}, 0, len(def.Effects))
 	var deferred []func() // pesca e mana: dopo che la scacchiera è convalidata
@@ -784,6 +808,28 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 		}
 		return targets[0], nil
 	}
+	noEffect := func(reason string) error {
+		return gameerr.Newf(gameerr.NoEffect, "la magia %s non avrebbe effetto", def.Name).With("reason", reason)
+	}
+	invalidChoice := func(reason string) error {
+		return gameerr.Newf(gameerr.InvalidChoice, "scelta non valida per %s: %q", def.Name, choice.Piece).
+			With("reason", reason)
+	}
+	// bury manda al cimitero del proprietario il pezzo nella casa (prima che
+	// sparisca dalla FEN e dal Tracker).
+	bury := func(square string) {
+		id, piece, ok := tracker.Info(square)
+		if !ok {
+			p, err := effects.PieceAt(fen, square)
+			if err != nil || p == 0 {
+				return
+			}
+			piece = p
+		}
+		owner := toMatchPlayer(effects.ColorOf(piece))
+		graves[owner] = append(graves[owner], spells.GraveEntry{Piece: spells.PieceKind(effects.PieceKindName(piece)), PieceID: id})
+		gravesChanged[owner] = true
+	}
 
 	for _, eff := range def.Effects {
 		entry := map[string]interface{}{"kind": eff.Kind}
@@ -791,11 +837,12 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 		case spells.EffectDestroyPiece:
 			sq, err := target()
 			if err != nil {
-				return nil, false, nil, err
+				return spellOutcome{}, err
 			}
+			bury(sq) // to_graveyard: ogni pezzo distrutto va nel cimitero
 			newFEN, destroyed, err := effects.DestroyPiece(fen, sq)
 			if err != nil {
-				return nil, false, nil, err
+				return spellOutcome{}, err
 			}
 			fen, changed = newFEN, true
 			tracker.RemoveAt(sq) // l'identità del pezzo distrutto sparisce
@@ -804,7 +851,7 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 		case spells.EffectFreezePiece, spells.EffectShieldPiece:
 			sq, err := target()
 			if err != nil {
-				return nil, false, nil, err
+				return spellOutcome{}, err
 			}
 			duration := paramInt(eff.Params, "duration", 1)
 			apply := effects.FreezePiece
@@ -812,9 +859,46 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 				apply = effects.ShieldPiece
 			}
 			if err := apply(tracker, sq, casterColor, duration, def.ID); err != nil {
-				return nil, false, nil, err
+				return spellOutcome{}, err
 			}
 			entry["target"], entry["remaining_turns"] = sq, duration
+
+		case spells.EffectFreezeAll:
+			side := casterColor.Opponent()
+			if s, _ := eff.Params["side"].(string); s == "own" {
+				side = casterColor
+			}
+			squares := effects.PiecesOf(fen, side, paramStrings(eff.Params, "pieces"))
+			if len(squares) == 0 {
+				return spellOutcome{}, noEffect("no_pieces")
+			}
+			duration := paramInt(eff.Params, "duration", 1)
+			for _, sq := range squares {
+				if err := effects.FreezePiece(tracker, sq, casterColor, duration, def.ID); err != nil {
+					return spellOutcome{}, err
+				}
+			}
+			entry["targets"], entry["remaining_turns"] = squares, duration
+
+		case spells.EffectShieldArea:
+			var squares []string
+			if around, _ := eff.Params["around"].(string); around == "own_king" {
+				squares = effects.AroundKing(fen, casterColor, paramInt(eff.Params, "radius", 1))
+			} else if filter, _ := eff.Params["filter"].(string); filter == "own_pawns_side_by_side" {
+				squares = effects.PawnsSideBySide(fen, casterColor)
+			} else {
+				return spellOutcome{}, gameerr.Newf(gameerr.Internal, "shield_area senza un filtro noto (%s)", def.ID)
+			}
+			if len(squares) == 0 {
+				return spellOutcome{}, noEffect("no_pieces")
+			}
+			duration := paramInt(eff.Params, "duration", 1)
+			for _, sq := range squares {
+				if err := effects.ShieldPiece(tracker, sq, casterColor, duration, def.ID); err != nil {
+					return spellOutcome{}, err
+				}
+			}
+			entry["targets"], entry["remaining_turns"] = squares, duration
 
 		case spells.EffectDrawCard:
 			amount := paramInt(eff.Params, "amount", 1)
@@ -840,40 +924,142 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 		case spells.EffectMovePiece:
 			from, to, err := moveEndpoints(fen, eff.Params, targets, casterColor)
 			if err != nil {
-				return nil, false, nil, err
+				return spellOutcome{}, err
 			}
 			newFEN, err := effects.MovePieceFEN(fen, from, to, casterColor)
 			if err != nil {
-				return nil, false, nil, err
+				return spellOutcome{}, err
 			}
 			fen, changed = newFEN, true
 			// Spostamento magico: niente semantica di arrocco/en passant.
 			tracker.Relocate(from, to)
 			entry["from"], entry["to"] = from, to
 
+		case spells.EffectSwapPieces:
+			if len(targets) < 2 {
+				return spellOutcome{}, gameerr.Newf(gameerr.InvalidTargetCount, "la magia %s richiede due bersagli", def.Name).
+					With("expected", 2).With("received", len(targets))
+			}
+			newFEN, err := effects.SwapPieces(fen, targets[0], targets[1])
+			if err != nil {
+				return spellOutcome{}, err
+			}
+			fen, changed = newFEN, true
+			tracker.Swap(targets[0], targets[1]) // id ed effetti seguono i pezzi
+			entry["targets"] = []string{targets[0], targets[1]}
+
+		case spells.EffectTransformPiece:
+			sq, err := target()
+			if err != nil {
+				return spellOutcome{}, err
+			}
+			p, err := effects.PieceAt(fen, sq)
+			if err != nil {
+				return spellOutcome{}, err
+			}
+			to := paramStringMap(eff.Params, "map")[effects.PieceKindName(p)]
+			letter := effects.PieceLetter(to, effects.ColorOf(p))
+			if letter == 0 {
+				return spellOutcome{}, gameerr.Newf(gameerr.InvalidTarget, "%s non si può trasformare", sq).
+					With("index", 0).With("reason", effects.ReasonPieceKind).With("square", sq)
+			}
+			newFEN, err := effects.SetPiece(fen, sq, letter)
+			if err != nil {
+				return spellOutcome{}, err
+			}
+			fen, changed = newFEN, true
+			tracker.SetType(sq, letter) // stesso PieceID, stessi effetti
+			entry["target"], entry["piece"] = sq, to
+
+		case spells.EffectPromotePiece:
+			sq, err := target()
+			if err != nil {
+				return spellOutcome{}, err
+			}
+			if choice.Piece == "" {
+				return spellOutcome{}, invalidChoice("missing")
+			}
+			if !containsString(paramStrings(eff.Params, "choices"), string(choice.Piece)) {
+				return spellOutcome{}, invalidChoice("not_allowed")
+			}
+			p, err := effects.PieceAt(fen, sq)
+			if err != nil {
+				return spellOutcome{}, err
+			}
+			letter := effects.PieceLetter(string(choice.Piece), effects.ColorOf(p))
+			newFEN, err := effects.SetPiece(fen, sq, letter)
+			if err != nil {
+				return spellOutcome{}, err
+			}
+			fen, changed = newFEN, true
+			tracker.SetType(sq, letter)
+			entry["target"], entry["piece"] = sq, string(choice.Piece)
+
+		case spells.EffectRevivePiece:
+			sq, err := target()
+			if err != nil {
+				return spellOutcome{}, err
+			}
+			var available []string
+			for _, kind := range paramStrings(eff.Params, "pieces") {
+				if graveHas(graves[caster], kind) {
+					available = append(available, kind)
+				}
+			}
+			if len(available) == 0 {
+				return spellOutcome{}, noEffect("empty_graveyard")
+			}
+			kind := string(choice.Piece)
+			if kind == "" {
+				if len(available) > 1 {
+					return spellOutcome{}, invalidChoice("missing")
+				}
+				kind = available[0]
+			}
+			if !containsString(available, kind) {
+				return spellOutcome{}, invalidChoice("not_allowed")
+			}
+			letter := effects.PieceLetter(kind, casterColor)
+			newFEN, err := effects.PlacePiece(fen, sq, letter)
+			if err != nil {
+				return spellOutcome{}, err
+			}
+			fen, changed = newFEN, true
+			tracker.Add(sq, letter) // PieceID nuovo, nessun effetto
+			graves[caster] = removeFirstGrave(graves[caster], kind)
+			gravesChanged[caster] = true
+			entry["target"], entry["piece"] = sq, kind
+
+		case spells.EffectRestoreCastling:
+			newFEN, ok := effects.RestoreCastling(fen, casterColor)
+			if !ok {
+				return spellOutcome{}, noEffect("no_castling")
+			}
+			fen, changed = newFEN, true
+
 		case spells.EffectSummonPawn:
 			sq, err := target()
 			if err != nil {
-				return nil, false, nil, err
+				return spellOutcome{}, err
 			}
 			pawn := byte('P')
 			if casterColor == effects.Black {
 				pawn = 'p'
 			}
 			if limit := paramInt(eff.Params, "max_pawns", 0); limit > 0 && effects.CountPieces(fen, pawn) >= limit {
-				return nil, false, nil, gameerr.Newf(gameerr.InvalidTarget, "hai già %d pedoni", limit).
+				return spellOutcome{}, gameerr.Newf(gameerr.InvalidTarget, "hai già %d pedoni", limit).
 					With("index", 0).With("reason", reasonMaxPawns).With("square", sq)
 			}
 			newFEN, err := effects.PlacePiece(fen, sq, pawn)
 			if err != nil {
-				return nil, false, nil, err
+				return spellOutcome{}, err
 			}
 			fen, changed = newFEN, true
 			tracker.Add(sq, pawn)
 			entry["target"], entry["piece"] = sq, "pawn"
 
 		default:
-			return nil, false, nil, gameerr.Newf(gameerr.Internal, "effetto non supportato: %s", eff.Kind)
+			return spellOutcome{}, gameerr.Newf(gameerr.Internal, "effetto non supportato: %s", eff.Kind)
 		}
 		applied = append(applied, entry)
 	}
@@ -881,16 +1067,147 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 	if changed {
 		fen = effects.ClearStaleEnPassant(fen)
 		if err := validateNoCheck(r.Board.FEN, fen, casterColor); err != nil {
-			return nil, false, nil, err
+			return spellOutcome{}, err
 		}
 		// Una magia non passa il turno: il lato al tratto della FEN resta invariato.
 		r.Board.FEN = fen
 	}
 	r.Tracker = tracker
+	var gravesOut []match.Player
+	for _, p := range []match.Player{match.PlayerWhite, match.PlayerBlack} {
+		if gravesChanged[p] {
+			r.playerState(p).Graveyard = graves[p]
+			gravesOut = append(gravesOut, p)
+		}
+	}
 	for _, apply := range deferred {
 		apply()
 	}
-	return applied, changed, drawn, nil
+	return spellOutcome{applied: applied, changed: changed, drawn: drawn, graves: gravesOut}, nil
+}
+
+// playerState restituisce le risorse del giocatore dato.
+func (r *Room) playerState(p match.Player) *spells.PlayerState {
+	if p == match.PlayerBlack {
+		return r.Match.Black
+	}
+	return r.Match.White
+}
+
+// toMatchPlayer mappa il colore del package effects nel giocatore del match.
+func toMatchPlayer(c effects.Color) match.Player {
+	if c == effects.Black {
+		return match.PlayerBlack
+	}
+	return match.PlayerWhite
+}
+
+// buryCaptured mette nel cimitero del proprietario il pezzo catturato da una
+// mossa, prima che la mossa lo tolga da FEN e Tracker. Restituisce il
+// proprietario. Va invocata con r.mu tenuto.
+func (r *Room) buryCaptured(square string) (match.Player, bool) {
+	id, piece, ok := r.Tracker.Info(square)
+	if !ok {
+		p, err := effects.PieceAt(r.Board.FEN, square)
+		if err != nil || p == 0 {
+			return "", false
+		}
+		piece = p
+	}
+	owner := toMatchPlayer(effects.ColorOf(piece))
+	ps := r.playerState(owner)
+	ps.Graveyard = append(ps.Graveyard, spells.GraveEntry{Piece: spells.PieceKind(effects.PieceKindName(piece)), PieceID: id})
+	return owner, true
+}
+
+// graveyardUpdate è il payload di graveyard_changed, copiato sotto lock.
+type graveyardUpdate struct {
+	Player    match.Player       `json:"player"`
+	Graveyard []spells.PieceKind `json:"graveyard"`
+}
+
+// graveyardUpdates fotografa i cimiteri cambiati. Va invocata con r.mu tenuto.
+func (r *Room) graveyardUpdates(players []match.Player) []graveyardUpdate {
+	out := make([]graveyardUpdate, 0, len(players))
+	for _, p := range players {
+		out = append(out, graveyardUpdate{Player: p, Graveyard: r.playerState(p).GraveyardKinds()})
+	}
+	return out
+}
+
+// broadcastGraveyards manda graveyard_changed a entrambi. Va invocata SENZA r.mu.
+func (r *Room) broadcastGraveyards(updates []graveyardUpdate) {
+	for _, u := range updates {
+		r.Broadcast(models.MsgGraveyardChanged, u)
+	}
+}
+
+// graveHas indica se nel cimitero c'è un pezzo del tipo dato.
+func graveHas(graves []spells.GraveEntry, kind string) bool {
+	for _, e := range graves {
+		if string(e.Piece) == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// removeFirstGrave toglie dal cimitero la prima occorrenza del tipo dato.
+func removeFirstGrave(graves []spells.GraveEntry, kind string) []spells.GraveEntry {
+	for i, e := range graves {
+		if string(e.Piece) == kind {
+			return append(append([]spells.GraveEntry{}, graves[:i]...), graves[i+1:]...)
+		}
+	}
+	return graves
+}
+
+func containsString(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+// paramStrings legge un parametro lista di stringhe (anche []spells.PieceKind o
+// []interface{}, come arriva da JSON).
+func paramStrings(params map[string]interface{}, key string) []string {
+	var out []string
+	switch v := params[key].(type) {
+	case []string:
+		out = append(out, v...)
+	case []spells.PieceKind:
+		for _, k := range v {
+			out = append(out, string(k))
+		}
+	case []interface{}:
+		for _, x := range v {
+			if s, ok := x.(string); ok {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
+}
+
+// paramStringMap legge un parametro mappa stringa → stringa.
+func paramStringMap(params map[string]interface{}, key string) map[string]string {
+	out := map[string]string{}
+	switch v := params[key].(type) {
+	case map[string]string:
+		for k, x := range v {
+			out[k] = x
+		}
+	case map[string]interface{}:
+		for k, x := range v {
+			if s, ok := x.(string); ok {
+				out[k] = s
+			}
+		}
+	}
+	return out
 }
 
 // reasonMaxPawns: summon_pawn rifiutato perché il lanciatore ha già il numero
@@ -1485,6 +1802,8 @@ func (r *Room) publicState() map[string]interface{} {
 		"white_deck_size": len(r.Match.White.Deck),
 		"black_deck_size": len(r.Match.Black.Deck),
 		"active_effects":  r.activeEffects(),
+		"white_graveyard": r.Match.White.GraveyardKinds(),
+		"black_graveyard": r.Match.Black.GraveyardKinds(),
 	}
 }
 
