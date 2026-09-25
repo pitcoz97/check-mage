@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copie native dei token di `src/design/tokens.css`: il lato Android non legge il CSS.
+  Se cambiano lì, vanno cambiate anche qui e in `capacitor.config.ts`.
+  L'icona (`ic_launcher_*`) non segue questi colori: resta com'è finché non si decide (REDESIGN_PLAN.md §10, D22).
+-->
+<resources>
+    <!-- --bg-app -->
+    <color name="colorPrimary">#1B1A1F</color>
+    <!-- --bg-panel -->
+    <color name="colorPrimaryDark">#26242B</color>
+    <!-- --accent (oro) -->
+    <color name="colorAccent">#D9A845</color>
+    <!-- --bg-app: sfondo della finestra e dello splash, così non lampeggia bianco all'avvio -->
+    <color name="appBackground">#1B1A1F</color>
+</resources>

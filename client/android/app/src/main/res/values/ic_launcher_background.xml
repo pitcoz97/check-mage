@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- --bg-panel di `src/design/tokens.css`: il re chiaro su fondo scuro, come sulla scacchiera. -->
+    <color name="ic_launcher_background">#262421</color>
+</resources>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Icona dell'app: il re del set di pezzi disegnato per questo progetto (`src/game/pieces/PieceIcon.tsx`, CREDITS.md),
+  non un asset di terzi. Le sagome sono le stesse, riportate dal `viewBox` 45×45 del set nel 108×108 dell'icona
+  adattiva: la scala 1.47 tiene il disegno dentro la zona sicura di 66dp.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="1.47"
+        android:scaleY="1.47"
+        android:translateX="21"
+        android:translateY="21">
+        <!-- Croce sulla corona -->
+        <path
+            android:fillColor="#f7f6f2"
+            android:pathData="M21,5.5h3v3.5h3.5v3H24v3.5h-3V12h-3.5V9H21z" />
+        <!-- Corpo -->
+        <path
+            android:fillColor="#f7f6f2"
+            android:pathData="M22.5,16.5c-6.3,0 -10.5,4.1 -10.5,9.2 0,4.3 3.6,7.3 10.5,7.3s10.5,-3 10.5,-7.3c0,-5.1 -4.2,-9.2 -10.5,-9.2z" />
+        <!-- Zoccolo e base -->
+        <path
+            android:fillColor="#f7f6f2"
+            android:pathData="M12,33.5h21l1,4h-23z" />
+        <path
+            android:fillColor="#f7f6f2"
+            android:pathData="M10.5,37.5h24l2,4.5h-28z" />
+    </group>
+</vector>
