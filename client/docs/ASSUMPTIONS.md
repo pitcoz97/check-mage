@@ -66,7 +66,7 @@ Gli errori REST sono **ancora solo testo** (P1-3 applicata solo al WebSocket).
 | `GET /leaderboard` | — | `[{rank, id, username, elo}]`, `[]` se vuota | 500 | `handlers/stats.go:37` |
 | `GET /users/{id}` | — | `{user:{id, username, elo, created_at}, stats:{wins, losses, draws, total}}` | 400, 404 | `handlers/stats.go` |
 | `GET /users/{id}/games` | Bearer | `[{id, white, black, result, time_control, pgn, played_at}]`, `[]` se vuota | 400, 401, 500 | `handlers/stats.go:97` |
-| `GET /spells` | — | `[{id, name, mana_cost, phases, target_type, effects:[{kind, params?}]}]`, ordinato per costo e id | — | `handlers/catalog.go:13` |
+| `GET /spells` | — | `[{id, name, mana_cost, phases, targets:[TargetSpec], effects:[{kind, params?}], tags, rarity, limits?}]`, ordinato per costo e id (dal branch `feat/spell-catalog`, §7) | — | `handlers/catalog.go:13`, `spells/spells.go` |
 | `GET /ws/ticket` | Bearer | `{ticket, expires_in: 30}` | 401, 500 | `handlers/ws.go:23`, `api/router.go:58` |
 | `GET /ws` | `?ticket=` (monouso, 30s) oppure Bearer / `?token=` | upgrade | 401 `"Ticket non valido o scaduto"` o `"Token non valido o scaduto"` | `middleware/wsticket.go:78-94`, `api/router.go:62` |
 | rotta inesistente / metodo errato | — | 404 `"Risorsa non trovata"` / 405 `"Metodo non consentito"` in JSON | — | `api/router.go:33-34` |
@@ -145,9 +145,9 @@ insieme a `fix/backend-requests`; le righe seguenti riguardano `SERVER_API.md` e
 | Persistenza / shutdown | partite perse, chiuse come patta | persistite in Postgres e ripristinate dormienti; `server_shutdown` non viene più emesso (`game/manager.go:134-190`) |
 | `phase_changed` con `draw` | il client non vede mai `draw` | `draw` **viene emessa** al rollover di turno; `end_turn` no (`match/match.go:154-178`, `game/room.go:951`) |
 | Fase dopo un cast | resta la stessa | `AutoAdvance`: se non resta nulla di castabile, la fase avanza (`game/room.go:655`) |
-| Param di `draw_card` | `amount` | `count` (`spells/spells.go`) |
+| Param di `draw_card` | `amount` | `amount` dal branch `feat/spell-catalog` (prima `count`); in `effects_applied` resta `count` |
 | `effects_applied` | `{kind, target?, piece_destroyed?, remaining_turns?}` | anche `from`/`to`, `count`, `amount`/`mana` (vedi G8) |
-| Magia che dà scacco all'avversario | non specificato | in `main1` rifiutata con `illegal_position` (Teleport e Disintegrate); in `main2` consentita, e se è matto la partita finisce al cambio di turno (`game/room.go:725-733,659`) |
+| Magia che dà scacco all'avversario | non specificato | dal branch `feat/spell-catalog` rifiutata con `illegal_position` in `main1` e in `main2` (§7, M5) |
 | Offerta di patta | "sempre" | nessun controllo di turno, una sola offerta pendente (`game/room.go:1423`); decade quando chi l'ha ricevuta muove (`game/room.go:503-508`) |
 | "Sei già in coda" | errore alla seconda connessione | la connessione nuova sostituisce la vecchia (4001) (`game/manager.go:50-64`) |
 
@@ -210,3 +210,53 @@ corretto in `src/ws/connection.ts` (`nativeSocketFactory`).
 
 **Non verificabile in automatico:** scudo sull'en passant e posizioni costruite (servono mazzi pilotati, coperti da
 `mock-server/game/room.test.ts`), C11 e C12 (scelte del client, non comportamenti del server).
+
+---
+
+## 7. Catalogo magie (`feat/spell-catalog`, Step 1 di `docs/BRIEFING-MAGIE.md`)
+
+Da qui in poi il server si modifica (branch `feat/spell-catalog` in entrambi i repo, server da `fix/backend-requests`).
+I riferimenti sono al server di quel branch.
+
+### Verifica delle assunzioni del brief
+| Punto del brief | Esito | Rif. |
+|---|---|---|
+| Decremento di `RemainingTurns` | **smentita**: `TickColor` scalava gli effetti dei pezzi del colore che chiudeva il turno, e uno scudo `1` sarebbe sparito prima del turno avversario. Ora la durata conta i turni dell'avversario di chi lancia (`ActiveEffect.Caster`, `TickTurnEnd`) | `effects/tracker.go` |
+| `no_check` senza Stockfish | **verificata**: `effects.IsKingAttacked` in Go puro | `effects/attack.go` |
+| Id d'istanza delle carte | **non servono**: la mano è una lista di `spell_id`, le copie sono identiche e il server toglie la prima (G2) | `match/match.go` |
+| `piece_id` nel protocollo | gli effetti restano per casa (G1); al ripristino dal DB gli id si riassegnano | `game/room.go`, `roomFromSnapshot` |
+| Shield esistente | era `aegis` (costo 3, `turns: 2`); ora `shield` costa 2 e dura `duration: 1` con la nuova semantica | `spells/catalog.go` |
+| Promozione nella Move | **verificata**: il Tracker conserva id ed effetti | `effects/tracker.go`, `MovePiece` |
+| Cap del mana | **verificata**: 10 assoluto, non il massimo del turno | `match/match.go`, `GainMana` |
+| Handler esistenti | `summon_pawn` non esisteva: è nuovo. Le 6 magie "esistenti" del brief (Fireball…) erano una proposta mai implementata | — |
+| Migrazione DB | non serve: lo stato è un blob JSONB e i campi nuovi sono retrocompatibili; le carte scomparse si tolgono al ripristino | `db/livematch.go` |
+
+### Decisioni (tue, 25 settembre 2026)
+| # | Decisione |
+|---|---|
+| M1 | Catalogo finale = le 32 magie del brief; le 11 precedenti spariscono. |
+| M2 | Lo scudo assorbe una cattura, come prima. |
+| M3 | Mazzo = ricetta fissa server; i limiti di copie (2 comuni, 1 leggendaria) valgono per la ricetta finale. |
+| M4 | Nomi e testi nel client, i18n per id (`spells.catalog.<id>`), con fallback al nome del server e al testo generato. |
+| M5 | Nessuna magia dà scacco né lascia sotto scacco il re di chi lancia, in main1 e main2. Uno scacco già dato da una mossa non blocca le magie. |
+| M6 | Senza mosse giocabili (pezzi congelati) valgono le regole degli scacchi: matto o stallo. |
+| M7 | I test Go li esegue l'utente sulla VM. |
+| M8 | Ogni step chiude server, mock e client. |
+
+### Decisioni derivate (dal brief e dal codice)
+| # | Decisione |
+|---|---|
+| M9 | `duration` = turni dell'avversario di chi lancia; 0 = fino a fine turno di chi lancia; -1 = permanente. |
+| M10 | Nomi degli stati invariati sul filo (`freeze`, `shield`); `require_effect` li usa. |
+| M11 | `cast_spell` tiene `spell_id`; `choice` arriva allo Step 2. |
+| M12 | Le magie nascoste (Step 4–5) arrivano all'avversario senza `spell_id` né bersagli. |
+| M13 | Codici d'errore esistenti più `limit_reached`; `invalid_target` ha `details.index`, `reason`, `square`. |
+| M14 | Leggendaria = cornice "mitica" del design; riga del tipo = "Magia · archetipo" dal primo tag. |
+
+### Assunzioni del client
+| # | Assunzione | Motivo | Dove |
+|---|---|---|---|
+| S1 | Il client evidenzia i bersagli con le stesse regole di `effects.ValidateTargets` (tipo, pezzi, stato richiesto, casa vuota, distanza, traverse, caselle distinte, re escluso). È solo evidenziazione: il rifiuto resta al server. | Il catalogo porta i filtri come dati. | `src/spells/targets.registry.ts` |
+| S2 | Un `reason` sconosciuto di `invalid_target` mostra il messaggio generico. | Il server può aggiungere motivi. | `src/screens/Match/errorMessage.ts` |
+| S3 | Una rarità sconosciuta si legge come comune; un tag sconosciuto viene ignorato. | Cambiano solo cornice e riga del tipo. | `adapter.ts` §7, `src/spells/texts.ts` |
+| S4 | Il limite per turno non lo conta il client: la carta resta lanciabile e il rifiuto `limit_reached` arriva dal server. | Contare i cast sarebbe logica di gioco. | `src/spells/playability.ts` |
