@@ -9,7 +9,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
  * I colori qui sono gli unici duplicati dei token: il lato nativo non legge `src/design/tokens.css`. Sono copie di
  * `--bg-app`; se cambia lì, va cambiato anche qui e in `android/app/src/main/res/values/colors.xml`.
  */
-const BACKGROUND = '#302e2b'; // --bg-app
+const BACKGROUND = '#1B1A1F'; // --bg-app
 
 const config: CapacitorConfig = {
   appId: 'com.checkmage.app',
