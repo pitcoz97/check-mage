@@ -169,3 +169,24 @@ Un `code` sconosciuto va trattato come errore generico legato all'azione in volo
   vanno provati sulla VM con due client reali prima di chiudere lo Step 7.
 - Consigliato per lo Step 7: aggiornare il mock a questo contratto e verificare una per una le voci di
   `ASSUMPTIONS.md` toccate qui (C1, C2, C3, C4, G4, G6, G10, A15).
+
+---
+
+## 9. Catalogo magie — Step 1 (branch `feat/spell-catalog`)
+
+Primo step di [BRIEFING-MAGIE.md](BRIEFING-MAGIE.md), sul branch `feat/spell-catalog` (da `fix/backend-requests`).
+Supera le voci di §4 e §7 su Disintegrate, Teleport, segnaposto `noop` e pezzi congelati.
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | **Catalogo nuovo.** Le 11 magie precedenti non esistono più; ci sono le 9 dello Step 1 (`frost`, `ice_chain`, `shatter`, `blood_pact`, `blink`, `shield`, `royal_shield`, `forced_march`, `conscription`). Le partite salvate col catalogo vecchio si ricaricano senza le carte scomparse. | Nomi e testi per id (i18n); `fallback.json` e mock allineati |
+| 2 | `GET /spells`: `target_type` sparisce; al suo posto `targets: [TargetSpec]`, più `tags`, `rarity` e `limits` opzionale (PROTOCOL.md, "Catalogo magie") | Adapter, schema e registry dei bersagli leggono i `TargetSpec` |
+| 3 | `cast_spell`: una casella per elemento di `targets`, nello stesso ordine; `spell_id` resta (niente id d'istanza: le copie sono identiche) | Il numero di passi del targeting è `targets.length` |
+| 4 | Params rinominati: `turns` → `duration`, `count` → `amount`. In `effects_applied` `draw_card` resta `count` | Registry degli effetti |
+| 5 | **Durate** relative a chi lancia: `remaining_turns` conta i turni del suo avversario; `active_effects[].effects[]` ha `caster` | Nessuna (il client non ricalcola le durate) |
+| 6 | `invalid_target` ha `details: {index, reason, square}`; nuovo `limit_reached` `{spell_id, per_turn}` | Testi per `reason` e per `limit_reached` |
+| 7 | **Niente scacco da magia** in `main1` e `main2`; il matto arriva solo da una mossa | Nessuna |
+| 8 | **Pezzi congelati e fine partita**: senza mosse giocabili è matto (sotto scacco) o stallo | Nessuna |
+| 9 | Nuovo effect kind `summon_pawn` (`effects_applied`: `target`, `piece`); `move_piece` anche relativo (`relative: "forward"`, un solo bersaglio) | Registry degli effetti |
+
+Verifica: `go vet ./...` e `go test ./...` sulla VM (qui Go non è installato).

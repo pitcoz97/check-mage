@@ -62,7 +62,7 @@ una mossa valida la fase avanza da sola (il client non manda `pass_phase`).
 |--------|-----------|------|
 | `move` | `{ "move": "e2e4" }` | solo in fase `move` |
 | `pass_phase` | _(nessuno)_ | solo in `main1`/`main2` |
-| `cast_spell` | `{ "spell_id": "...", "targets": ["e7"] }` | `main1`/`main2`; `targets` secondo il tipo (0/1/2 caselle) |
+| `cast_spell` | `{ "spell_id": "...", "targets": ["e7"] }` | `main1`/`main2`; `targets` = una casella per ogni elemento di `targets` della magia, nello stesso ordine |
 | `resign` | _(nessuno)_ | |
 | `draw_offer` | _(nessuno)_ | una sola offerta pendente per volta |
 | `draw_accepted` | _(nessuno)_ | in risposta a `draw_offer` |
@@ -111,7 +111,7 @@ scacchiera, alla riconnessione (con `reconnected: true`) e subito **prima** di
   "white_mana": 1, "white_max_mana": 1, "black_mana": 1, "black_max_mana": 1,
   "white_hand_size": 4, "black_hand_size": 4,
   "white_deck_size": 36, "black_deck_size": 36,
-  "active_effects": [ { "square": "e7", "effects": [ { "kind": "freeze", "remaining_turns": 2, "source_spell_id": "frostbolt" } ] } ],
+  "active_effects": [ { "square": "e7", "effects": [ { "kind": "freeze", "remaining_turns": 1, "source_spell_id": "frost", "caster": "white" } ] } ],
   "reconnected": true
 }
 ```
@@ -145,9 +145,10 @@ Viene inviato **una sola volta** per partita.
 ### `effects_applied` (in `spell_cast`)
 
 Lista di oggetti `{ kind, ... }` con campi specifici per effetto:
-`noop` → nessun campo; `destroy_piece` → `target`, `piece_destroyed`;
-`freeze_piece`/`shield_piece` → `target`, `remaining_turns`; `move_piece` →
-`from`, `to`; `draw_card` → `count`; `gain_mana` → `amount`, `mana`.
+`destroy_piece` → `target`, `piece_destroyed`; `freeze_piece`/`shield_piece` →
+`target`, `remaining_turns`; `move_piece` → `from`, `to` (anche per il movimento
+relativo, dove il client manda solo il pezzo); `summon_pawn` → `target`, `piece`;
+`draw_card` → `count` (carte davvero pescate); `gain_mana` → `amount`, `mana`.
 
 ### `error`
 
@@ -170,14 +171,20 @@ Lista di oggetti `{ kind, ... }` con campi specifici per effetto:
 | `card_not_in_hand` | carta non in mano | `spell_id` |
 | `insufficient_mana` | mana insufficiente | `needed`, `available` |
 | `invalid_target_count` | numero di bersagli errato | `expected`, `received` |
-| `invalid_target` | casella non valida o vuota, pezzo del colore sbagliato, re non distruggibile, destinazione occupata | — |
-| `illegal_position` | la magia lascerebbe un re sotto scacco in modo illegale | `king` |
+| `invalid_target` | un bersaglio non rispetta il suo `TargetSpec` o l'effetto | `index`, `reason`, `square` |
+| `illegal_position` | la magia darebbe scacco o lascerebbe sotto scacco il re di chi lancia | `king` |
+| `limit_reached` | la magia ha già raggiunto i cast ammessi in questo turno | `spell_id`, `per_turn` |
 | `draw_offer_pending` | c'è già un'offerta di patta | — |
 | `no_draw_offer` | risposta senza offerta pendente | — |
 | `own_draw_offer` | risposta alla propria offerta | — |
 | `internal_error` | errore imprevisto | — |
 
 Un `code` sconosciuto va trattato come errore generico.
+
+Valori di `reason` per `invalid_target`: `off_board`, `duplicate`, `not_empty`,
+`no_piece`, `wrong_owner`, `king`, `piece_kind`, `missing_effect`, `too_far`,
+`rank`, `max_pawns`, `promotion`. Un valore sconosciuto va trattato come
+bersaglio non valido generico.
 
 ## Anti-cheat
 
@@ -195,45 +202,78 @@ Un `code` sconosciuto va trattato come errore generico.
   protetto. Eccezione: se la cattura è l'unico modo in cui l'attaccante esce
   dallo scacco, lo scudo **si rompe** e la cattura avviene normalmente (il pezzo
   sparisce con il suo scudo, senza `effect_expired`).
-- Gli effetti persistenti seguono il **pezzo** (non la casella) e durano
-  `remaining_turns` turni del proprietario.
-- **Magie che modificano la scacchiera** (Disintegrate, Teleport) sono rifiutate
-  con `illegal_position` se lasciano sotto scacco il re di chi **non** ha il
-  tratto. In pratica:
-  - in `main1` (il tratto è di chi lancia) non possono dare scacco
-    all'avversario;
-  - in `main2` (il tratto è dell'avversario) possono dare scacco, e se è matto
-    la partita finisce al cambio di turno;
-  - Teleport non può mai lasciare sotto scacco il re di chi lancia.
-- **Teleport** sposta un pezzo proprio su una casella vuota senza regole di
+- Gli effetti persistenti seguono il **pezzo** (non la casella). La durata conta
+  i turni dell'**avversario di chi lancia** (`caster`): `remaining_turns` scende
+  alla fine di ciascuno di quei turni. `freeze` 1 blocca il prossimo turno del
+  pezzo colpito; `shield` 1 protegge durante il prossimo turno avversario e
+  sparisce all'inizio del turno dopo. `remaining_turns` 0 = fino alla fine del
+  turno di chi lancia; -1 = permanente.
+- **Bersagli.** Ogni magia dichiara in `targets` una lista di `TargetSpec`
+  (vedi sotto); il cast manda una casella per elemento, nello stesso ordine. Le
+  caselle devono essere distinte e il re non è mai un bersaglio (salvo un
+  `own_piece` che lo elenca esplicitamente in `pieces`).
+- **Niente scacco da magia**, in `main1` come in `main2`: una magia che tocca la
+  scacchiera è rifiutata con `illegal_position` se dà scacco al re avversario o
+  lascia sotto scacco il re di chi lancia (se lo era già, la magia deve
+  risolvere lo scacco). Se il re avversario era già sotto scacco per la mossa del
+  turno, la magia è ammessa. Il matto arriva solo da una mossa.
+- **Senza mosse giocabili**: se tutte le mosse legali del giocatore di turno sono
+  di pezzi congelati, valgono le regole degli scacchi: re sotto scacco = matto,
+  altrimenti stallo. Si verifica dopo ogni mossa, a ogni cambio di turno e dopo
+  una magia in `main1` che cambia la scacchiera (un Patto di sangue può lasciare
+  senza mosse chi lo lancia).
+- **move_piece** sposta un pezzo proprio su una casella vuota senza regole di
   movimento: un re su g1 non arrocca, un pedone in diagonale non cattura en
-  passant.
-- **Disintegrate** non può bersagliare il re.
+  passant. Con `relative: "forward"` il client manda solo il pezzo e il server
+  calcola l'arrivo (`squares` passi in avanti per chi lancia); con
+  `no_promotion` non si arriva all'ultima traversa.
+- Una magia che toglie o sposta il pedone appena spinto di due azzera la casella
+  en passant della FEN.
+- **Limiti per turno** (`limits.per_turn`): oltre il limite il cast è rifiutato
+  con `limit_reached`; il conteggio riparte all'inizio di ogni turno del
+  giocatore. Una carta al limite non tiene aperta la fase main.
 - Una magia non cambia mai il tratto e non fa avanzare la fase (l'auto-avanzamento
   scatta solo se, dopo il cast, non resta nulla di castabile).
 
-## Catalogo magie (set MVP)
+## Catalogo magie
 
-Disponibile anche via `GET /spells` (`data: [{ id, name, mana_cost, phases, target_type, effects:[{kind, params?}] }]`).
+Il catalogo segue `docs/BRIEFING-MAGIE.md` e cresce per step: oggi contiene le 9
+magie dello Step 1. Disponibile via `GET /spells`:
 
-| ID | Nome | Costo | Target | Effetto |
-|----|------|-------|--------|---------|
-| `spark`/`jolt`/`pulse`/`surge`/`nova` | — | 1/2/2/3/5 | none | `noop` (placeholder) |
-| `disintegrate` | Disintegrate | 4 | enemy_piece | distrugge un pezzo nemico |
-| `frostbolt` | Frost Bolt | 2 | enemy_piece | congela un pezzo nemico (2 turni) |
-| `aegis` | Aegis | 3 | own_piece | scudo su un pezzo proprio (2 turni) |
-| `insight` | Insight | 1 | none | pesca 1 carta |
-| `channel` | Channel | 0 | none | +2 mana questo turno |
-| `teleport` | Teleport | 3 | piece_move | sposta un pezzo proprio su casella vuota |
+```json
+{ "id": "blink", "name": "Blink", "mana_cost": 4, "phases": ["main1", "main2"],
+  "targets": [ { "type": "own_piece", "pieces": ["knight", "bishop"] },
+               { "type": "square", "empty_square": true, "max_distance": 2 } ],
+  "effects": [ { "kind": "move_piece", "params": { "no_check": true } } ],
+  "tags": ["arcano"], "rarity": "common" }
+```
 
-Mazzo: 40 carte (in Fase 1 identico per i due giocatori).
+`TargetSpec`: `type` ∈ `square`/`own_piece`/`enemy_piece`; opzionali `pieces`
+(ammessi; assente = tutti tranne il re), `require_effect` (stato richiesto, es.
+`freeze`), `empty_square`, `max_distance` (Chebyshev dal bersaglio precedente),
+`own_ranks` e `min_rank` (traverse relative a chi lancia, 1 = la sua prima).
+`targets` vuoto = nessun bersaglio. `rarity` ∈ `common`/`legendary`; `limits`
+(opzionale) = `{ "per_turn": n }`.
+
+| ID | Nome | Costo | Bersagli | Effetto |
+|----|------|-------|----------|---------|
+| `frost` | Brina | 1 | pedone nemico | `freeze_piece` 1 |
+| `ice_chain` | Catena di ghiaccio | 3 | cavallo o alfiere nemico | `freeze_piece` 1 |
+| `shatter` | Frantumare | 4 | pezzo nemico congelato, non regina | `destroy_piece` |
+| `blood_pact` | Patto di sangue | 0 | proprio pedone | `destroy_piece` + `gain_mana` 2 (cap 10), 1 per turno |
+| `blink` | Blink | 4 | proprio pezzo minore + casa vuota entro 2 | `move_piece` |
+| `shield` | Scudo | 2 | proprio pezzo, non regina né re | `shield_piece` 1 |
+| `royal_shield` | Scudo reale | 4 | propria regina | `shield_piece` 1 |
+| `forced_march` | Marcia forzata | 1 | proprio pedone | `move_piece` avanti di 1, senza cattura né promozione |
+| `conscription` | Leva militare | 4 | casa vuota della propria 2ª traversa | `summon_pawn` (massimo 8 pedoni) |
+
+Mazzo: 40 carte, identico per i due giocatori. Finché il catalogo non è
+completo la ricetta supera i limiti di copie della rarità (2 comuni, 1
+leggendaria), che valgono per la ricetta finale.
 
 ## Limiti noti
 
 - Le partite in corso sono persistite in Postgres: un riavvio del server non le
   perde e i giocatori possono riconnettersi (le room ripristinate restano
   dormienti finché qualcuno non si riconnette).
-- Il rilevamento di matto/stallo considera legali anche le mosse dei pezzi
-  congelati: se le uniche mosse legali sono di pezzi congelati, la partita non
-  finisce e il giocatore può solo attendere il timeout o abbandonare.
 - Il PGN salvato nel DB usa mosse UCI numerate (non SAN) e non registra le magie.
