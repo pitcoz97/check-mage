@@ -16,6 +16,7 @@ export const GAME_ERROR_CODES = [
   'wrong_phase',
   'illegal_move',
   'piece_frozen',
+  'move_blocked',
   'unknown_spell',
   'card_not_in_hand',
   'insufficient_mana',
@@ -62,6 +63,13 @@ export const WS = {
   cannotMoveInPhase: (phase: string) => e('wrong_phase', `Non puoi muovere nella fase ${phase}`, { phase }), // :441
   illegalMove: (move: string) => e('illegal_move', `Mossa illegale: ${move}`, { move }), // :448
   frozen: (square: string) => e('piece_frozen', `Il pezzo in ${square} è congelato`, { square }), // :457
+  moveBlocked: (move: string, square: string, reason: string) =>
+    e('move_blocked', `La mossa ${move} è bloccata in ${square}`, { square, reason }),
+  sanctuaryDestroy: (square: string) =>
+    e('invalid_target', `${square} è su una casa dove non si cattura`, { index: 0, reason: 'no_capture', square }),
+  wallAhead: (square: string) => e('invalid_target', `in ${square} c'è un muro`, { index: 0, reason: 'wall', square }),
+  unsupportedSquareEffect: (kind: string, id: string) =>
+    e('internal_error', `stato della casa non supportato: ${quoted(kind)} (${id})`),
   cannotPassInPhase: (phase: string) => e('wrong_phase', `Non puoi passare nella fase ${phase}`, { phase }), // :591
   // validateNoCheck, applySpellEffects, moveEndpoints
   kingLeftInCheck: (king: string) => e('illegal_position', `il re ${king} resterebbe sotto scacco`, { king }),
@@ -235,6 +243,10 @@ export function wsErrorSamples(): GameError[] {
     WS.cannotFreezeOwn('e2'),
     WS.nothingToShield('e5'),
     WS.shieldOnlyOwn('e7'),
+    WS.moveBlocked('a1a6', 'a4', 'wall'),
+    WS.sanctuaryDestroy('d5'),
+    WS.wallAhead('e3'),
+    WS.unsupportedSquareEffect('rune', 'sanctuary'),
   ];
 }
 

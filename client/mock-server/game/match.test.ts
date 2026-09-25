@@ -106,9 +106,9 @@ describe('MatchState (match/match.go)', () => {
     expect(m.drawFor('black')).toMatchObject({ player: 'black', handSize: 5, deckSize: 35 });
   });
 
-  it('il catalogo ha le 18 magie degli step 1 e 2 (spells/catalog.go)', () => {
-    expect(CATALOG.size).toBe(18);
-    expect(CATALOG.has('resurrection') && CATALOG.has('divine_castling')).toBe(true);
+  it('il catalogo ha le 20 magie degli step 1–3 (spells/catalog.go)', () => {
+    expect(CATALOG.size).toBe(20);
+    expect(CATALOG.has('ice_wall') && CATALOG.has('sanctuary')).toBe(true);
   });
 });
 

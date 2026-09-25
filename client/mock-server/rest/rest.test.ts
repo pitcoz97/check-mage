@@ -129,7 +129,7 @@ describe('rotte (api/router.go)', () => {
     const server = await start();
     const res = await call(server, 'GET', '/spells');
     const spells = res.body.data as { id: string; mana_cost: number }[];
-    expect(spells).toHaveLength(18);
+    expect(spells).toHaveLength(20);
     const order = spells.map((s) => `${s.mana_cost}:${s.id}`);
     expect(order).toEqual(
       [...spells]

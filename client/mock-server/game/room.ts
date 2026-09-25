@@ -37,8 +37,9 @@ import {
   type ManaState,
   type MatchOverrides,
 } from './match';
+import { captureSquare, KIND_NO_CAPTURE, KIND_WALL, moveBlock } from './squares';
 import { validateTargets } from './targets';
-import { KIND_SHIELD, Tracker, type ExpiredEffect } from './tracker';
+import { KIND_SHIELD, Tracker, type ExpiredEffect, type PieceEffectInfo } from './tracker';
 
 /**
  * Porting di `game/room.go` (branch `fix/backend-requests`). I commenti `room.go:N` rimandano alla riga del server.
@@ -108,14 +109,6 @@ function decodePayload(payload: unknown, fields: Record<string, 'string' | 'stri
     if (type === 'string[]' && (!Array.isArray(value) || !value.every((v) => typeof v === 'string'))) return null;
   }
   return record;
-}
-
-/** `captureSquare` (`room.go:413-421`): casella del pezzo catturato, anche per l'en passant; `null` se non cattura. */
-function captureSquare(fen: string, from: string, to: string): string | null {
-  if (pieceAt(fen, to) !== null) return to;
-  const mover = pieceAt(fen, from);
-  if ((mover === 'P' || mover === 'p') && from[0] !== to[0]) return `${to[0]}${from[1]}`;
-  return null;
 }
 
 /**
@@ -240,6 +233,9 @@ export class Room {
     const from = move.slice(0, 2);
     const to = move.slice(2, 4);
     if (this.tracker.isFrozen(from)) return this.sendError(sender, WS.frozen(from));
+    // Stati delle case, prima dello scudo: una mossa bloccata non lo consuma.
+    const blocked = moveBlock(this.board.fen, this.tracker, move);
+    if (blocked !== null) return this.sendError(sender, WS.moveBlocked(move, blocked.square, blocked.reason));
 
     // Lo scudo assorbe la cattura (anche en passant), salvo che la mossa nulla lasci in scacco chi muove:
     // la cattura era l'unico modo di uscire dallo scacco, quindi lo scudo si rompe (`room.go:461-473`).
@@ -279,6 +275,7 @@ export class Room {
     let end: GameEnd | null = null;
     let results: AdvanceResult[] = [];
     let expired: ExpiredEffect[] = [];
+    let squares: PieceEffectInfo[] | null = null;
     switch (status) {
       case 'checkmate':
         end = this.finish(senderColor === 'white' ? '1-0' : '0-1', 'checkmate', 'checkmate');
@@ -291,7 +288,7 @@ export class Room {
         break;
       case 'ongoing':
         results = [this.match.advance(), ...this.match.autoAdvance()];
-        expired = this.tickEffectsOnNewTurn(results);
+        [expired, squares] = this.tickEffectsOnNewTurn(results);
     }
 
     if (shieldAbsorbed) {
@@ -303,6 +300,7 @@ export class Room {
     this.broadcastGraveyards(graveOwners);
     for (const res of results) this.applyAdvanceBroadcasts(res);
     this.broadcastExpired(expired);
+    this.broadcastSquareEffects(squares);
     this.announceEnd(end);
   }
 
@@ -314,10 +312,11 @@ export class Room {
     if (!this.match.allows('pass_phase')) return this.sendError(sender, WS.cannotPassInPhase(this.match.currentPhase));
 
     const results = [this.match.advance(), ...this.match.autoAdvance()];
-    const expired = this.tickEffectsOnNewTurn(results);
+    const [expired, squares] = this.tickEffectsOnNewTurn(results);
     const end = this.checkRolloverGameEnd(results);
     for (const res of results) this.applyAdvanceBroadcasts(res);
     this.broadcastExpired(expired);
+    this.broadcastSquareEffects(squares);
     if (end !== null) this.broadcastState();
     this.announceEnd(end);
   }
@@ -329,6 +328,7 @@ export class Room {
     let boardChanged = false;
     let drawn: DrawResult[] = [];
     let graveOwners: Color[] = [];
+    let squaresChanged = false;
 
     let res;
     try {
@@ -337,6 +337,7 @@ export class Room {
         boardChanged = out.changed;
         drawn = out.drawn;
         graveOwners = out.graveOwners;
+        squaresChanged = out.squaresChanged;
         return out.applied;
       });
     } catch (error) {
@@ -346,11 +347,15 @@ export class Room {
 
     if (boardChanged) this.recordPosition();
     const autoResults = this.match.autoAdvance();
-    const expired = this.tickEffectsOnNewTurn(autoResults);
+    // Gli stati creati dal cast partono prima delle scadenze del rollover.
+    const castSquares = squaresChanged ? this.tracker.squareEffects() : null;
+    const [expired, squares] = this.tickEffectsOnNewTurn(autoResults);
     // Se il cast chiude il turno si valuta il nuovo giocatore attivo; se chi lancia ha ancora il tratto (main1) e la
-    // scacchiera è cambiata, si valuta lui: un Patto di sangue può lasciarlo senza mosse.
+    // scacchiera o le case sono cambiate, si valuta lui: un Patto di sangue o un muro possono lasciarlo senza mosse.
     let end = this.checkRolloverGameEnd(autoResults);
-    if (end === null && boardChanged && sideToMove(this.board.fen) === this.match.activePlayer) end = this.checkActivePlayerEnd();
+    if (end === null && (boardChanged || squaresChanged) && sideToMove(this.board.fen) === this.match.activePlayer) {
+      end = this.checkActivePlayerEnd();
+    }
 
     this.broadcast('spell_cast', {
       player: senderColor,
@@ -363,8 +368,10 @@ export class Room {
     for (const d of drawn) this.clientOf(senderColor).send(msg('card_drawn', { card_id: d.cardId, deck_size: d.deckSize }));
     if (boardChanged) this.broadcastState();
     this.broadcastGraveyards(graveOwners);
+    this.broadcastSquareEffects(castSquares);
     for (const ar of autoResults) this.applyAdvanceBroadcasts(ar);
     this.broadcastExpired(expired);
+    this.broadcastSquareEffects(squares);
     if (end !== null && !boardChanged) this.broadcastState();
     this.announceEnd(end);
   }
@@ -382,6 +389,7 @@ export class Room {
     const graves: Record<Color, GraveEntry[]> = { white: [...this.match.white.graveyard], black: [...this.match.black.graveyard] };
     const gravesChanged = new Set<Color>();
     let changed = false;
+    let squaresChanged = false;
     const applied: Record<string, unknown>[] = [];
     const deferred: (() => void)[] = [];
     const drawn: DrawResult[] = [];
@@ -407,6 +415,11 @@ export class Room {
       switch (eff.kind) {
         case 'destroy_piece': {
           const square = target();
+          // Santuario: nessun pezzo nemico sparisce da quella casa (il sacrificio di un proprio pezzo è ammesso).
+          const victim = pieceAt(fen, square);
+          if (tracker.hasSquareEffect(square, KIND_NO_CAPTURE) && victim !== null && pieceColor(victim) !== caster) {
+            throw new EffectError(WS.sanctuaryDestroy(square));
+          }
           bury(square);
           const result = destroyPiece(fen, square);
           fen = result.fen;
@@ -474,6 +487,7 @@ export class Room {
         }
         case 'move_piece': {
           const [from, to] = moveEndpoints(fen, eff.params, targets, caster);
+          if (tracker.hasSquareEffect(to, KIND_WALL)) throw new EffectError(WS.wallAhead(to));
           fen = movePieceFen(fen, from, to, caster);
           changed = true;
           tracker.relocate(from, to); // spostamento magico: niente arrocco né en passant
@@ -545,6 +559,22 @@ export class Room {
           changed = true;
           break;
         }
+        case 'create_wall':
+        case 'create_square_effect': {
+          const square = target();
+          let kind = KIND_WALL;
+          if (eff.kind === 'create_square_effect') {
+            kind = typeof eff.params?.['effect'] === 'string' ? eff.params['effect'] : '';
+            if (kind !== KIND_NO_CAPTURE) throw new EffectError(WS.unsupportedSquareEffect(kind, def.id));
+            entry['effect'] = kind;
+          }
+          const duration = paramInt(eff.params, 'duration', 1);
+          tracker.addSquareEffect(square, kind, duration, def.id, caster);
+          squaresChanged = true;
+          entry['target'] = square;
+          entry['remaining_turns'] = duration;
+          break;
+        }
         case 'summon_pawn': {
           const square = target();
           const pawn = caster === 'white' ? 'P' : 'p';
@@ -576,7 +606,7 @@ export class Room {
       graveOwners.push(color);
     }
     for (const apply of deferred) apply();
-    return { applied, changed, drawn, graveOwners };
+    return { applied, changed, drawn, graveOwners, squaresChanged };
   }
 
   /** `buryCaptured` (`room.go`): il pezzo catturato da una mossa va nel cimitero del proprietario. */
@@ -596,16 +626,33 @@ export class Room {
     }
   }
 
-  /** `tickEffectsOnNewTurn` (`room.go`): durate alla fine del turno di chi ha appena chiuso. */
-  private tickEffectsOnNewTurn(results: AdvanceResult[]): ExpiredEffect[] {
+  /**
+   * `tickEffectsOnNewTurn` (`room.go`): durate alla fine del turno di chi ha appena chiuso. Restituisce gli effetti
+   * scaduti sui pezzi e, se uno stato di una casa è scaduto, la nuova lista degli stati delle case.
+   */
+  private tickEffectsOnNewTurn(results: AdvanceResult[]): [ExpiredEffect[], PieceEffectInfo[] | null] {
     const rollover = results.find((r) => r.newTurn);
-    if (rollover === undefined) return [];
-    return this.tracker.tickTurnEnd(opponentOf(rollover.activePlayer));
+    if (rollover === undefined) return [[], null];
+    const finishing = opponentOf(rollover.activePlayer);
+    const expired = this.tracker.tickTurnEnd(finishing);
+    return [expired, this.tracker.tickSquares(finishing) ? this.tracker.squareEffects() : null];
   }
 
-  /** `gameStatus` + `isPlayable` (`room.go`): le mosse dei pezzi congelati non sono giocabili. */
+  /** `square_effects_changed` a entrambi, con la lista completa (`null` = nessun cambiamento). */
+  private broadcastSquareEffects(squares: PieceEffectInfo[] | null): void {
+    if (squares !== null) this.broadcast('square_effects_changed', { square_effects: squares });
+  }
+
+  /** `isPlayable` (`room.go`): gli stessi controlli di `handleMove` (gelo, muri, santuari). */
+  isPlayable(move: string): boolean {
+    if (move.length < 4) return true;
+    if (this.tracker.isFrozen(move.slice(0, 2))) return false;
+    return moveBlock(this.board.fen, this.tracker, move) === null;
+  }
+
+  /** `gameStatus` (`room.go`): solo le mosse giocabili contano. */
   private gameStatus() {
-    return getGameStatus(this.board.fen, (move) => move.length < 4 || !this.tracker.isFrozen(move.slice(0, 2)));
+    return getGameStatus(this.board.fen, (move) => this.isPlayable(move));
   }
 
   /** `checkRolloverGameEnd` (`room.go`). */
@@ -837,6 +884,7 @@ export class Room {
       active_effects: this.tracker.activeEffects(),
       white_graveyard: white.graveyard.map((g) => g.piece),
       black_graveyard: black.graveyard.map((g) => g.piece),
+      square_effects: this.tracker.squareEffects(),
     };
   }
 

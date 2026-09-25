@@ -124,7 +124,8 @@ export class Bot {
   }
 
   private playMove(room: Room): void {
-    const legal = legalMoves(room.board.fen).filter((m) => !room.tracker.isFrozen(m.slice(0, 2)));
+    // Solo le mosse giocabili: niente pezzi congelati, muri o catture su un santuario.
+    const legal = legalMoves(room.board.fen).filter((m) => room.isPlayable(m));
     const scripted = this.behavior.script?.[this.movesMade];
     const move = scripted !== undefined && legal.includes(scripted) ? scripted : legal[0];
     if (move === undefined) return;

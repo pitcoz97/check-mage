@@ -1,6 +1,7 @@
 import { WS } from '../serverTexts';
 import type { PieceKind, TargetSpec } from './catalog';
 import { EffectError, parsePlacement, parseSquare, pieceColor, pieceName, relativeRank, type Color } from './fen';
+import { KIND_WALL } from './squares';
 import type { Tracker } from './tracker';
 
 /**
@@ -29,6 +30,8 @@ export function validateTargets(fen: string, tracker: Tracker, specs: readonly T
 
     if (spec.type === 'square') {
       if (spec.empty_square === true && piece !== null) throw reject('not_empty', `la casella ${square} non è vuota`);
+      // Una casa col muro non è vuota: niente muri impilati, niente pezzi evocati o teletrasportati lì.
+      if (spec.empty_square === true && tracker.hasSquareEffect(square, KIND_WALL)) throw reject('wall', `la casella ${square} ha un muro`);
     } else {
       if (piece === null) throw reject('no_piece', `nessun pezzo in ${square}`);
       const own = pieceColor(piece) === caster;

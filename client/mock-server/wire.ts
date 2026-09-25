@@ -37,6 +37,7 @@ export type WireServerType =
   | 'spell_cast'
   | 'effect_expired'
   | 'graveyard_changed'
+  | 'square_effects_changed'
   | 'timer_update'
   | 'game_over'
   | 'error'

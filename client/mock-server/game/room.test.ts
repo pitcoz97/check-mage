@@ -472,6 +472,72 @@ describe('magie dello step 2: cimitero e gruppo A', () => {
   });
 });
 
+describe('magie dello step 3: muri e santuari', () => {
+  const FILLER = ['shatter', 'shatter'];
+  const rich = { white: 10 };
+
+  it('il muro blocca il percorso con move_blocked e scade dopo due turni del nero', () => {
+    const { room, white, black, send } = setup();
+    room.tracker.addSquareEffect('e3', 'wall', 2, 'ice_wall', 'white');
+    send(white, 'move', { move: 'e2e4' });
+    expect(white.last('error')).toEqual({ message: 'La mossa e2e4 è bloccata in e3', code: 'move_blocked', details: { square: 'e3', reason: 'wall' } });
+    expect(room.isPlayable('e2e4')).toBe(false);
+    send(white, 'move', { move: 'f2f3' });
+    expect(white.last('game_state')?.['square_effects']).toEqual([
+      { square: 'e3', effects: [{ kind: 'wall', remaining_turns: 2, source_spell_id: 'ice_wall', caster: 'white' }] },
+    ]);
+    send(black, 'move', { move: 'e7e5' });
+    send(white, 'move', { move: 'g1h3' });
+    expect(white.all('square_effects_changed')).toEqual([]);
+    send(black, 'move', { move: 'd7d5' });
+    expect(white.last('square_effects_changed')).toEqual({ square_effects: [] });
+    expect(room.isPlayable('e2e4')).toBe(true);
+  });
+
+  it('Muro di ghiaccio: create_wall, lista a entrambi, niente muro sul muro', () => {
+    const { white, black, send } = setup({ overrides: { hand: { white: ['ice_wall', 'ice_wall', ...FILLER] }, manaFloor: rich } });
+    send(white, 'cast_spell', { spell_id: 'ice_wall', targets: ['e4'] });
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([{ kind: 'create_wall', target: 'e4', remaining_turns: 2 }]);
+    expect(black.last('square_effects_changed')).toEqual({
+      square_effects: [{ square: 'e4', effects: [{ kind: 'wall', remaining_turns: 2, source_spell_id: 'ice_wall', caster: 'white' }] }],
+    });
+    send(white, 'cast_spell', { spell_id: 'ice_wall', targets: ['e4'] });
+    expect(white.last('error')).toEqual({
+      message: 'la casella e4 ha un muro',
+      code: 'invalid_target',
+      details: { index: 0, reason: 'wall', square: 'e4' },
+    });
+  });
+
+  it('Santuario: nessuna cattura con le mosse né con Frantumare; il proprio sacrificio è ammesso', () => {
+    const { room, white, send } = setup({ fen: '4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1' });
+    room.tracker.addSquareEffect('d5', 'no_capture', 3, 'sanctuary', 'black');
+    send(white, 'move', { move: 'e4d5' });
+    expect(white.last('error')).toEqual({
+      message: 'La mossa e4d5 è bloccata in d5',
+      code: 'move_blocked',
+      details: { square: 'd5', reason: 'no_capture' },
+    });
+
+    const cast = setup({ fen: '4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1', overrides: { hand: { white: ['shatter', 'blood_pact', 'sanctuary'] }, manaFloor: rich } });
+    cast.room.tracker.addSquareEffect('d5', 'no_capture', 3, 'sanctuary', 'black');
+    cast.room.tracker.addSquareEffect('e4', 'no_capture', 3, 'sanctuary', 'black');
+    cast.room.tracker.freeze('d5', 'white', 1, 'frost');
+    cast.send(cast.white, 'cast_spell', { spell_id: 'shatter', targets: ['d5'] });
+    expect(cast.white.last('error')).toEqual({
+      message: 'd5 è su una casa dove non si cattura',
+      code: 'invalid_target',
+      details: { index: 0, reason: 'no_capture', square: 'd5' },
+    });
+    cast.send(cast.white, 'cast_spell', { spell_id: 'blood_pact', targets: ['e4'] });
+    expect(cast.room.board.fen).toBe('4k3/8/8/3p4/8/8/8/4K3 w - - 0 1');
+    cast.send(cast.white, 'cast_spell', { spell_id: 'sanctuary', targets: ['e1'] });
+    expect(cast.white.last('spell_cast')?.['effects_applied']).toEqual([
+      { kind: 'create_square_effect', target: 'e1', effect: 'no_capture', remaining_turns: 3 },
+    ]);
+  });
+});
+
 describe('patta (room.go:1413-1501)', () => {
   it('offerta, doppia offerta, risposta propria, rifiuto con reason, accettazione', () => {
     const { white, black, send, lastError } = setup();

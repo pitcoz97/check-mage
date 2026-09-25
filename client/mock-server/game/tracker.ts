@@ -44,6 +44,8 @@ export class Tracker {
   private readonly bySquare = new Map<string, number>();
   private readonly pieces = new Map<number, PieceState>();
   private nextId = 1;
+  /** Stati sulle case (`squares.go`): restano sulla casa, con le durate degli stati sui pezzi. */
+  private squares = new Map<string, ActiveEffect[]>();
 
   /** `tracker.go:41-62`: id assegnati in ordine di scansione (a8 → h1). */
   constructor(fen: string) {
@@ -154,6 +156,9 @@ export class Tracker {
     fields.bySquare = new Map(this.bySquare);
     fields.pieces = new Map([...this.pieces].map(([id, ps]) => [id, { ...ps, effects: ps.effects.map((e) => ({ ...e })) }]));
     fields.nextId = this.nextId;
+    (copy as unknown as { squares: Map<string, ActiveEffect[]> }).squares = new Map(
+      [...this.squares].map(([square, effects]) => [square, effects.map((e) => ({ ...e }))]),
+    );
     return copy;
   }
 
@@ -237,6 +242,48 @@ export class Tracker {
       if (ps.effects.length > 0) out.push({ square: ps.square, effects: ps.effects.map((e) => ({ ...e })) });
     }
     return out.sort((a, b) => (a.square < b.square ? -1 : a.square > b.square ? 1 : 0));
+  }
+
+  /** `AddSquareEffect`: mette (o rinnova) uno stato sulla casa. */
+  addSquareEffect(square: string, kind: string, turns: number, source: string, caster: Color): void {
+    const effects = this.squares.get(square) ?? [];
+    const next = { kind, remaining_turns: turns, source_spell_id: source, caster };
+    const index = effects.findIndex((e) => e.kind === kind);
+    if (index >= 0) effects[index] = next;
+    else effects.push(next);
+    this.squares.set(square, effects);
+  }
+
+  hasSquareEffect(square: string, kind: string): boolean {
+    return this.squares.get(square)?.some((e) => e.kind === kind) === true;
+  }
+
+  hasSquareEffects(): boolean {
+    return this.squares.size > 0;
+  }
+
+  /** `TickSquares`: le regole di `tickTurnEnd` sugli stati delle case; `true` se qualcuno è scaduto. */
+  tickSquares(finishing: Color): boolean {
+    let expired = false;
+    for (const [square, effects] of this.squares) {
+      const kept = effects.filter((e) => {
+        if (e.remaining_turns === PERMANENT) return true;
+        if (e.caster !== finishing) e.remaining_turns--;
+        if (e.remaining_turns > 0) return true;
+        expired = true;
+        return false;
+      });
+      if (kept.length === 0) this.squares.delete(square);
+      else this.squares.set(square, kept);
+    }
+    return expired;
+  }
+
+  /** `SquareEffects`: copie degli stati delle case, ordinate per casa. */
+  squareEffects(): PieceEffectInfo[] {
+    return [...this.squares]
+      .map(([square, effects]) => ({ square, effects: effects.map((e) => ({ ...e })) }))
+      .sort((a, b) => (a.square < b.square ? -1 : a.square > b.square ? 1 : 0));
   }
 
   /** Solo per i test del mock: identità del pezzo in una casella. */
