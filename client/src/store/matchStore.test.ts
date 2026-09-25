@@ -22,6 +22,7 @@ function publicState(overrides: Partial<PublicGameState> = {}): PublicGameState 
     deckSizes: { white: 36, black: 36 },
     activeEffects: [],
     graveyards: { white: [], black: [] },
+    squareStates: [],
     reconnected: false,
     players: { white: { id: '1', username: 'mario' }, black: { id: '2', username: 'luigi' } },
     timeControl: { baseMs: 600_000, incrementMs: 5_000 },
@@ -119,6 +120,25 @@ describe('applyServerEvent: aggiornamenti puntuali', () => {
       { square: 'b2', effects: [{ kind: 'freeze', remainingTurns: 1, sourceSpellId: 'eternal_winter' }] },
     ]);
     expect(state.game?.graveyards).toEqual({ white: ['pawn'], black: [] });
+  });
+
+  it('square_effects_changed sostituisce gli stati delle case; il cast che li crea non li tocca da sé', () => {
+    const wall = { square: 'e5' as const, effects: [{ kind: 'wall', remainingTurns: 2, sourceSpellId: 'ice_wall' }] };
+    const state = run([
+      ...START,
+      {
+        type: 'spell_cast',
+        player: 'white',
+        spellId: 'ice_wall',
+        targets: ['e5'],
+        effects: [{ kind: 'create_wall', target: 'e5', state: 'wall', remainingTurns: 2 }],
+      },
+    ]);
+    expect(state.game?.squareStates).toEqual([]);
+    expect(state.game?.activeEffects).toEqual([]);
+    const after = run([{ type: 'square_effects_changed', squareStates: [wall] }], '1', state);
+    expect(after.game?.squareStates).toEqual([wall]);
+    expect(run([{ type: 'square_effects_changed', squareStates: [] }], '1', after).game?.squareStates).toEqual([]);
   });
 
   it('le magie della sessione finiscono nel registro, con il punto dello storico in cui sono arrivate (D11)', () => {

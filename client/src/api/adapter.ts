@@ -188,17 +188,18 @@ const wireActiveEffectSchema = z.object({
 });
 const wireSquareEffectsSchema = z.object({ square: squareSchema, effects: z.array(wireActiveEffectSchema) });
 
-function decodeActiveEffects(ctx: Ctx, raw: unknown): SquareEffects[] {
+/** Stati per casa: `active_effects` (sui pezzi) e `square_effects` (sulle case) hanno la stessa forma. */
+function decodeActiveEffects(ctx: Ctx, raw: unknown, field = 'active_effects'): SquareEffects[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) {
-    warn(ctx, 'active_effect_malformed', 'active_effects non è un array');
+    warn(ctx, 'active_effect_malformed', `${field} non è un array`);
     return [];
   }
   const out: SquareEffects[] = [];
   raw.forEach((item: unknown, index) => {
     const parsed = parseWith(wireSquareEffectsSchema, item);
     if (!parsed.ok) {
-      warn(ctx, 'active_effect_malformed', `active_effects[${index}]: ${parsed.issues.join('; ')}`);
+      warn(ctx, 'active_effect_malformed', `${field}[${index}]: ${parsed.issues.join('; ')}`);
       return;
     }
     const effects: ActiveEffect[] = parsed.data.effects.map((effect) => ({
@@ -264,6 +265,8 @@ const APPLIED_EFFECT_SCHEMAS = {
   summon_pawn: z.object({ target: squareSchema, piece: loose }),
   mass: z.object({ targets: z.array(squareSchema), remaining_turns: count }),
   swap_pieces: z.object({ targets: z.array(squareSchema) }),
+  create_wall: z.object({ target: squareSchema, remaining_turns: count }),
+  create_square_effect: z.object({ target: squareSchema, effect: nonEmptyString, remaining_turns: count }),
 } as const;
 
 function decodeAppliedEffect(ctx: Ctx, raw: unknown, index: number): AppliedEffect {
@@ -317,6 +320,21 @@ function decodeAppliedEffect(ctx: Ctx, raw: unknown, index: number): AppliedEffe
     }
     case 'restore_castling_rights':
       return { kind };
+    case 'create_wall': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.create_wall, raw);
+      if (!p.ok) return unknown(p.issues.join('; '));
+      return { kind, target: p.data.target, state: 'wall', remainingTurns: clampNonNegative(ctx, p.data.remaining_turns, 'remaining_turns') };
+    }
+    case 'create_square_effect': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.create_square_effect, raw);
+      if (!p.ok) return unknown(p.issues.join('; '));
+      return {
+        kind,
+        target: p.data.target,
+        state: p.data.effect,
+        remainingTurns: clampNonNegative(ctx, p.data.remaining_turns, 'remaining_turns'),
+      };
+    }
     case 'summon_pawn':
     case 'transform_piece':
     case 'promote_piece':
@@ -398,6 +416,7 @@ const gameStateSchema = z.object({
   active_effects: loose,
   white_graveyard: loose,
   black_graveyard: loose,
+  square_effects: loose,
   reconnected: loose,
   white_player: loose,
   black_player: loose,
@@ -427,6 +446,8 @@ const decodeGameState: Decoder<'game_state'> = (payload, ctx) =>
         deckSizes: perColor(n(core.white_deck_size, 'white_deck_size'), n(core.black_deck_size, 'black_deck_size')),
         activeEffects: decodeActiveEffects(ctx, core.active_effects),
         graveyards: perColor(decodeGraveyard(ctx, core.white_graveyard, 'white_graveyard'), decodeGraveyard(ctx, core.black_graveyard, 'black_graveyard')),
+        // Assente nei server precedenti allo Step 3 del catalogo: nessuno stato sulle case (ASSUMPTIONS S7).
+        squareStates: decodeActiveEffects(ctx, core.square_effects, 'square_effects'),
         reconnected: core.reconnected === true,
         players: decodePlayers(ctx, core.white_player, core.black_player),
         timeControl: decodeTimeControl(ctx, core.time_control),
@@ -449,6 +470,12 @@ const decodeGraveyardChanged: Decoder<'graveyard_changed'> = (payload, ctx) =>
     type: 'graveyard_changed',
     player: core.player,
     graveyard: decodeGraveyard(ctx, core.graveyard, 'graveyard'),
+  }));
+
+const decodeSquareEffectsChanged: Decoder<'square_effects_changed'> = (payload, ctx) =>
+  withCore(z.object({ square_effects: loose }), payload, (core) => ({
+    type: 'square_effects_changed',
+    squareStates: decodeActiveEffects(ctx, core.square_effects, 'square_effects'),
   }));
 
 // `game/room.go:1004-1019`
@@ -577,6 +604,7 @@ const DECODERS: { readonly [K in ServerMessageType]: Decoder<K> } = {
   spell_cast: decodeSpellCast,
   effect_expired: decodeEffectExpired,
   graveyard_changed: decodeGraveyardChanged,
+  square_effects_changed: decodeSquareEffectsChanged,
   timer_update: decodeTimerUpdate,
   game_over: decodeGameOver,
   error: decodeError,

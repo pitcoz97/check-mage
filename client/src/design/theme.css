@@ -48,6 +48,7 @@
   --color-board-check: var(--board-check);
   --color-board-select: var(--board-select);
   --color-board-frozen: var(--board-frozen);
+  --color-board-wall: var(--board-wall);
   --color-board-cast-dot: var(--board-cast-dot);
   --color-board-cast-veil: var(--board-cast-veil);
   --color-state-frost-ink: var(--state-frost-ink);
@@ -112,6 +113,8 @@
   --shadow-board: var(--drop-board);
   --shadow-ring-frozen: var(--ring-frozen);
   --shadow-ring-shielded: var(--ring-shielded);
+  --shadow-ring-wall: var(--ring-wall);
+  --shadow-ring-sanctuary: var(--ring-sanctuary);
   --shadow-ring-cast-target: var(--ring-cast-target);
   --shadow-ring-move-target: var(--ring-move-target);
   --shadow-glow-cast-dot: var(--glow-cast-dot);

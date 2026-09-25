@@ -11,7 +11,7 @@ import { spellTargets, targetsSupported } from './targets.registry';
  */
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-const ctx = { fen: START, myColor: 'white', effects: [], graveyard: [] } as const;
+const ctx = { fen: START, myColor: 'white', effects: [], squareStates: [], graveyard: [] } as const;
 const oneTarget = (spec: TargetSpec) => testSpell({ targets: [spec] });
 
 describe('registry dei bersagli', () => {
@@ -58,6 +58,22 @@ describe('registry dei bersagli', () => {
     expect(second).not.toContain('b4' satisfies Square);
     // Oltre l'ultimo passo non c'è nulla da evidenziare.
     expect(spellTargets(blink, ctx, ['b1', 'c3'])).toEqual([]);
+  });
+
+  it('stati delle case: un muro non è una casa vuota; una distruzione salta i pezzi nemici su un santuario', () => {
+    const state = (square: Square, kind: string) => ({ square, effects: [{ kind, remainingTurns: 2, sourceSpellId: 'x' }] });
+    const withStates = { ...ctx, squareStates: [state('e4', 'wall'), state('e7', 'no_capture'), state('e2', 'no_capture')] };
+    const empty = spellTargets(oneTarget(targetSpec('square', { emptySquare: true })), withStates, []);
+    expect(empty).toHaveLength(31);
+    expect(empty).not.toContain('e4' satisfies Square);
+    // Il santuario accetta qualsiasi casa, anche col muro.
+    expect(spellTargets(oneTarget(targetSpec('square')), withStates, [])).toContain('e4' satisfies Square);
+    const destroy = testSpell({ targets: [targetSpec('enemy_piece')], effects: [{ kind: 'destroy_piece', params: {} }] });
+    expect(spellTargets(destroy, withStates, [])).not.toContain('e7' satisfies Square);
+    const sacrifice = testSpell({ targets: [targetSpec('own_piece')], effects: [{ kind: 'destroy_piece', params: {} }] });
+    expect(spellTargets(sacrifice, withStates, [])).toContain('e2' satisfies Square);
+    const freeze = testSpell({ targets: [targetSpec('enemy_piece')], effects: [{ kind: 'freeze_piece', params: {} }] });
+    expect(spellTargets(freeze, withStates, [])).toContain('e7' satisfies Square);
   });
 
   it('un tipo sconosciuto non è supportato e non produce bersagli', () => {

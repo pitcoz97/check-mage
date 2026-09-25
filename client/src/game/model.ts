@@ -66,7 +66,10 @@ export interface ActiveEffect {
   readonly sourceSpellId: SpellId | null;
 }
 
-/** Effetti attivi sul pezzo che sta in `square` (`effects/tracker.go:242-267`). */
+/**
+ * Stati attivi su una casa: quelli del pezzo che ci sta (`active_effects`, `effects/tracker.go`) oppure quelli della
+ * casa stessa (`square_effects`: muri, santuari, `effects/squares.go`). La forma è la stessa.
+ */
 export interface SquareEffects {
   readonly square: Square;
   readonly effects: readonly ActiveEffect[];
@@ -107,6 +110,8 @@ export interface PublicGameState {
   readonly handSizes: PerColor<number>;
   readonly deckSizes: PerColor<number>;
   readonly activeEffects: readonly SquareEffects[];
+  /** Stati delle case (muri, santuari): restano sulla casa, qualunque pezzo ci sia (ASSUMPTIONS §7 M25–M31). */
+  readonly squareStates: readonly SquareEffects[];
   /** Pezzi persi da ciascun giocatore, in ordine (cimitero pubblico, ASSUMPTIONS §7 M19). */
   readonly graveyards: PerColor<readonly PieceKind[]>;
   /** `true` solo nel `game_state` inviato a chi si riconnette (`game/room.go:1136`). */
@@ -145,6 +150,13 @@ export type AppliedEffect =
   | { readonly kind: 'freeze_all' | 'shield_area'; readonly targets: readonly Square[]; readonly remainingTurns: number }
   | { readonly kind: 'swap_pieces'; readonly targets: readonly Square[] }
   | { readonly kind: 'restore_castling_rights' }
+  /** Uno stato su una casa: `wall` per `create_wall`, il parametro `effect` per `create_square_effect`. */
+  | {
+      readonly kind: 'create_wall' | 'create_square_effect';
+      readonly target: Square;
+      readonly state: string;
+      readonly remainingTurns: number;
+    }
   /** Effetto sconosciuto o malformato: si mostra neutro, non blocca il resto (§5.1.6). */
   | { readonly kind: 'unknown'; readonly rawKind: string };
 
@@ -167,6 +179,7 @@ export const PROTOCOL_ERROR_CODES = [
   'wrong_phase',
   'illegal_move',
   'piece_frozen',
+  'move_blocked',
   'unknown_spell',
   'card_not_in_hand',
   'insufficient_mana',

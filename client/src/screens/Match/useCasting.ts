@@ -51,6 +51,7 @@ export function useCasting(notify: (message: string) => void): Casting {
   const phase = useMatch((s) => s.game?.phase ?? 'unknown');
   const myColor = useMatch((s) => s.myColor);
   const effects = useMatch((s) => s.game?.activeEffects ?? NO_EFFECTS);
+  const squareStates = useMatch((s) => s.game?.squareStates ?? NO_EFFECTS);
   const graveyard = useMatch((s) => (s.myColor === null ? NO_PIECES : (s.game?.graveyards[s.myColor] ?? NO_PIECES)));
   const [state, setState] = useState<TargetingState>(TARGETING_IDLE);
 
@@ -72,7 +73,7 @@ export function useCasting(notify: (message: string) => void): Casting {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [state.kind]);
 
-  const ctx = { fen, myColor: myColor ?? 'white', effects, graveyard } as const;
+  const ctx = { fen, myColor: myColor ?? 'white', effects, squareStates, graveyard } as const;
 
   function apply(outcome: TargetingOutcome): void {
     if (outcome.kind === 'state') {

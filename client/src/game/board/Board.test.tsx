@@ -19,7 +19,7 @@ beforeAll(async () => {
 afterEach(cleanup);
 
 function context(overrides: Partial<BoardContext> = {}): BoardContext {
-  return { fen: START, myColor: 'white', activePlayer: 'white', phase: 'move', frozen: new Set<Square>(), canAct: true, ...overrides };
+  return { fen: START, myColor: 'white', activePlayer: 'white', phase: 'move', frozen: new Set<Square>(), squareStates: [], canAct: true, ...overrides };
 }
 
 interface Setup {

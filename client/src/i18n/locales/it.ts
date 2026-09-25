@@ -276,6 +276,11 @@ export const it = {
       wrong_phase: 'Azione non consentita nella fase {{phase}}.',
       illegal_move: 'Mossa non valida.',
       piece_frozen: 'Il pezzo in {{square}} è congelato.',
+      move_blocked: 'La mossa è bloccata da uno stato della casa.',
+      moveBlocked: {
+        wall: 'Un muro in {{square}} blocca la mossa.',
+        no_capture: 'Il pezzo in {{square}} è in un santuario: non si può catturare.',
+      },
       unknown_spell: 'Magia sconosciuta.',
       card_not_in_hand: 'La carta non è più nella tua mano.',
       insufficient_mana: 'Mana insufficiente: servono {{needed}}, ne hai {{available}}.',
@@ -312,6 +317,8 @@ export const it = {
         max_pawns: 'Hai già il numero massimo di pedoni.',
         promotion: 'Il pedone arriverebbe alla promozione.',
         pawn_rank: 'Un pedone non può finire in prima o in ultima traversa.',
+        wall: 'Su quella casa c’è un muro.',
+        no_capture: 'Il pezzo è in un santuario: non si può distruggere.',
       },
       draw_offer_pending: 'C’è già un’offerta di patta.',
       no_draw_offer: 'Non c’è nessuna offerta di patta.',
@@ -403,12 +410,25 @@ export const it = {
       promote_piece: { label: 'Promozione', text: 'Promuove il pedone a {{pieces}}, a tua scelta.' },
       revive_piece: { label: 'Ritorno', text: 'Riporta dal tuo cimitero un {{pieces}} sulla casa scelta.' },
       restore_castling_rights: { label: 'Arrocco', text: 'Ripristina i tuoi diritti d’arrocco dove re e torre sono al loro posto.' },
+      create_wall: {
+        label: 'Muro',
+        textOne: 'Un muro sulla casa per il prossimo turno avversario: nessun pezzo ci entra o la attraversa.',
+        textMany: 'Un muro sulla casa per {{count}} turni avversari: nessun pezzo ci entra o la attraversa.',
+      },
+      create_square_effect: {
+        label: 'Santuario',
+        text: 'Uno stato magico sulla casa.',
+        noCaptureOne: 'Nessuna cattura su quella casa nel prossimo turno avversario.',
+        noCaptureMany: 'Nessuna cattura su quella casa per {{count}} turni avversari.',
+      },
       orList: '{{head}} o {{last}}',
       unknown: { label: 'Effetto ignoto', text: 'Effetto che questo client non conosce ancora.' },
     },
     state: {
       freeze: 'Congelato',
       shield: 'Protetto',
+      wall: 'Muro',
+      no_capture: 'Santuario',
       unknown: 'Effetto attivo',
       badgeOne: '{{state}}, ancora 1 turno',
       badgeMany: '{{state}}, ancora {{count}} turni',
@@ -459,6 +479,11 @@ export const it = {
       divine_castling: { name: 'Arrocco divino', text: 'Solo prima della mossa: ripristina i tuoi arrocchi dove re e torre sono al loro posto.' },
       phalanx: { name: 'Falange', text: 'Protegge i tuoi pedoni affiancati a un altro pedone nel prossimo turno avversario.' },
       early_promotion: { name: 'Promozione anticipata', text: 'Promuovi, a tua scelta, un tuo pedone che ha raggiunto la sesta traversa.' },
+      ice_wall: {
+        name: 'Muro di ghiaccio',
+        text: 'Un muro su una casa vuota per 2 turni avversari: nessun pezzo ci entra o la attraversa. Il cavallo lo scavalca.',
+      },
+      sanctuary: { name: 'Santuario', text: 'Su una casa, per 3 turni avversari, nessun pezzo può essere catturato.' },
     },
     /** Perché una carta non è giocabile ora: il motivo si vede sulla carta, non si indovina. */
     refusal: {

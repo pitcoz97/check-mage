@@ -321,6 +321,9 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
         ? base
         : { ...base, game: { ...game, activeEffects: removeEffect(game.activeEffects, event.expired.square, event.expired.kind) } };
 
+    case 'square_effects_changed':
+      return game === null ? base : { ...base, game: { ...game, squareStates: event.squareStates } };
+
     case 'graveyard_changed':
       return game === null ? base : { ...base, game: { ...game, graveyards: { ...game.graveyards, [event.player]: event.graveyard } } };
 

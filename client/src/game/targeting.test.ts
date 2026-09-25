@@ -8,7 +8,7 @@ import { beginTargeting, pickChoice, pickTarget, targetingCandidates, TARGETING_
 /** Macchina di targeting: quali caselle sono valide, quando parte il cast, cosa viene rifiutato. */
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-const ctx = { fen: START, myColor: 'white', effects: [], graveyard: [] } as const;
+const ctx = { fen: START, myColor: 'white', effects: [], squareStates: [], graveyard: [] } as const;
 const card: HandCard = { instanceId: 'c1', spellId: 'x' };
 
 /** Blink: un proprio pezzo minore, poi una casa vuota entro 2. */

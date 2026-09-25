@@ -4,7 +4,7 @@
  * classi di chi le usa (registry degli stati), mai qui.
  */
 
-export type StateIconName = 'frost' | 'shield' | 'question';
+export type StateIconName = 'frost' | 'shield' | 'wall' | 'sanctuary' | 'question';
 
 export function StateIcon({ name, className = '' }: { name: StateIconName; className?: string }) {
   const common = { viewBox: '0 0 24 24', 'aria-hidden': true, focusable: false, className } as const;
@@ -19,6 +19,22 @@ export function StateIcon({ name, className = '' }: { name: StateIconName; class
     return (
       <svg {...common} fill="currentColor" stroke="var(--state-shield-ink)" strokeWidth="1.6" strokeLinejoin="round">
         <path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" />
+      </svg>
+    );
+  }
+  if (name === 'wall') {
+    // Non disegnata dal design (D20): tre file di mattoni.
+    return (
+      <svg {...common} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+        <path d="M3 5h18v14H3zM3 9.7h18M3 14.3h18M9 5v4.7M15 5v4.7M6 9.7v4.6M12 9.7v4.6M18 9.7v4.6M9 14.3V19M15 14.3V19" />
+      </svg>
+    );
+  }
+  if (name === 'sanctuary') {
+    // Non disegnata dal design (D20): un frontone su due colonne.
+    return (
+      <svg {...common} fill="currentColor" stroke="var(--state-shield-ink)" strokeWidth="1.4" strokeLinejoin="round">
+        <path d="M12 3l9 5H3zM5 10h3v8H5zM16 10h3v8h-3zM3 19h18v2H3z" />
       </svg>
     );
   }

@@ -27,6 +27,7 @@ import type {
   PublicGameState,
   SpellId,
   Square,
+  SquareEffects,
   UciMove,
   Username,
 } from '../game/model';
@@ -67,6 +68,7 @@ export const SERVER_MESSAGE_TYPES = [
   'spell_cast',
   'effect_expired',
   'graveyard_changed',
+  'square_effects_changed',
   'timer_update',
   'game_over',
   'error',
@@ -116,6 +118,8 @@ export type ServerEvent =
   | { readonly type: 'effect_expired'; readonly expired: ExpiredEffect }
   /** Il cimitero di un giocatore è cambiato: la lista intera, in ordine. */
   | { readonly type: 'graveyard_changed'; readonly player: Color; readonly graveyard: readonly PieceKind[] }
+  /** Gli stati delle case sono cambiati (creati o scaduti): la lista intera. */
+  | { readonly type: 'square_effects_changed'; readonly squareStates: readonly SquareEffects[] }
   /** `turn` = giocatore di cui scorre il tempo, non il tratto scacchistico (`game/room.go:1331-1340`). */
   | { readonly type: 'timer_update'; readonly clocks: Clocks; readonly turn: Color | 'unknown' }
   | {

@@ -140,6 +140,31 @@ describe('schermata di partita', () => {
     expect(hint()).toContain('Mossa non valida.');
   });
 
+  it('muri e santuari: disegnati sulla casa, le mosse bloccate non si evidenziano; move_blocked annulla la mossa', async () => {
+    const { receive, expectSent } = await setup();
+    receive(
+      gameState({
+        square_effects: [
+          { square: 'e3', effects: [{ kind: 'wall', remaining_turns: 2, source_spell_id: 'ice_wall', caster: 'black' }] },
+          { square: 'd4', effects: [{ kind: 'no_capture', remaining_turns: 1, source_spell_id: 'sanctuary', caster: 'black' }] },
+        ],
+      }),
+    );
+    await waitFor(() => expect(square('e3').getAttribute('aria-label')).toBe('e3, Muro, ancora 2 turni'));
+    expect(square('d4').getAttribute('aria-label')).toBe('d4, Santuario, ancora 1 turno');
+    fireEvent.click(square('e2'));
+    expect(document.querySelectorAll('[data-target="true"]')).toHaveLength(0);
+    fireEvent.click(square('d2'));
+    expect([...document.querySelectorAll('[data-target="true"]')].map((b) => b.getAttribute('data-square')).sort()).toEqual(['d3', 'd4']);
+    fireEvent.click(square('d4'));
+    await expectSent({ type: 'move', payload: { move: 'd2d4' } });
+    receive({ type: 'error', payload: { message: 'x', code: 'move_blocked', details: { square: 'e3', reason: 'wall' } } });
+    await waitFor(() => expect(square('d2').getAttribute('aria-label')).toBe('d2, pedone Bianco'));
+    expect(hint()).toContain('Un muro in e3 blocca la mossa.');
+    receive({ type: 'square_effects_changed', payload: { square_effects: [] } });
+    await waitFor(() => expect(square('e3').getAttribute('aria-label')).toBe('e3'));
+  });
+
   it('il rifiuto deciso dal client non disturba il server', async () => {
     const { sent, receive } = await setup();
     receive(gameState({ phase: 'main1' }));

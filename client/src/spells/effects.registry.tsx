@@ -47,6 +47,8 @@ export interface EffectPresentation {
    * resta una sola opzione (il server la deduce).
    */
   choiceOptions?(params: Record<string, unknown>, ctx: ChoiceContext): readonly PieceKind[] | null;
+  /** L'effetto toglie il pezzo bersaglio: un pezzo nemico su un santuario non si evidenzia (ASSUMPTIONS M26). */
+  readonly removesPiece?: boolean;
 }
 
 /** Quello che serve per calcolare le opzioni di una scelta: il proprio cimitero. */
@@ -88,6 +90,8 @@ export const EFFECT_KINDS = [
   'promote_piece',
   'revive_piece',
   'restore_castling_rights',
+  'create_wall',
+  'create_square_effect',
 ] as const;
 export type KnownEffectKind = (typeof EFFECT_KINDS)[number];
 
@@ -104,6 +108,7 @@ const EFFECTS: Record<KnownEffectKind, EffectPresentation> = {
     art: ART.doom,
     label: (t) => t('spells.effect.destroy_piece.label'),
     describe: (t) => t('spells.effect.destroy_piece.text'),
+    removesPiece: true,
   },
   freeze_piece: {
     icon: 'frost',
@@ -211,6 +216,28 @@ const EFFECTS: Record<KnownEffectKind, EffectPresentation> = {
     label: (t) => t('spells.effect.restore_castling_rights.label'),
     describe: (t) => t('spells.effect.restore_castling_rights.text'),
   },
+  // Icone provvisorie anche per gli stati delle case (Step 3), come per gli effetti dello Step 2.
+  create_wall: {
+    icon: 'frost',
+    art: ART.frost,
+    label: (t) => t('spells.effect.create_wall.label'),
+    describe: (t, params) => {
+      const count = intParam(params, 'duration', 1);
+      return t(count === 1 ? 'spells.effect.create_wall.textOne' : 'spells.effect.create_wall.textMany', { count });
+    },
+  },
+  create_square_effect: {
+    icon: 'shield',
+    art: ART.gold,
+    label: (t) => t('spells.effect.create_square_effect.label'),
+    describe: (t, params) => {
+      if (params['effect'] !== 'no_capture') return t('spells.effect.create_square_effect.text');
+      const count = intParam(params, 'duration', 1);
+      return t(count === 1 ? 'spells.effect.create_square_effect.noCaptureOne' : 'spells.effect.create_square_effect.noCaptureMany', {
+        count,
+      });
+    },
+  },
 };
 
 /** Pezzi fra cui scegliere per questa magia, o `null` se non c'è nulla da scegliere. */
@@ -237,7 +264,8 @@ export function spellRulesText(t: TFunction, effects: readonly SpellEffect[]): s
 }
 
 // ---------------------------------------------------------------------------------------------------
-// Stati persistenti sul pezzo (`effects/tracker.go:9-13`): quello che il badge disegna sulla casella
+// Stati persistenti sul pezzo (`effects/tracker.go:9-13`) e sulla casa (`effects/squares.go`): quello che velo e
+// badge disegnano sulla casella
 // ---------------------------------------------------------------------------------------------------
 
 export interface StatePresentation {
@@ -249,7 +277,7 @@ export interface StatePresentation {
   label(t: TFunction): string;
 }
 
-export const PIECE_STATE_KINDS = ['freeze', 'shield'] as const;
+export const PIECE_STATE_KINDS = ['freeze', 'shield', 'wall', 'no_capture'] as const;
 export type KnownStateKind = (typeof PIECE_STATE_KINDS)[number];
 
 const UNKNOWN_STATE: StatePresentation = {
@@ -272,6 +300,19 @@ const STATES: Record<KnownStateKind, StatePresentation> = {
     badgeClass: 'text-gold',
     veil: 'inset-[3px] rounded-4 shadow-ring-shielded',
     label: (t) => t('spells.state.shield'),
+  },
+  // Stati delle case, non disegnati dal design (D20): blocco di ghiaccio e alone dorato, dalla sua palette.
+  wall: {
+    badge: 'wall',
+    badgeClass: 'text-state-frost-ink',
+    veil: 'inset-[7%] rounded-4 bg-board-wall shadow-ring-wall',
+    label: (t) => t('spells.state.wall'),
+  },
+  no_capture: {
+    badge: 'sanctuary',
+    badgeClass: 'text-gold',
+    veil: 'inset-0 bg-[radial-gradient(circle,var(--board-sanctuary)_0%,transparent_72%)] shadow-ring-sanctuary',
+    label: (t) => t('spells.state.no_capture'),
   },
 };
 

@@ -125,17 +125,27 @@ export async function startDevSession({
   if (scenario === 'disconnected') socket.receive({ type: 'opponent_disconnected', payload: { message: 'x' } });
   if (scenario === 'promotion') socket.receive(gameState(MOVES, [], { fen: PROMOTION_FEN, phase: 'move' }));
   // Magie dello Step 2: cimiteri non vuoti nelle righe dei giocatori e carte che chiedono la scelta del pezzo
-  // (Promozione anticipata sul pedone in b7, Resurrezione con due tipi nel cimitero).
+  // (Promozione anticipata sul pedone in b7, Resurrezione con due tipi nel cimitero). Dello Step 3: un muro e un
+  // santuario sulle case, e le due carte in mano.
   if (scenario === 'spells') {
     socket.receive(
       gameState(MOVES, [], {
         fen: PROMOTION_FEN,
-        extra: { white_mana: 10, white_max_mana: 10, white_graveyard: ['knight', 'rook', 'pawn'], black_graveyard: ['pawn', 'pawn', 'bishop'] },
+        extra: {
+          white_mana: 10,
+          white_max_mana: 10,
+          white_graveyard: ['knight', 'rook', 'pawn'],
+          black_graveyard: ['pawn', 'pawn', 'bishop'],
+          square_effects: [
+            { square: 'd5', effects: [{ kind: 'wall', remaining_turns: 2, source_spell_id: 'ice_wall', caster: 'black' }] },
+            { square: 'e4', effects: [{ kind: 'no_capture', remaining_turns: 3, source_spell_id: 'sanctuary', caster: 'white' }] },
+          ],
+        },
       }),
     );
     socket.receive({
       type: 'hand',
-      payload: { hand: ['early_promotion', 'resurrection', 'eternal_winter', 'swap', 'royal_guard'], mana: 10, max_mana: 10, deck_size: 18 },
+      payload: { hand: ['early_promotion', 'resurrection', 'ice_wall', 'sanctuary', 'swap'], mana: 10, max_mana: 10, deck_size: 18 },
     });
   }
   // Il socket cade: la sessione riprova (banner con i secondi) o, con 4001, la partita è stata aperta altrove.

@@ -44,6 +44,7 @@ export function MatchBoard({ onRefused, targeting, flash, choice = null }: Match
     activePlayer: game.activePlayer,
     phase: game.phase,
     frozen: frozenSquares(game.activeEffects),
+    squareStates: game.squareStates,
     canAct: playing && connected,
   };
 

@@ -2,7 +2,7 @@ import type { TFunction } from 'i18next';
 
 import type { Color, SquareEffects, Square } from '../game/model';
 import { piecesOf, squaresInOrder, type PlacedPiece } from '../game/position';
-import type { ChoiceContext } from './effects.registry';
+import { effectPresentation, type ChoiceContext } from './effects.registry';
 import { isKnownTargetType, type KnownTargetType, type Spell, type TargetSpec } from './schema';
 
 /**
@@ -19,6 +19,8 @@ export interface TargetContext extends ChoiceContext {
   readonly myColor: Color;
   /** Stati attivi per casa (`active_effects`), per `require_effect`. */
   readonly effects: readonly SquareEffects[];
+  /** Stati delle case (`square_effects`): un muro non è una casa vuota, un santuario protegge dalle distruzioni. */
+  readonly squareStates: readonly SquareEffects[];
 }
 
 interface TargetTypeResolver {
@@ -54,12 +56,27 @@ function chebyshev(a: Square, b: Square): number {
   return Math.max(Math.abs(a.charCodeAt(0) - b.charCodeAt(0)), Math.abs(Number(a[1]) - Number(b[1])));
 }
 
-/** Le regole di `effects.ValidateTargets` per una casella al passo dato. */
-function allowed(spec: TargetSpec, square: Square, piece: PlacedPiece | undefined, ctx: TargetContext, chosen: readonly Square[]): boolean {
+function hasSquareState(ctx: TargetContext, square: Square, kind: string): boolean {
+  return ctx.squareStates.some((entry) => entry.square === square && entry.effects.some((effect) => effect.kind === kind));
+}
+
+/**
+ * Le regole di `effects.ValidateTargets` per una casella al passo dato, più quelle degli stati delle case: un muro non
+ * è una casa vuota, e una magia che toglie un pezzo non colpisce un pezzo nemico su un santuario.
+ */
+function allowed(
+  spec: TargetSpec,
+  square: Square,
+  piece: PlacedPiece | undefined,
+  ctx: TargetContext,
+  chosen: readonly Square[],
+  removesPiece: boolean,
+): boolean {
   if (chosen.includes(square)) return false;
   if (spec.type === 'square') {
-    if (spec.emptySquare && piece !== undefined) return false;
+    if (spec.emptySquare && (piece !== undefined || hasSquareState(ctx, square, 'wall'))) return false;
   } else {
+    if (removesPiece && piece !== undefined && piece.color !== ctx.myColor && hasSquareState(ctx, square, 'no_capture')) return false;
     if (piece === undefined) return false;
     // Il re non è mai un bersaglio, salvo un proprio pezzo che lo elenca esplicitamente.
     if (piece.kind === 'king' && !(spec.type === 'own_piece' && spec.pieces.includes('king'))) return false;
@@ -81,7 +98,10 @@ export function spellTargets(spell: Spell, ctx: TargetContext, chosen: readonly 
   const spec = spell.targets[chosen.length];
   if (spec === undefined || !isKnownTargetType(spec.type)) return [];
   const pieces = new Map(piecesOf(ctx.fen).map((piece) => [piece.square, piece]));
-  return RESOLVERS[spec.type].candidates(ctx).filter((square) => allowed(spec, square, pieces.get(square), ctx, chosen));
+  const removesPiece = spell.effects.some((effect) => effectPresentation(effect.kind).removesPiece === true);
+  return RESOLVERS[spec.type]
+    .candidates(ctx)
+    .filter((square) => allowed(spec, square, pieces.get(square), ctx, chosen, removesPiece));
 }
 
 /** Istruzione per il passo `step` della magia, o `null` se il passo non esiste. */

@@ -119,6 +119,7 @@ describe('game_state', () => {
         deckSizes: { white: 36, black: 36 },
         activeEffects: [{ square: 'e7', effects: [{ kind: 'freeze', remainingTurns: 2, sourceSpellId: 'frostbolt' }] }],
         graveyards: { white: [], black: [] },
+        squareStates: [],
         reconnected: false,
         players: { white: { id: '42', username: 'mario' }, black: { id: '7', username: 'luigi' } },
         timeControl: { baseMs: 600000, incrementMs: 5000 },
@@ -312,6 +313,33 @@ describe('magie ed effetti', () => {
     expect(changed.codes.length).toBe(1);
   });
 
+  it('stati delle case: nel game_state (assente = nessuno), in square_effects_changed e nei nuovi effetti', () => {
+    const wall = { square: 'e5', effects: [{ kind: 'wall', remaining_turns: 2, source_spell_id: 'ice_wall', caster: 'white' }] };
+    const withWall = decodeOk(frame('game_state', publicState({ square_effects: [wall] }))).event;
+    expect(withWall.type === 'game_state' && withWall.state.squareStates).toEqual([
+      { square: 'e5', effects: [{ kind: 'wall', remainingTurns: 2, sourceSpellId: 'ice_wall' }] },
+    ]);
+    const legacy = decodeOk(frame('game_state', publicState())).event;
+    expect(legacy.type === 'game_state' && legacy.state.squareStates).toEqual([]);
+    expect(decodeOk(frame('square_effects_changed', { square_effects: [] })).event).toEqual({ type: 'square_effects_changed', squareStates: [] });
+    const { event, codes } = decodeOk(
+      frame('spell_cast', {
+        player: 'white',
+        spell_id: 'x',
+        targets: [],
+        effects_applied: [
+          { kind: 'create_wall', target: 'e5', remaining_turns: 2 },
+          { kind: 'create_square_effect', target: 'd4', effect: 'no_capture', remaining_turns: 3 },
+        ],
+      }),
+    );
+    expect(codes).toEqual([]);
+    expect(event.type === 'spell_cast' && event.effects).toEqual([
+      { kind: 'create_wall', target: 'e5', state: 'wall', remainingTurns: 2 },
+      { kind: 'create_square_effect', target: 'd4', state: 'no_capture', remainingTurns: 3 },
+    ]);
+  });
+
   it('effect_expired: scadenza con piece_id numerico e scudo assorbito', () => {
     expect(decodeOk(frame('effect_expired', { square: 'e7', effect_kind: 'freeze', piece_id: 12 })).event).toEqual({
       type: 'effect_expired',
@@ -389,6 +417,7 @@ describe('error: codici e dettagli (§3b, gameerr/gameerr.go)', () => {
     expect(decode('wrong_phase', { phase: 'move' })).toMatchObject({ error: { phase: 'move' } });
     expect(decode('invalid_target_count', { expected: 2, received: 1 })).toMatchObject({ error: { expected: 2, received: 1 } });
     expect(decode('illegal_position', { king: 'black' })).toMatchObject({ error: { code: 'illegal_position', king: 'black' } });
+    expect(decode('move_blocked', { square: 'e3', reason: 'wall' })).toMatchObject({ error: { code: 'move_blocked', square: 'e3', reason: 'wall' } });
     // Dettagli di forma inattesa vengono ignorati, non fanno fallire l'evento.
     expect(decode('wrong_phase', { phase: 'lunch', square: 'z9', needed: '4' })).toEqual({
       type: 'error',
@@ -553,10 +582,10 @@ describe('REST', () => {
 });
 
 describe('catalogo', () => {
-  it('fallback.json: le 18 magie degli step 1 e 2 (spells/catalog.go), tutte valide', () => {
+  it('fallback.json: le 20 magie degli step 1–3 (spells/catalog.go), tutte valide', () => {
     const { spells, warnings } = normalizeSpellCatalog(fallbackCatalog);
     expect(warnings).toEqual([]);
-    expect(spells).toHaveLength(18);
+    expect(spells).toHaveLength(20);
     expect(spells.find((s) => s.id === 'blink')).toEqual({
       id: 'blink',
       name: 'Blink',

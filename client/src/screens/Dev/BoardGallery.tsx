@@ -26,7 +26,7 @@ const DESIGN_TARGETS = new Set<Square>(['f6', 'e7', 'c6', 'd8', 'd6']);
 const CHECK_FEN = '4k3/8/8/8/8/5n2/4q3/R3K2R w - - 0 1';
 
 function context(fen: string, canAct: boolean): BoardContext {
-  return { fen, myColor: 'white', activePlayer: 'white', phase: 'move', frozen: new Set<Square>(), canAct };
+  return { fen, myColor: 'white', activePlayer: 'white', phase: 'move', frozen: new Set<Square>(), squareStates: [], canAct };
 }
 
 const ignore = () => undefined;

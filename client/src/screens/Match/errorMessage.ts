@@ -28,6 +28,8 @@ const TARGET_REASONS = [
   'max_pawns',
   'promotion',
   'pawn_rank',
+  'wall',
+  'no_capture',
 ] as const;
 type TargetReason = (typeof TARGET_REASONS)[number];
 
@@ -38,6 +40,8 @@ function isTargetReason(reason: string | null): reason is TargetReason {
 /** Motivi di `no_effect` e di `invalid_choice` (`game/room.go`, applySpellEffects). */
 const NO_EFFECT_REASONS = ['no_pieces', 'empty_graveyard', 'no_castling'] as const;
 const CHOICE_REASONS = ['missing', 'not_allowed'] as const;
+/** Motivi di `move_blocked` (`effects/squares.go`). */
+const BLOCK_REASONS = ['wall', 'no_capture'] as const;
 
 function isOneOfReasons<T extends string>(list: readonly T[], reason: string | null): reason is T {
   return reason !== null && (list as readonly string[]).includes(reason);
@@ -48,6 +52,9 @@ export function protocolErrorMessage(t: TFunction, info: ProtocolErrorInfo, myCo
   if (info.code === 'invalid_target' && isTargetReason(info.reason)) return t(`match.error.target.${info.reason}`);
   if (info.code === 'no_effect' && isOneOfReasons(NO_EFFECT_REASONS, info.reason)) return t(`match.error.noEffect.${info.reason}`);
   if (info.code === 'invalid_choice' && isOneOfReasons(CHOICE_REASONS, info.reason)) return t(`match.error.choice.${info.reason}`);
+  if (info.code === 'move_blocked' && isOneOfReasons(BLOCK_REASONS, info.reason)) {
+    return t(`match.error.moveBlocked.${info.reason}`, { square: info.square ?? '' });
+  }
   if (info.code === 'illegal_position' && info.king !== null && myColor !== null) {
     return t(info.king === myColor ? 'match.error.illegalPositionOwnKing' : 'match.error.illegalPositionCheck');
   }
