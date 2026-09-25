@@ -435,7 +435,7 @@ Ogni step è a sé: piano breve → implementazione → verifica (test verdi e s
 | D1 | Tema della scacchiera | Tre temi (salvia, noce, arcano), **arcano di default**, scelta nelle Impostazioni, preferenza salvata con `src/lib/storage.ts`. |
 | D2 | Pezzi | Glifi Unicode in **Noto Sans Symbols 2**, font **ritagliato** ai 12 glifi degli scacchi con uno script di build. |
 | D3 | Mosse legali, selezione, scacco | **Restano** (briefing §7.5), ridisegnati nella palette del design e distinti dal viola delle magie. |
-| D4 | Contrasto | Colori fedeli; si schiariscono **solo** quelli sotto l'AA, del minimo necessario, elencati qui quando fatti. |
+| D4 | Contrasto | Colori fedeli; si schiariscono **solo** quelli sotto l'AA, del minimo necessario. Fatto in R1: l'unico è il testo spento `#7F786E` → **`#928B81`** (4.5:1 su pannello e superficie incassata). Guardiano: `tests/contrast.test.ts`. |
 | D5 | Carta non giocabile | **Scurita** con un velo (non trasparente, il testo resta AA). Il motivo **non** è scritto sulla carta: sta nell'etichetta accessibile e compare nel **box del suggerimento** quando si tocca la carta. |
 | D6 | Nome della carta lungo | Il corpo si riduce fino a un minimo; sotto quel minimo va a capo. Mai troncato. |
 | D7 | Rarità e tipo | Assenti dal catalogo: **rarità comune di default**, riga del tipo dal kind del primo effetto; richiesta in P2-15. |

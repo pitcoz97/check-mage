@@ -3,104 +3,60 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Step 7 — Integrazione: verificata contro il server reale, in attesa di review.** Il 23 settembre 2026 la suite ha
-girato contro `http://192.168.222.128:8080`: **47 voci verificate, 0 divergenze** (esito in `ASSUMPTIONS.md` §6).
-Ha trovato un bug del client, corretto. Resta aperto solo ciò che dipende dal server (P2-14) o che non è
-automatizzabile.
-**Step 6 — Build Android: preparato, in attesa dell'APK** (`docs/ANDROID.md`). Qui non ci sono JDK, Android SDK né
-Android Studio; il progetto nativo resta allineato a ogni modifica (`npm run android:sync`).
-Server: `C:\Projects\chess-server` (sola lettura, qui non eseguibile), branch `fix/backend-requests` (`62475c9`),
-non ancora unito in `main`.
+**Redesign, step R1 (fondamenta) — fatto, in attesa di review.** Branch `feat/redesign`. Analisi, decisioni (D1–D22)
+e step R1–R6 in `REDESIGN_PLAN.md`; il design sta in `design-reference/` (fuori da git).
+Prima del redesign: Step 0–7 completi, Step 6 in attesa dell'APK (`docs/ANDROID.md`).
+Server: `C:\Projects\chess-server` (sola lettura, qui non eseguibile), branch `fix/backend-requests` (`62475c9`).
 
 ## Completo
-- **Step 0 / 0-bis:** contratto sul codice Go, mock come porting di Go.
-- **Step 1:** Vite 8, React 19, Router 8, Tailwind 4 legato ai token, i18n tipizzato, layout shell.
-- **Step 2:** client REST con refresh condiviso, sessione persistente, guardie, login/registrazione, profilo.
-- **Step 2-bis:** mock, adapter e test riallineati al branch `fix/backend-requests` (un solo contratto).
-- **Step 3:** connessione con ticket, backoff e heartbeat; `applyServerEvent`; sessione; coda e banner.
-- **Step 4:** scacchiera orientata con tap-tap e drag, set di pezzi disegnato qui, promozione, mossa ottimista come
-  sola anteprima, orologi interpolati, pannelli, azioni, storico, fine partita; schermata di partita (con chess.js)
-  caricata a richiesta.
-- **Step 5:**
-  - `src/spells/`: catalogo da `GET /spells` con riserva `fallback.json`; registry degli effetti (icona, tono, testo
-    di regole generato dai parametri) e dei bersagli (quante caselle, quali evidenziare); giocabilità di una carta
-    nello stesso ordine di controlli del server;
-  - `src/game/targeting.ts`: macchina pura dalla carta ai bersagli; `src/game/hand/`, `src/game/mana/`: carte e cristalli;
-  - scacchiera in modalità targeting (solo i bersagli sono cliccabili, Esc o tap fuori annullano) e badge di stato
-    sul pezzo, che seguono il pezzo perché il server manda gli effetti per casella;
-  - `matchStore`: `pendingCast` (solo per non mandare due volte) e `lastCast` (per il lampeggio). Nessun ottimismo.
-  - rotta `/dev/cards` con tutto il catalogo nei suoi stati, solo in sviluppo;
-  - mock: scenario `spellbook`, che prepara mano e mana **del client**.
-  - `tests/match-ui.test.tsx` copre i criteri dello Step 5 cliccando sulla UI vera: tutti e sette i kind di effetto,
-    cast in main1 e main2, targeting annullato, carte disabilitate col motivo, scudo che segue il pedone, Teleport
-    che non avanza la fase, pickup rifiutato su un pezzo congelato dal bot.
-- **Step 6 (la parte che si può fare qui):**
-  - Capacitor 8, `appId` `com.checkmage.app`, progetto `android/` versionato, portrait bloccato, traffico in chiaro
-    solo nel manifest di debug (serve per il mock sulla LAN);
-  - grafica del template Capacitor rimossa: icona adattiva col nostro re, splash a colore pieno, `minSdk` 24 → 26;
-  - `createNativeStorage` su `@capacitor/preferences`: su dispositivo token e lingua stanno nello storage di sistema;
-  - `src/platform/native.ts`: unico posto che conosce Capacitor, con import dinamici (il bundle web non cresce);
-  - `connection.wake()`: alla ripresa dal background il socket riparte con un ticket nuovo;
-  - la mano non finisce più sotto la barra di navigazione (`sticky-bottom-safe`).
-- **Step 7:**
-  - `npm run verify:server`: due account reali, una partita vera, un rapporto per voce di ASSUMPTIONS. Senza
-    indirizzi gira contro il mock (45 verificate, 0 divergenti), con `--http/--ws` contro il server vero, `--slow`
-    aggiunge heartbeat e rate limit, `--json` produce il rapporto da allegare;
-  - `docs/INTEGRAZIONE.md`: procedura di passaggio, lettura del rapporto, regola delle correzioni (solo `adapter.ts`
-    o `connection.ts`, poi il mock);
-  - `src/config/env.ts`: gli indirizzi sbagliati falliscono all'avvio col motivo, non dentro la connessione;
-  - trovata C15 (il mazzo avversario resta indietro fra un `game_state` e l'altro): stessa causa di C13, P2-14;
-  - **verifica contro il server reale:** 47 voci ok, comprese quelle lente (heartbeat, rate limit) e il CORS dal
-    browser vero; C13 e C15 confermate sul campo;
-  - **bug trovato e corretto:** un upgrade WebSocket rifiutato (429 del limite per IP, 401 da ticket scaduto) in Node
-    emette solo `error` e non `close`, e la connessione restava ferma in "connecting" senza riprovare
-    (`nativeSocketFactory`);
-  - P2-16 nuova: quando il server accenderà il controllo dell'origine sul WebSocket, deve ammettere anche
-    `https://localhost` (WebView Android).
-- **Verifica:** typecheck, lint e build puliti; 349 test verdi; e2e 10/10; `verify:server` 45/0 contro il mock e
-  47/0 contro il server reale; `cap sync android` pulito. Bundle: 519 kB iniziali (162 kB gzip, due chunk) più 66 kB
-  per la partita; i pacchetti Capacitor restano fuori dal caricamento iniziale del web; `/dev/cards` non esiste
-  nella build di produzione.
+- **Step 0–5:** contratto sul codice Go e mock che lo porta; shell, i18n, token; REST con refresh, sessione, guardie;
+  WebSocket con ticket e `applyServerEvent`; scacchiera, orologi, partita; layer magie (catalogo, registry di effetti
+  e bersagli, targeting, giocabilità, `/dev/cards` solo in sviluppo).
+- **Step 6 (la parte fattibile qui):** Capacitor 8, `android/` versionato, storage nativo, `connection.wake()`.
+- **Step 7:** `npm run verify:server` (47/0 contro il server reale, 45/0 contro il mock), `docs/INTEGRAZIONE.md`,
+  fix del socket rifiutato in Node.
+- **Redesign R1:**
+  - `tokens.css` con la palette del design, per ruolo (l'accento diventa l'oro, il verde è solo la CTA), i tre temi
+    della scacchiera (arcano di default, salvia e noce sotto `[data-board-theme]`), bordi 3D, anelli e aloni;
+  - `theme.css` con scale **numeriche** (`text-13`, `rounded-10`, `shadow-edge-play`…); classi esistenti migrate a
+    parità di valore;
+  - Figtree, Cinzel 600–800, JetBrains Mono; font dei pezzi ritagliato ai sei glifi pieni (4,5 KB,
+    `npm run fonts:pieces`, riproducibile), non ancora usato dalla scacchiera (R2);
+  - `Button` (primario, secondario, oro, pericolo; `md` 48px e `lg` 60px), `Panel` senza bordo, `TextField`, `Spinner`;
+  - `tests/contrast.test.ts`: ogni coppia testo/superficie ≥ 4.5:1. Unico colore corretto: #7F786E → #928B81 (D4);
+  - sfondo nativo Android #1B1A1F; icona non toccata (D22).
+- **Verifica R1:** typecheck, lint, build puliti; 416 test verdi; e2e 10/10; `cap sync android` pulito. JS invariato
+  (520 kB iniziali); i font si scaricano per sottoinsieme Unicode, solo quelli usati.
 
 ## Prossima azione concreta
-Review dello Step 7. Poi, quando vuoi, l'APK di `docs/ANDROID.md` e la prova sul telefono contro questo stesso
-server. La suite va rilanciata a ogni cambiamento del server.
+Review di R1 (login e registrazione mostrano già il nuovo linguaggio; lobby e partita cambiano davvero da R2 in poi).
+Poi R2 — scacchiera e pezzi.
 
 ## Decisioni prese
-- React 19 + Router 8, i18n tipizzato, font self-hosted. Token in `localStorage` sul web (C7), in
+- Redesign: tutte in `REDESIGN_PLAN.md` §10 (D1–D22). Il design vince sulla resa, CLAUDE.md sul resto.
+- Pezzi: glifi di Noto Sans Symbols 2 ritagliati (D2), al posto del set SVG disegnato allo Step 4.
+- Storico in UCI (D18). Niente flavour text nel client (P2-15). Cadenza unica (P2-1 non più necessaria).
+- WebSocket con ticket monouso; il colore arriva da `game_state`. Token in `localStorage` sul web, in
   `@capacitor/preferences` su dispositivo.
-- WebSocket con ticket monouso; il colore arriva da `game_state`, non si deduce mai.
-- Pezzi, icone degli effetti e icona dell'app: SVG disegnati qui, nessuna dipendenza da set di terzi (CREDITS.md).
-- Storico in UCI: la notazione SAN non è ricostruibile con le magie di mezzo (B7).
-- Niente flavour text nel client: il testo di regole si genera dai parametri del catalogo (richiesta P2-15).
-- La carta spenta si distingue per superficie e cornice, non per opacità: il contrasto del testo deve restare AA.
-- Capacitor 8, `appId` `com.checkmage.app`, `minSdk` 26 (icona solo adattiva, nessun PNG del logo Capacitor).
 
 ## Decisioni aperte
-- **Licenza del progetto**: serve, il repo contiene grafica originale (CREDITS.md).
-- **Icona dell'app**: oggi è il nostro re, riportato dal set dei pezzi. Se vuoi un logo vero, è lì che si cambia.
-- Merge di `fix/backend-requests` in `main` e deploy (lato server). P2-1 (cadenze, UI lobby) da decidere insieme.
-  P2-11 sospesa. Aperte anche P2-12, P2-13, P2-14 (confermata necessaria dalla verifica), P2-15 e P2-16.
+- **Licenza del progetto** (il repo contiene grafica originale, CREDITS.md). **Icona dell'app** (D22: dopo).
+- Merge di `fix/backend-requests` in `main` e deploy. Richieste aperte: P2-11 (sospesa), P2-12…P2-21.
 
 ## Da ricordare negli Step successivi
-- **Step 6, quello che manca:** APK costruito e provato sul telefono (`docs/ANDROID.md`). Qui non c'è il toolchain
-  Android, quindi la build non è mai stata eseguita: se Gradle si lamenta di una risorsa, il punto da guardare sono
-  le modifiche in `android/app/src/main/res/`.
-- **Step 7, quello che resta:** rilanciare `verify:server` a ogni cambiamento del server (su un server tranquillo:
-  i due client si accoppiano dalla coda). Restano fuori dall'automazione lo scudo sull'en passant e le posizioni
-  costruite, coperte dal mock.
-- B16: con soli pezzi congelati non ci sono mosse da evidenziare e resta la resa, sempre abilitata.
-- iOS non è mai stato aggiunto: `src/platform/native.ts` e `capacitor.config.ts` sono già scritti per reggerlo.
+- R2: la scacchiera deve impostare `data-board-theme` dalla preferenza (Impostazioni in R5); ridisegnare
+  `--board-hint/-check/-select/-cast`, oggi ai valori pre-redesign.
+- R3: ASSUMPTIONS C14 dice "motivo scritto sulla carta": cambia con D5.
+- R4: `--mana-*`, `--spell-frame`, `--effect-*` sono valori ponte.
+- APK mai costruito qui: se Gradle si lamenta, guardare `android/app/src/main/res/`.
+- Rilanciare `verify:server` a ogni cambiamento del server.
 
 ## Note d'ambiente
 - La shell dello strumento non vede Node nel PATH: prima dei comandi npm va ricaricato il PATH di Machine e User.
-- Niente JDK, Android SDK o Android Studio su questa macchina: `cap sync` funziona, `gradlew` no.
-- Server reale di prova: `http://192.168.222.128:8080` (VM). `.env` punta lì; per tornare al mock bastano
-  `localhost:8080` e `npm run mock`.
-- `.env` locale da `.env.example` (ignorato da git). `.claude/launch.json`: `dev` (5173), `mock` (8080).
-- `tests/match-ui.test.tsx` usa la libreria `ws` come socket: il `WebSocket` di jsdom e quello di Node litigano.
-- `tests/auth-flow.test.ts` fa scadere un token vero aspettando 2,1 s: con la macchina carica ha fallito una volta
-  su una decina di giri. Se ricapita, il rimedio è alzare quel tempo, non il TTL.
-- Prove a mano rimaste a te (io non creo account né digito password nel browser): due schede con due utenti, magie
-  castate da entrambe le parti, e la prova sul telefono descritta in `docs/ANDROID.md`.
+- Niente JDK/Android SDK: `cap sync` funziona, `gradlew` no.
+- `.env` punta al server reale `http://192.168.222.128:8080`; per il mock `localhost:8080` e `npm run mock`.
+  `.claude/launch.json`: `dev` (5173), `mock` (8080). Il design si apre su `http://localhost:5173/design-reference/Design.html`.
+- `tests/auth-flow.test.ts` aspetta 2,1 s una scadenza vera: sotto carico ha fallito una volta; alzare quel tempo.
+- Prove a mano rimaste a te (io non creo account né digito password nel browser): lobby e partita nel nuovo
+  aspetto, due schede con due utenti, prova sul telefono.
 - Identità git locale del repo: Riccardo Picozzi <riccardo.picozzi97@gmail.com>.
