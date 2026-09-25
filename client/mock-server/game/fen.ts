@@ -176,6 +176,114 @@ export function clearStaleEnPassant(fen: string): string {
   return f.join(' ');
 }
 
+/** `PieceLetter` (`effects/group_a.go`): carattere FEN del pezzo nel colore dato, `null` se il nome è ignoto. */
+export function pieceLetter(kind: string, color: Color): string | null {
+  const letters: Record<string, string> = { pawn: 'p', knight: 'n', bishop: 'b', rook: 'r', queen: 'q', king: 'k' };
+  const letter = letters[kind];
+  if (letter === undefined) return null;
+  return color === 'white' ? letter.toUpperCase() : letter;
+}
+
+/** `SwapPieces` (`effects/group_a.go`): nessun pedone sulla 1ª o sull'8ª traversa; torri e re perdono l'arrocco. */
+export function swapPieces(fen: string, a: string, b: string): string {
+  const [ar, ac] = parseSquare(a);
+  const [br, bc] = parseSquare(b);
+  const grid = parsePlacement(fen);
+  const pa = grid[ar]?.[ac] ?? null;
+  const pb = grid[br]?.[bc] ?? null;
+  if (pa === null || pb === null) throw new EffectError(WS.swapNeedsTwo(a, b));
+  if ((pa === 'P' || pa === 'p') && (br === 0 || br === 7)) throw new EffectError(WS.pawnRank(1, b));
+  if ((pb === 'P' || pb === 'p') && (ar === 0 || ar === 7)) throw new EffectError(WS.pawnRank(0, a));
+  (grid[ar] as (string | null)[])[ac] = pb;
+  (grid[br] as (string | null)[])[bc] = pa;
+  let next = replacePlacement(fen, encodePlacement(grid));
+  next = clearCastlingForMovedPiece(next, a, pa);
+  return clearCastlingForMovedPiece(next, b, pb);
+}
+
+/** `SetPiece` (`effects/group_a.go`): cambia il pezzo di una casa occupata. */
+export function setPiece(fen: string, square: string, piece: string): string {
+  const [row, col] = parseSquare(square);
+  const grid = parsePlacement(fen);
+  const old = grid[row]?.[col] ?? null;
+  if (old === null) throw new EffectError(WS.nothingAtTarget(square));
+  (grid[row] as (string | null)[])[col] = piece;
+  const next = replacePlacement(fen, encodePlacement(grid));
+  return old === 'R' || old === 'r' ? clearCastlingForRook(next, square, old) : next;
+}
+
+/** `RestoreCastling` (`effects/group_a.go`): diritti dove re e torre sono sulle case iniziali; `null` se nulla cambia. */
+export function restoreCastling(fen: string, color: Color): string | null {
+  const grid = parsePlacement(fen);
+  const f = fields(fen);
+  if (f.length < 3) return null;
+  const row = color === 'white' ? 7 : 0;
+  const [king, rook, short, long] = color === 'white' ? ['K', 'R', 'K', 'Q'] : ['k', 'r', 'k', 'q'];
+  let rights = f[2] === '-' ? '' : (f[2] as string);
+  let added = false;
+  if (grid[row]?.[4] === king) {
+    if (grid[row]?.[7] === rook && !rights.includes(short)) {
+      rights += short;
+      added = true;
+    }
+    if (grid[row]?.[0] === rook && !rights.includes(long)) {
+      rights += long;
+      added = true;
+    }
+  }
+  if (!added) return null;
+  f[2] = [...'KQkq'].filter((r) => rights.includes(r)).join('');
+  return f.join(' ');
+}
+
+/** `PiecesOf` (`effects/group_a.go`): case dei pezzi del colore coi tipi dati (vuoto = tutti tranne il re). */
+export function piecesOf(fen: string, color: Color, kinds: readonly string[]): string[] {
+  const out: string[] = [];
+  parsePlacement(fen).forEach((row, r) =>
+    row.forEach((p, c) => {
+      if (p === null || pieceColor(p) !== color) return;
+      const name = pieceName(p);
+      if (kinds.length === 0 ? name === 'king' : !kinds.includes(name)) return;
+      out.push(squareName(r, c));
+    }),
+  );
+  return out;
+}
+
+/** `AroundKing` (`effects/group_a.go`): pezzi propri entro il raggio dal proprio re, re escluso. */
+export function aroundKing(fen: string, color: Color, radius: number): string[] {
+  const grid = parsePlacement(fen);
+  const king = color === 'white' ? 'K' : 'k';
+  let kr = -1;
+  let kc = -1;
+  grid.forEach((row, r) =>
+    row.forEach((p, c) => {
+      if (p === king) [kr, kc] = [r, c];
+    }),
+  );
+  if (kr < 0) return [];
+  const out: string[] = [];
+  grid.forEach((row, r) =>
+    row.forEach((p, c) => {
+      if (p === null || p === king || pieceColor(p) !== color) return;
+      if (Math.abs(r - kr) <= radius && Math.abs(c - kc) <= radius) out.push(squareName(r, c));
+    }),
+  );
+  return out;
+}
+
+/** `PawnsSideBySide` (`effects/group_a.go`): pedoni propri con un altro pedone accanto sulla stessa traversa. */
+export function pawnsSideBySide(fen: string, color: Color): string[] {
+  const pawn = color === 'white' ? 'P' : 'p';
+  const out: string[] = [];
+  parsePlacement(fen).forEach((row, r) =>
+    row.forEach((p, c) => {
+      if (p === pawn && (row[c - 1] === pawn || row[c + 1] === pawn)) out.push(squareName(r, c));
+    }),
+  );
+  return out;
+}
+
 /** `effects.go:249-260`. */
 export function withSideToMove(fen: string, color: Color): string {
   const f = fields(fen);

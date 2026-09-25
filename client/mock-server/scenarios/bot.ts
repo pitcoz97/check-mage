@@ -1,4 +1,4 @@
-import { CATALOG, type Spell } from '../game/catalog';
+import { CATALOG, paramStrings, type Spell } from '../game/catalog';
 import { legalMoves } from '../game/engine';
 import { parsePlacement, squareName, type Color } from '../game/fen';
 import type { GameClient, Room } from '../game/room';
@@ -149,16 +149,34 @@ export class Bot {
     }, after.returnAfterMs);
   }
 
-  /** Prima carta abbordabile con bersagli validi, in ordine di mano. */
-  private pickCast(room: Room): { spell_id: string; targets: string[] } | null {
+  /** Prima carta abbordabile con bersagli validi (e una scelta, se serve), in ordine di mano. */
+  private pickCast(room: Room): { spell_id: string; targets: string[]; choice?: { piece: string } } | null {
     const ps = room.match.player(this.color);
     for (const id of ps.hand) {
       const spell = CATALOG.get(id);
       if (spell === undefined || this.rejected.has(id) || spell.mana_cost > ps.mana || !spell.phases.includes(room.match.currentPhase)) continue;
       const targets = this.targetsFor(room, spell);
-      if (targets !== null) return { spell_id: id, targets };
+      if (targets === null) continue;
+      const choice = this.choiceFor(room, spell);
+      if (choice === null) continue;
+      return choice === '' ? { spell_id: id, targets } : { spell_id: id, targets, choice: { piece: choice } };
     }
     return null;
+  }
+
+  /**
+   * Scelta del pezzo: l'ultima ammessa per la promozione (la regina), il primo tipo presente nel cimitero per il
+   * ritorno dal cimitero. `''` = nessuna scelta richiesta, `null` = la magia ora non si può lanciare.
+   */
+  private choiceFor(room: Room, spell: Spell): string | null {
+    for (const effect of spell.effects) {
+      if (effect.kind === 'promote_piece') return paramStrings(effect.params, 'choices').at(-1) ?? null;
+      if (effect.kind === 'revive_piece') {
+        const grave = room.match.player(this.color).graveyard;
+        return paramStrings(effect.params, 'pieces').find((kind) => grave.some((g) => g.piece === kind)) ?? null;
+      }
+    }
+    return '';
   }
 
   /**

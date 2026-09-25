@@ -106,10 +106,9 @@ describe('MatchState (match/match.go)', () => {
     expect(m.drawFor('black')).toMatchObject({ player: 'black', handSize: 5, deckSize: 35 });
   });
 
-  it('il catalogo ha le 9 magie dello step 1 (spells/catalog.go)', () => {
-    expect([...CATALOG.keys()].sort()).toEqual(
-      ['blink', 'blood_pact', 'conscription', 'forced_march', 'frost', 'ice_chain', 'royal_shield', 'shatter', 'shield'],
-    );
+  it('il catalogo ha le 18 magie degli step 1 e 2 (spells/catalog.go)', () => {
+    expect(CATALOG.size).toBe(18);
+    expect(CATALOG.has('resurrection') && CATALOG.has('divine_castling')).toBe(true);
   });
 });
 

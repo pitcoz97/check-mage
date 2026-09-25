@@ -29,6 +29,14 @@ export interface PlayerState {
   max_mana: number;
   /** Cast di ogni magia nel turno corrente del giocatore (`Spell.limits`); si azzera all'inizio del suo turno. */
   casts_this_turn?: Record<string, number>;
+  /** Cimitero: i pezzi persi, in ordine (`spells.GraveEntry`). */
+  graveyard: GraveEntry[];
+}
+
+/** `GraveEntry` (`spells/spells.go`): il tipo del pezzo e il suo id (interno). */
+export interface GraveEntry {
+  piece: string;
+  piece_id: number;
 }
 
 export interface DrawResult {
@@ -81,7 +89,7 @@ export interface MatchOverrides {
 /** `spells/spells.go:141-157`. */
 function newPlayerState(rng: Rng): PlayerState {
   const deck = shuffle(buildDeck(), rng);
-  return { hand: deck.splice(0, STARTING_HAND), deck, discard: [], mana: INITIAL_MANA, max_mana: INITIAL_MANA };
+  return { hand: deck.splice(0, STARTING_HAND), deck, discard: [], mana: INITIAL_MANA, max_mana: INITIAL_MANA, graveyard: [] };
 }
 
 /**

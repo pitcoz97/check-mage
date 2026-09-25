@@ -93,15 +93,24 @@ export const RAW_CATALOG: readonly Spell[] = [...CATALOG.values()];
 
 /** `spells/catalog.go` (`deckRecipe`): 40 carte. */
 export const DECK_RECIPE: readonly (readonly [string, number])[] = [
-  ['frost', 6],
-  ['ice_chain', 4],
-  ['shatter', 4],
-  ['blood_pact', 4],
-  ['blink', 4],
-  ['shield', 5],
-  ['royal_shield', 3],
-  ['forced_march', 5],
-  ['conscription', 5],
+  ['frost', 3],
+  ['ice_chain', 2],
+  ['shatter', 3],
+  ['eternal_winter', 1],
+  ['blood_pact', 3],
+  ['recall', 3],
+  ['resurrection', 1],
+  ['blink', 2],
+  ['swap', 2],
+  ['metamorphosis', 2],
+  ['shield', 3],
+  ['royal_shield', 2],
+  ['royal_guard', 2],
+  ['divine_castling', 2],
+  ['forced_march', 3],
+  ['conscription', 3],
+  ['phalanx', 2],
+  ['early_promotion', 1],
 ];
 
 export function buildDeck(): string[] {
@@ -111,6 +120,22 @@ export function buildDeck(): string[] {
 export function paramInt(params: Record<string, unknown> | undefined, key: string, fallback: number): number {
   const value = params?.[key];
   return typeof value === 'number' ? Math.trunc(value) : fallback;
+}
+
+/** `paramStrings` (`game/room.go`): lista di stringhe, vuota se assente. */
+export function paramStrings(params: Record<string, unknown> | undefined, key: string): string[] {
+  const value = params?.[key];
+  return Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** `paramStringMap` (`game/room.go`): mappa stringa → stringa, vuota se assente. */
+export function paramStringMap(params: Record<string, unknown> | undefined, key: string): Record<string, string> {
+  const value = params?.[key];
+  const out: Record<string, string> = {};
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    for (const [k, v] of Object.entries(value)) if (typeof v === 'string') out[k] = v;
+  }
+  return out;
 }
 
 /** `paramBool` (`game/room.go`): `false` se assente o di altro tipo. */

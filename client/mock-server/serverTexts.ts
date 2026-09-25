@@ -23,6 +23,8 @@ export const GAME_ERROR_CODES = [
   'invalid_target',
   'illegal_position',
   'limit_reached',
+  'no_effect',
+  'invalid_choice',
   'draw_offer_pending',
   'no_draw_offer',
   'own_draw_offer',
@@ -75,6 +77,14 @@ export const WS = {
   wouldPromote: (square: string) =>
     e('invalid_target', `${square} porterebbe il pedone alla promozione`, { index: 0, reason: 'promotion', square }),
   unsupportedEffect: (kind: string) => e('internal_error', `effetto non supportato: ${kind}`),
+  noEffect: (name: string, reason: string) => e('no_effect', `la magia ${name} non avrebbe effetto`, { reason }),
+  invalidChoice: (name: string, piece: string, reason: string) =>
+    e('invalid_choice', `scelta non valida per ${name}: ${quoted(piece)}`, { reason }),
+  swapNeedsTwoTargets: (name: string, received: number) =>
+    e('invalid_target_count', `la magia ${name} richiede due bersagli`, { expected: 2, received }),
+  cannotTransform: (square: string) =>
+    e('invalid_target', `${square} non si può trasformare`, { index: 0, reason: 'piece_kind', square }),
+  unknownAreaFilter: (id: string) => e('internal_error', `shield_area senza un filtro noto (${id})`),
   drawOfferPending: e('draw_offer_pending', "C'è già un'offerta di patta in corso"), // :1424
   noDrawOffer: e('no_draw_offer', 'Nessuna offerta di patta in corso'), // :1463
   ownDrawOffer: e('own_draw_offer', 'Non puoi rispondere alla tua stessa offerta'), // :1470
@@ -101,6 +111,11 @@ export const WS = {
   cannotAdvance: (square: string, n: number) =>
     e('invalid_target', `${square} non può avanzare di ${n}`, { reason: 'off_board', square }),
   squareNotEmpty: (square: string) => e('invalid_target', `la casella ${square} non è vuota`, { reason: 'not_empty', square }),
+  // effects/group_a.go
+  swapNeedsTwo: (a: string, b: string) => e('invalid_target', `servono due pezzi da scambiare (${a}, ${b})`, { reason: 'no_piece' }),
+  pawnRank: (index: number, square: string) =>
+    e('invalid_target', `un pedone non può stare in ${square}`, { index, reason: 'pawn_rank', square }),
+  nothingAtTarget: (square: string) => e('invalid_target', `nessun pezzo in ${square}`, { reason: 'no_piece', square }),
   nothingToMove: (square: string) => e('invalid_target', `nessun pezzo da spostare in ${square}`), // :231
   moveOnlyOwn: (square: string) => e('invalid_target', `puoi spostare solo i tuoi pezzi (${square})`), // :234
   destinationOccupied: (square: string) => e('invalid_target', `la casella ${square} non è vuota`), // :237
@@ -186,6 +201,11 @@ export function wsErrorSamples(): GameError[] {
     WS.forwardBlocked('e3'),
     WS.wouldPromote('e8'),
     WS.unsupportedEffect('summon'),
+    WS.noEffect('Richiamo', 'empty_graveyard'),
+    WS.invalidChoice('Resurrezione', 'bishop', 'not_allowed'),
+    WS.swapNeedsTwoTargets('Scambio', 1),
+    WS.cannotTransform('d1'),
+    WS.unknownAreaFilter('phalanx'),
     WS.drawOfferPending,
     WS.noDrawOffer,
     WS.ownDrawOffer,
@@ -204,6 +224,9 @@ export function wsErrorSamples(): GameError[] {
     WS.kingIndestructible('e8'),
     WS.cannotAdvance('e8', 1),
     WS.squareNotEmpty('b2'),
+    WS.swapNeedsTwo('b1', 'b4'),
+    WS.pawnRank(1, 'b1'),
+    WS.nothingAtTarget('e4'),
     WS.nothingToMove('e5'),
     WS.moveOnlyOwn('e7'),
     WS.destinationOccupied('e4'),

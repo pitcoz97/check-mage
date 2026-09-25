@@ -218,7 +218,8 @@ describe('magie (room.go: handleCastSpell, applySpellEffects)', () => {
     black.clear();
     white.clear();
     send(white, 'cast_spell', { spell_id: 'blood_pact', targets: ['a2'] });
-    expect(black.types()).toEqual(['spell_cast', 'mana_changed', 'hand_size_changed', 'game_state']);
+    expect(black.types()).toEqual(['spell_cast', 'mana_changed', 'hand_size_changed', 'game_state', 'graveyard_changed']);
+    expect(black.last('graveyard_changed')).toEqual({ player: 'white', graveyard: ['pawn'] });
     expect(black.messages[0]?.payload).toEqual({
       player: 'white',
       spell_id: 'blood_pact',
@@ -351,6 +352,123 @@ describe('magie (room.go: handleCastSpell, applySpellEffects)', () => {
     send(white, 'move', { move: 'e1e2' });
     expect(white.last('game_over')).toMatchObject({ result: '1/2-1/2', reason: 'stalemate' });
     expect(white.last('game_state')).toMatchObject({ board: { status: 'stalemate' } });
+  });
+});
+
+describe('magie dello step 2: cimitero e gruppo A', () => {
+  const FILLER = ['shatter', 'shatter'];
+  const rich = { white: 10 };
+
+  it('la cattura manda il pezzo nel cimitero, con game_state e graveyard_changed', () => {
+    const { white, black, send } = setup();
+    send(white, 'move', { move: 'e2e4' });
+    send(black, 'move', { move: 'd7d5' });
+    white.clear();
+    send(white, 'move', { move: 'e4d5' });
+    expect(white.last('graveyard_changed')).toEqual({ player: 'black', graveyard: ['pawn'] });
+    expect(white.last('game_state')).toMatchObject({ black_graveyard: ['pawn'], white_graveyard: [] });
+  });
+
+  it('Inverno eterno congela i pedoni nemici; senza pedoni è no_effect a costo zero', () => {
+    const { room, white, send } = setup({ overrides: { hand: { white: ['eternal_winter', ...FILLER] }, manaFloor: rich } });
+    send(white, 'cast_spell', { spell_id: 'eternal_winter', targets: [] });
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([
+      { kind: 'freeze_all', targets: ['a7', 'b7', 'c7', 'd7', 'e7', 'f7', 'g7', 'h7'], remaining_turns: 1 },
+    ]);
+    expect(room.tracker.isFrozen('a7')).toBe(true);
+
+    const empty = setup({ fen: '4k3/8/8/8/8/8/P7/4K3 w - - 0 1', overrides: { hand: { white: ['eternal_winter', ...FILLER] }, manaFloor: rich } });
+    empty.send(empty.white, 'cast_spell', { spell_id: 'eternal_winter', targets: [] });
+    expect(empty.white.last('error')).toEqual({
+      message: 'la magia Inverno eterno non avrebbe effetto',
+      code: 'no_effect',
+      details: { reason: 'no_pieces' },
+    });
+    expect(empty.room.match.white.mana).toBe(10);
+  });
+
+  it('Guardia reale (regina compresa) e Falange (solo pedoni di lato)', () => {
+    const { room, white, send } = setup({ overrides: { hand: { white: ['royal_guard', 'phalanx', ...FILLER] }, manaFloor: rich } });
+    send(white, 'cast_spell', { spell_id: 'royal_guard', targets: [] });
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([
+      { kind: 'shield_area', targets: ['d2', 'e2', 'f2', 'd1', 'f1'], remaining_turns: 1 },
+    ]);
+    send(white, 'cast_spell', { spell_id: 'phalanx', targets: [] });
+    expect(room.tracker.hasShield('a2')).toBe(true);
+
+    const apart = setup({ fen: '4k3/8/8/8/8/1P6/P7/4K3 w - - 0 1', overrides: { hand: { white: ['phalanx', ...FILLER] }, manaFloor: rich } });
+    apart.send(apart.white, 'cast_spell', { spell_id: 'phalanx', targets: [] });
+    expect(apart.white.last('error')).toMatchObject({ code: 'no_effect', details: { reason: 'no_pieces' } });
+  });
+
+  it('Scambio e Metamorfosi conservano id ed effetti; nessun pedone in prima traversa', () => {
+    const { room, white, send } = setup({ overrides: { hand: { white: ['swap', 'metamorphosis', 'swap', ...FILLER] }, manaFloor: rich } });
+    const knight = room.tracker.idAt('b1');
+    send(white, 'cast_spell', { spell_id: 'swap', targets: ['b1', 'b2'] });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_target', details: { reason: 'pawn_rank' } });
+    send(white, 'cast_spell', { spell_id: 'swap', targets: ['b1', 'c1'] });
+    expect(room.board.fen).toBe('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RBNQKBNR w KQkq - 0 1');
+    expect(room.tracker.idAt('c1')).toBe(knight);
+    send(white, 'cast_spell', { spell_id: 'metamorphosis', targets: ['c1'] });
+    expect(room.board.fen).toBe('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RBBQKBNR w KQkq - 0 1');
+    expect(room.tracker.idAt('c1')).toBe(knight);
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([{ kind: 'transform_piece', target: 'c1', piece: 'bishop' }]);
+  });
+
+  it('Promozione anticipata vuole una scelta ammessa', () => {
+    const { room, white, send } = setup({
+      fen: 'k7/4P3/8/8/8/8/8/4K3 w - - 0 1',
+      overrides: { hand: { white: ['early_promotion', ...FILLER] }, manaFloor: rich },
+    });
+    send(white, 'cast_spell', { spell_id: 'early_promotion', targets: ['e7'] });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_choice', details: { reason: 'missing' } });
+    send(white, 'cast_spell', { spell_id: 'early_promotion', targets: ['e7'], choice: { piece: 'king' } });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_choice', details: { reason: 'not_allowed' } });
+    send(white, 'cast_spell', { spell_id: 'early_promotion', targets: ['e7'], choice: 7 });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_payload' });
+    send(white, 'cast_spell', { spell_id: 'early_promotion', targets: ['e7'], choice: { piece: 'knight' } });
+    expect(room.board.fen).toBe('k7/4N3/8/8/8/8/8/4K3 w - - 0 1');
+  });
+
+  it('Richiamo e Resurrezione riportano dal cimitero; a cimitero vuoto è no_effect', () => {
+    const { room, white, black, send } = setup({
+      fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+      overrides: { hand: { white: ['recall', 'resurrection', ...FILLER] }, manaFloor: rich },
+    });
+    send(white, 'cast_spell', { spell_id: 'recall', targets: ['b2'] });
+    expect(white.last('error')).toMatchObject({ code: 'no_effect', details: { reason: 'empty_graveyard' } });
+    room.match.white.graveyard = [
+      { piece: 'knight', piece_id: 2 },
+      { piece: 'rook', piece_id: 1 },
+      { piece: 'pawn', piece_id: 9 },
+    ];
+    send(white, 'cast_spell', { spell_id: 'resurrection', targets: ['b1'] });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_choice', details: { reason: 'missing' } });
+    black.clear();
+    send(white, 'cast_spell', { spell_id: 'resurrection', targets: ['b1'], choice: { piece: 'rook' } });
+    expect(room.board.fen).toBe('4k3/8/8/8/8/8/8/1R2K3 w - - 0 1');
+    expect(black.last('graveyard_changed')).toEqual({ player: 'white', graveyard: ['knight', 'pawn'] });
+    // La Resurrezione ha speso 8 mana e la main1 si è chiusa da sola: si riparte da main1 con mana pieno.
+    room.match.white.mana = 10;
+    room.match.currentPhase = 'main1';
+    send(white, 'cast_spell', { spell_id: 'recall', targets: ['b2'] });
+    expect(room.match.white.graveyard.map((g) => g.piece)).toEqual(['knight']);
+  });
+
+  it('Arrocco divino: solo in main1 e solo con re e torri a posto', () => {
+    const { room, white, send } = setup({
+      fen: 'r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w - - 0 1',
+      overrides: { hand: { white: ['divine_castling', ...FILLER] }, manaFloor: rich },
+    });
+    send(white, 'cast_spell', { spell_id: 'divine_castling', targets: [] });
+    expect(room.board.fen).toBe('r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQ - 0 1');
+
+    const moved = setup({
+      fen: 'r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R4K1R w - - 0 1',
+      overrides: { hand: { white: ['divine_castling', ...FILLER] }, manaFloor: rich },
+    });
+    moved.send(moved.white, 'cast_spell', { spell_id: 'divine_castling', targets: [] });
+    expect(moved.white.last('error')).toMatchObject({ code: 'no_effect', details: { reason: 'no_castling' } });
   });
 });
 

@@ -124,6 +124,29 @@ export class Tracker {
     this.bySquare.set(square, id);
   }
 
+  /** `Tracker.Swap`: scambia identità ed effetti dei pezzi di due case. */
+  swap(a: string, b: string): void {
+    const ida = this.bySquare.get(a);
+    const idb = this.bySquare.get(b);
+    if (ida === undefined || idb === undefined) return;
+    this.bySquare.set(a, idb);
+    this.bySquare.set(b, ida);
+    (this.pieces.get(ida) as PieceState).square = b;
+    (this.pieces.get(idb) as PieceState).square = a;
+  }
+
+  /** `Tracker.SetType`: cambia il tipo del pezzo, conservando id ed effetti. */
+  setType(square: string, piece: string): void {
+    const id = this.bySquare.get(square);
+    if (id !== undefined) (this.pieces.get(id) as PieceState).type = piece;
+  }
+
+  /** `Tracker.Info`: id e carattere FEN del pezzo nella casa. */
+  info(square: string): { id: number; piece: string } | null {
+    const id = this.bySquare.get(square);
+    return id === undefined ? null : { id, piece: (this.pieces.get(id) as PieceState).type };
+  }
+
   /** `Tracker.Clone`: una copia indipendente, su cui si applicano gli effetti di una magia. */
   clone(): Tracker {
     const copy = Object.create(Tracker.prototype) as Tracker;

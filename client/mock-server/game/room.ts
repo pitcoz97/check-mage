@@ -1,9 +1,10 @@
 import { INFO, WS, type GameError } from '../serverTexts';
 import type { Rng } from '../util';
 import type { WireServerMessage, WireServerType } from '../wire';
-import { paramBool, paramInt, type Spell } from './catalog';
+import { paramBool, paramInt, paramStringMap, paramStrings, type Spell } from './catalog';
 import { getGameStatus, isMoveLegal, applyMove as engineApplyMove } from './engine';
 import {
+  aroundKing,
   clearStaleEnPassant,
   countPieces,
   destroyPiece,
@@ -13,13 +14,29 @@ import {
   movePieceFen,
   opponentOf,
   passTurn,
+  pawnsSideBySide,
   pieceAt,
+  pieceColor,
+  pieceLetter,
+  pieceName,
+  piecesOf,
   placePiece,
   relativeRank,
+  restoreCastling,
+  setPiece,
   sideToMove,
+  swapPieces,
   type Color,
 } from './fen';
-import { CastError, MatchState, type AdvanceResult, type DrawResult, type ManaState, type MatchOverrides } from './match';
+import {
+  CastError,
+  MatchState,
+  type AdvanceResult,
+  type DrawResult,
+  type GraveEntry,
+  type ManaState,
+  type MatchOverrides,
+} from './match';
 import { validateTargets } from './targets';
 import { KIND_SHIELD, Tracker, type ExpiredEffect } from './tracker';
 
@@ -189,7 +206,15 @@ export class Room {
         const data = decodePayload(payload, { spell_id: 'string', targets: 'string[]' });
         if (data === null) return this.sendError(sender, WS.malformedCast);
         const targets = Array.isArray(data['targets']) ? (data['targets'] as string[]) : null;
-        return this.handleCastSpell(sender, typeof data['spell_id'] === 'string' ? data['spell_id'] : '', targets);
+        // `choice` è un oggetto `{piece}`: un tipo sbagliato fa fallire lo Unmarshal come nel server.
+        const rawChoice = data['choice'];
+        if (rawChoice !== undefined && rawChoice !== null && (typeof rawChoice !== 'object' || Array.isArray(rawChoice))) {
+          return this.sendError(sender, WS.malformedCast);
+        }
+        const piece = (rawChoice as Record<string, unknown> | null | undefined)?.['piece'];
+        if (piece !== undefined && piece !== null && typeof piece !== 'string') return this.sendError(sender, WS.malformedCast);
+        const choice = typeof piece === 'string' ? piece : '';
+        return this.handleCastSpell(sender, typeof data['spell_id'] === 'string' ? data['spell_id'] : '', targets, choice);
       }
       case 'resign':
         return this.handleResign(sender);
@@ -219,6 +244,7 @@ export class Room {
     // Lo scudo assorbe la cattura (anche en passant), salvo che la mossa nulla lasci in scacco chi muove:
     // la cattura era l'unico modo di uscire dallo scacco, quindi lo scudo si rompe (`room.go:461-473`).
     const captured = captureSquare(this.board.fen, from, to);
+    const graveOwners: Color[] = [];
     let shieldAbsorbed = captured !== null && this.tracker.hasShield(captured);
     if (shieldAbsorbed && isKingAttacked(passTurn(this.board.fen), senderColor)) shieldAbsorbed = false;
 
@@ -230,6 +256,9 @@ export class Room {
       this.board.fen = passTurn(this.board.fen);
       this.board.moves.push(NULL_MOVE);
     } else {
+      // Il pezzo catturato (anche en passant) va nel cimitero del proprietario.
+      const owner = captured === null ? null : this.buryCaptured(captured);
+      if (owner !== null) graveOwners.push(owner);
       this.board.moves.push(move);
       this.board.fen = engineApplyMove(this.board.fen, move);
       this.tracker.movePiece(from, to, move.length >= 5 ? (move[4] as string) : null);
@@ -271,6 +300,7 @@ export class Room {
     drawOfferExpiredFor?.send(msg('draw_declined', { message: INFO.drawLapsed(sender.username), reason: 'move_played' }));
     // Lo stato parte anche a fine partita: i client vedono la mossa decisiva prima del game_over.
     this.broadcastState();
+    this.broadcastGraveyards(graveOwners);
     for (const res of results) this.applyAdvanceBroadcasts(res);
     this.broadcastExpired(expired);
     this.announceEnd(end);
@@ -293,18 +323,20 @@ export class Room {
   }
 
   /** `room.go:624-718`. */
-  private handleCastSpell(sender: GameClient, spellId: string, targets: string[] | null): void {
+  private handleCastSpell(sender: GameClient, spellId: string, targets: string[] | null, choice: string): void {
     if (this.ended) return this.sendError(sender, WS.gameOver);
     const senderColor = this.getColor(sender);
     let boardChanged = false;
     let drawn: DrawResult[] = [];
+    let graveOwners: Color[] = [];
 
     let res;
     try {
       res = this.match.castSpell(senderColor, spellId, targets, (def, t) => {
-        const out = this.applySpellEffects(def, t, senderColor);
+        const out = this.applySpellEffects(def, t, senderColor, choice);
         boardChanged = out.changed;
         drawn = out.drawn;
+        graveOwners = out.graveOwners;
         return out.applied;
       });
     } catch (error) {
@@ -330,6 +362,7 @@ export class Room {
     this.broadcast('hand_size_changed', { player: senderColor, size: res.handSize });
     for (const d of drawn) this.clientOf(senderColor).send(msg('card_drawn', { card_id: d.cardId, deck_size: d.deckSize }));
     if (boardChanged) this.broadcastState();
+    this.broadcastGraveyards(graveOwners);
     for (const ar of autoResults) this.applyAdvanceBroadcasts(ar);
     this.broadcastExpired(expired);
     if (end !== null && !boardChanged) this.broadcastState();
@@ -337,15 +370,17 @@ export class Room {
   }
 
   /**
-   * `applySpellEffects` (`room.go`): valida i bersagli, applica gli effetti su una copia di FEN e Tracker, controlla
-   * la posizione finale e solo allora sostituisce lo stato; pesca e mana per ultimi. Lancia `EffectError` per
-   * annullare il cast senza costi.
+   * `applySpellEffects` (`room.go`): valida i bersagli, applica gli effetti su una copia di FEN, Tracker e cimiteri,
+   * controlla la posizione finale e solo allora sostituisce lo stato; pesca e mana per ultimi. Lancia `EffectError`
+   * per annullare il cast senza costi.
    */
-  private applySpellEffects(def: Spell, targets: string[], caster: Color) {
+  private applySpellEffects(def: Spell, targets: string[], caster: Color, choice: string) {
     validateTargets(this.board.fen, this.tracker, def.targets, targets, caster);
 
     let fen = this.board.fen;
     const tracker = this.tracker.clone();
+    const graves: Record<Color, GraveEntry[]> = { white: [...this.match.white.graveyard], black: [...this.match.black.graveyard] };
+    const gravesChanged = new Set<Color>();
     let changed = false;
     const applied: Record<string, unknown>[] = [];
     const deferred: (() => void)[] = [];
@@ -355,12 +390,24 @@ export class Room {
       if (square === undefined) throw new EffectError(WS.needsTarget(def.name));
       return square;
     };
+    const noEffect = (reason: string) => new EffectError(WS.noEffect(def.name, reason));
+    const invalidChoice = (reason: string) => new EffectError(WS.invalidChoice(def.name, choice, reason));
+    // Il pezzo nella casa va nel cimitero del proprietario, prima di sparire da FEN e Tracker.
+    const bury = (square: string) => {
+      const info = tracker.info(square);
+      const piece = info?.piece ?? pieceAt(fen, square);
+      if (piece === null) return;
+      const owner = pieceColor(piece);
+      graves[owner].push({ piece: pieceName(piece), piece_id: info?.id ?? 0 });
+      gravesChanged.add(owner);
+    };
 
     for (const eff of def.effects) {
       const entry: Record<string, unknown> = { kind: eff.kind };
       switch (eff.kind) {
         case 'destroy_piece': {
           const square = target();
+          bury(square);
           const result = destroyPiece(fen, square);
           fen = result.fen;
           changed = true;
@@ -376,6 +423,28 @@ export class Room {
           if (eff.kind === 'freeze_piece') tracker.freeze(square, caster, duration, def.id);
           else tracker.shield(square, caster, duration, def.id);
           entry['target'] = square;
+          entry['remaining_turns'] = duration;
+          break;
+        }
+        case 'freeze_all': {
+          const side = eff.params?.['side'] === 'own' ? caster : opponentOf(caster);
+          const squares = piecesOf(fen, side, paramStrings(eff.params, 'pieces'));
+          if (squares.length === 0) throw noEffect('no_pieces');
+          const duration = paramInt(eff.params, 'duration', 1);
+          for (const square of squares) tracker.freeze(square, caster, duration, def.id);
+          entry['targets'] = squares;
+          entry['remaining_turns'] = duration;
+          break;
+        }
+        case 'shield_area': {
+          let squares: string[];
+          if (eff.params?.['around'] === 'own_king') squares = aroundKing(fen, caster, paramInt(eff.params, 'radius', 1));
+          else if (eff.params?.['filter'] === 'own_pawns_side_by_side') squares = pawnsSideBySide(fen, caster);
+          else throw new EffectError(WS.unknownAreaFilter(def.id));
+          if (squares.length === 0) throw noEffect('no_pieces');
+          const duration = paramInt(eff.params, 'duration', 1);
+          for (const square of squares) tracker.shield(square, caster, duration, def.id);
+          entry['targets'] = squares;
           entry['remaining_turns'] = duration;
           break;
         }
@@ -412,6 +481,70 @@ export class Room {
           entry['to'] = to;
           break;
         }
+        case 'swap_pieces': {
+          const [a, b] = targets;
+          if (a === undefined || b === undefined) throw new EffectError(WS.swapNeedsTwoTargets(def.name, targets.length));
+          fen = swapPieces(fen, a, b);
+          changed = true;
+          tracker.swap(a, b);
+          entry['targets'] = [a, b];
+          break;
+        }
+        case 'transform_piece': {
+          const square = target();
+          const piece = pieceAt(fen, square);
+          const to = piece === null ? undefined : paramStringMap(eff.params, 'map')[pieceName(piece)];
+          const letter = piece === null || to === undefined ? null : pieceLetter(to, pieceColor(piece));
+          if (letter === null || to === undefined) throw new EffectError(WS.cannotTransform(square));
+          fen = setPiece(fen, square, letter);
+          changed = true;
+          tracker.setType(square, letter);
+          entry['target'] = square;
+          entry['piece'] = to;
+          break;
+        }
+        case 'promote_piece': {
+          const square = target();
+          if (choice === '') throw invalidChoice('missing');
+          if (!paramStrings(eff.params, 'choices').includes(choice)) throw invalidChoice('not_allowed');
+          const piece = pieceAt(fen, square);
+          const letter = piece === null ? null : pieceLetter(choice, pieceColor(piece));
+          if (letter === null) throw invalidChoice('not_allowed');
+          fen = setPiece(fen, square, letter);
+          changed = true;
+          tracker.setType(square, letter);
+          entry['target'] = square;
+          entry['piece'] = choice;
+          break;
+        }
+        case 'revive_piece': {
+          const square = target();
+          const available = paramStrings(eff.params, 'pieces').filter((kind) => graves[caster].some((g) => g.piece === kind));
+          if (available.length === 0) throw noEffect('empty_graveyard');
+          let kind = choice;
+          if (kind === '') {
+            if (available.length > 1) throw invalidChoice('missing');
+            kind = available[0] as string;
+          }
+          if (!available.includes(kind)) throw invalidChoice('not_allowed');
+          const letter = pieceLetter(kind, caster) as string;
+          fen = placePiece(fen, square, letter);
+          changed = true;
+          tracker.add(square, letter);
+          const index = graves[caster].findIndex((g) => g.piece === kind);
+          graves[caster].splice(index, 1);
+          gravesChanged.add(caster);
+          entry['target'] = square;
+          entry['piece'] = kind;
+          break;
+        }
+        case 'restore_castling_rights': {
+          const next = restoreCastling(fen, caster);
+          if (next === null) throw noEffect('no_castling');
+          fen = next;
+          changed = true;
+          break;
+        }
         case 'summon_pawn': {
           const square = target();
           const pawn = caster === 'white' ? 'P' : 'p';
@@ -436,8 +569,31 @@ export class Room {
       this.board.fen = fen; // una magia non cambia il lato al tratto
     }
     this.tracker = tracker;
+    const graveOwners: Color[] = [];
+    for (const color of ['white', 'black'] as const) {
+      if (!gravesChanged.has(color)) continue;
+      this.match.player(color).graveyard = graves[color];
+      graveOwners.push(color);
+    }
     for (const apply of deferred) apply();
-    return { applied, changed, drawn };
+    return { applied, changed, drawn, graveOwners };
+  }
+
+  /** `buryCaptured` (`room.go`): il pezzo catturato da una mossa va nel cimitero del proprietario. */
+  private buryCaptured(square: string): Color | null {
+    const info = this.tracker.info(square);
+    const piece = info?.piece ?? pieceAt(this.board.fen, square);
+    if (piece === null) return null;
+    const owner = pieceColor(piece);
+    this.match.player(owner).graveyard.push({ piece: pieceName(piece), piece_id: info?.id ?? 0 });
+    return owner;
+  }
+
+  /** `graveyard_changed` a entrambi, per ogni cimitero cambiato. */
+  private broadcastGraveyards(owners: readonly Color[]): void {
+    for (const player of owners) {
+      this.broadcast('graveyard_changed', { player, graveyard: this.match.player(player).graveyard.map((g) => g.piece) });
+    }
   }
 
   /** `tickEffectsOnNewTurn` (`room.go`): durate alla fine del turno di chi ha appena chiuso. */
@@ -679,6 +835,8 @@ export class Room {
       white_deck_size: white.deck.length,
       black_deck_size: black.deck.length,
       active_effects: this.tracker.activeEffects(),
+      white_graveyard: white.graveyard.map((g) => g.piece),
+      black_graveyard: black.graveyard.map((g) => g.piece),
     };
   }
 
