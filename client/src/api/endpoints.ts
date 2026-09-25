@@ -3,6 +3,7 @@ import {
   encodeRefresh,
   encodeRegister,
   normalizeAccount,
+  normalizeLeaderboard,
   normalizeLogin,
   normalizePasswordPolicy,
   normalizePublicProfile,
@@ -19,6 +20,7 @@ import type {
   AuthSession,
   CredentialPolicy,
   HttpErrorInfo,
+  LeaderboardEntry,
   PublicProfile,
   Registration,
   TokenPair,
@@ -65,6 +67,11 @@ export function createApi(http: HttpClient) {
 
     async fetchPublicProfile(userId: string): Promise<ApiResult<PublicProfile>> {
       return toResult(await http.request('GET', `/users/${encodeURIComponent(userId)}`), normalizePublicProfile);
+    },
+
+    /** Primi dieci per ELO (`handlers/stats.go:14-51`). Pubblico: niente posizione propria né stagione (P2-20). */
+    async fetchLeaderboard(): Promise<ApiResult<readonly LeaderboardEntry[]>> {
+      return toResult(await http.request('GET', '/leaderboard'), normalizeLeaderboard);
     },
 
     /** Requisiti di registrazione (`handlers/catalog.go:24-30`). Pubblico. */
