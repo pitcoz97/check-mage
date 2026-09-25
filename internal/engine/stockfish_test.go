@@ -63,3 +63,26 @@ func fenPlacement(fen string) string {
 	}
 	return fen
 }
+
+// Senza mosse giocabili valgono le regole degli scacchi, anche quando le mosse
+// legali ci sono ma gli stati delle magie le vietano tutte.
+func TestClassify_PlayableMoves(t *testing.T) {
+	const fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
+	legal := []string{"e1d1", "e2e3"}
+	noKing := func(m string) bool { return m[:2] != "e1" && m[:2] != "e2" }
+	inCheck := func() bool { return true }
+	notInCheck := func() bool { return false }
+
+	if got := classify(fen, legal, nil, notInCheck); got != StatusOngoing {
+		t.Errorf("con mosse giocabili: %v, atteso ongoing", got)
+	}
+	if got := classify(fen, legal, noKing, notInCheck); got != StatusStalemate {
+		t.Errorf("nessuna mossa giocabile e niente scacco: %v, atteso stallo", got)
+	}
+	if got := classify(fen, legal, noKing, inCheck); got != StatusCheckmate {
+		t.Errorf("nessuna mossa giocabile sotto scacco: %v, atteso matto", got)
+	}
+	if got := classify(fen, nil, nil, notInCheck); got != StatusStalemate {
+		t.Errorf("nessuna mossa legale: %v, atteso stallo", got)
+	}
+}
