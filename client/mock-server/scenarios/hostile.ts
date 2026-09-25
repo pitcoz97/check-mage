@@ -17,7 +17,7 @@ export const HOSTILE_FRAMES: readonly string[] = [
   '{"type":"draw_offer","payload":null}',
   '{"type":"game_state","payload":{"board":7}}',
   '{"type":"timer_update","payload":{"white_time":"presto","black_time":null}}',
-  '{"type":"hand","payload":{"hand":"spark"}}',
+  '{"type":"hand","payload":{"hand":"frost"}}',
   '{"type":"spell_cast","payload":{"player":"mario","spell_id":"x","targets":[]}}',
   '{"type":"effect_expired","payload":{"square":42}}',
   '{"type":"card_drawn","payload":{}}',

@@ -103,14 +103,13 @@ export function passTurn(fen: string): string {
   return f.join(' ');
 }
 
-/** `effects.go:181-209`. */
-export function destroyPiece(fen: string, square: string, caster: Color): { fen: string; destroyed: string } {
+/** `DestroyPiece` (`effects.go`): di chi sia il pezzo lo decide il TargetSpec; il re non si distrugge mai. */
+export function destroyPiece(fen: string, square: string): { fen: string; destroyed: string } {
   const [row, col] = parseSquare(square);
   const grid = parsePlacement(fen);
   const piece = grid[row]?.[col] ?? null;
   if (piece === null) throw new EffectError(WS.nothingToDestroy(square));
-  if (pieceColor(piece) === caster) throw new EffectError(WS.cannotDestroyOwn(square));
-  if (piece === 'k' || piece === 'K') throw new EffectError(WS.kingIndestructible);
+  if (piece === 'k' || piece === 'K') throw new EffectError(WS.kingIndestructible(square));
   (grid[row] as (string | null)[])[col] = null;
   const next = clearCastlingForRook(replacePlacement(fen, encodePlacement(grid)), square, piece);
   return { fen: next, destroyed: pieceName(piece) };
@@ -128,6 +127,53 @@ export function movePieceFen(fen: string, from: string, to: string, caster: Colo
   (grid[tr] as (string | null)[])[tc] = piece;
   (grid[fr] as (string | null)[])[fc] = null;
   return clearCastlingForMovedPiece(replacePlacement(fen, encodePlacement(grid)), from, piece);
+}
+
+/** `RelativeRank`: la traversa vista dal colore (1 = la sua prima); 0 se la casella non è valida. */
+export function relativeRank(square: string, color: Color): number {
+  const rank = square.length === 2 ? Number(square[1]) : NaN;
+  if (!Number.isInteger(rank) || rank < 1 || rank > 8) return 0;
+  return color === 'black' ? 9 - rank : rank;
+}
+
+/** `ForwardSquare`: la casella `n` passi in avanti per il colore (il Bianco verso la traversa 8). */
+export function forwardSquare(square: string, color: Color, n: number): string {
+  const [row, col] = parseSquare(square);
+  const next = color === 'white' ? row - n : row + n;
+  if (next < 0 || next > 7) throw new EffectError(WS.cannotAdvance(square, n));
+  return squareName(next, col);
+}
+
+/** `PlacePiece`: mette il pezzo su una casella vuota. */
+export function placePiece(fen: string, square: string, piece: string): string {
+  const [row, col] = parseSquare(square);
+  const grid = parsePlacement(fen);
+  if ((grid[row]?.[col] ?? null) !== null) throw new EffectError(WS.squareNotEmpty(square));
+  (grid[row] as (string | null)[])[col] = piece;
+  return replacePlacement(fen, encodePlacement(grid));
+}
+
+/** `CountPieces`: pezzi uguali al carattere FEN dato. */
+export function countPieces(fen: string, piece: string): number {
+  return parsePlacement(fen)
+    .flat()
+    .filter((cell) => cell === piece).length;
+}
+
+/**
+ * `ClearStaleEnPassant`: azzera la casella en passant se il pedone che l'ha creata non c'è più o se la casella di
+ * passaggio non è vuota.
+ */
+export function clearStaleEnPassant(fen: string): string {
+  const f = fields(fen);
+  const ep = f[3];
+  if (ep === undefined || ep === '-' || ep.length !== 2) return fen;
+  const grid = parsePlacement(fen);
+  const [row, col] = parseSquare(ep);
+  const [pawnRow, pawn] = ep[1] === '3' ? [row - 1, 'P'] : ep[1] === '6' ? [row + 1, 'p'] : [-1, ''];
+  if (pawnRow >= 0 && grid[row]?.[col] === null && grid[pawnRow]?.[col] === pawn) return fen;
+  f[3] = '-';
+  return f.join(' ');
 }
 
 /** `effects.go:249-260`. */

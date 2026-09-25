@@ -1,20 +1,26 @@
 import { INFO, WS, type GameError } from '../serverTexts';
 import type { Rng } from '../util';
 import type { WireServerMessage, WireServerType } from '../wire';
-import { paramInt, type Spell } from './catalog';
+import { paramBool, paramInt, type Spell } from './catalog';
 import { getGameStatus, isMoveLegal, applyMove as engineApplyMove } from './engine';
 import {
+  clearStaleEnPassant,
+  countPieces,
   destroyPiece,
   EffectError,
+  forwardSquare,
   isKingAttacked,
   movePieceFen,
   opponentOf,
   passTurn,
   pieceAt,
+  placePiece,
+  relativeRank,
   sideToMove,
   type Color,
 } from './fen';
 import { CastError, MatchState, type AdvanceResult, type DrawResult, type ManaState, type MatchOverrides } from './match';
+import { validateTargets } from './targets';
 import { KIND_SHIELD, Tracker, type ExpiredEffect } from './tracker';
 
 /**
@@ -95,10 +101,34 @@ function captureSquare(fen: string, from: string, to: string): string | null {
   return null;
 }
 
-/** `validateBoardEdit` (`room.go:725-733`): il re di chi NON ha il tratto non può restare sotto scacco. */
-function validateBoardEdit(fen: string): void {
-  const waiting = opponentOf(sideToMove(fen));
-  if (isKingAttacked(fen, waiting)) throw new EffectError(WS.illegalPosition(waiting));
+/**
+ * `validateNoCheck` (`room.go`): niente scacco da magia, in main1 come in main2. Il re di chi lancia non resta sotto
+ * scacco; il re avversario non va sotto scacco per la magia (se lo era già per la mossa del turno, la magia è ammessa).
+ */
+function validateNoCheck(before: string, after: string, caster: Color): void {
+  if (isKingAttacked(after, caster)) throw new EffectError(WS.kingLeftInCheck(caster));
+  const opponent = opponentOf(caster);
+  if (isKingAttacked(after, opponent) && !isKingAttacked(before, opponent)) throw new EffectError(WS.spellGivesCheck(opponent));
+}
+
+/**
+ * `moveEndpoints` (`room.go`): partenza e arrivo di un `move_piece`, dai due bersagli oppure, con `relative:
+ * "forward"`, dal solo pezzo e dai passi in avanti. Il movimento relativo non cattura e con `no_promotion` non arriva
+ * all'ultima traversa.
+ */
+function moveEndpoints(fen: string, params: Record<string, unknown> | undefined, targets: string[], caster: Color): [string, string] {
+  const relative = typeof params?.['relative'] === 'string' ? params['relative'] : '';
+  const from = targets[0];
+  if (relative === '') {
+    const to = targets[1];
+    if (from === undefined || to === undefined) throw new EffectError(WS.moveNeedsTwo(targets.length));
+    return [from, to];
+  }
+  if (relative !== 'forward' || from === undefined) throw new EffectError(WS.unsupportedRelative(relative));
+  const to = forwardSquare(from, caster, paramInt(params, 'squares', 1));
+  if (pieceAt(fen, to) !== null) throw new EffectError(WS.forwardBlocked(to));
+  if (paramBool(params, 'no_promotion') && relativeRank(to, caster) === 8) throw new EffectError(WS.wouldPromote(to));
+  return [from, to];
 }
 
 export class Room {
@@ -107,7 +137,7 @@ export class Room {
   black: GameClient;
   readonly board: Board;
   readonly match: MatchState;
-  readonly tracker: Tracker;
+  tracker: Tracker;
   whiteTime: number;
   blackTime: number;
   private drawOfferer: GameClient | null = null;
@@ -214,7 +244,7 @@ export class Room {
       drawOfferExpiredFor = this.getOpponent(sender);
     }
 
-    let status = getGameStatus(this.board.fen);
+    let status = this.gameStatus();
     if (status === 'ongoing' && this.isThreefold()) status = 'draw';
 
     let end: GameEnd | null = null;
@@ -285,8 +315,10 @@ export class Room {
     if (boardChanged) this.recordPosition();
     const autoResults = this.match.autoAdvance();
     const expired = this.tickEffectsOnNewTurn(autoResults);
-    // Una magia che edita la board può dare matto: se il cast chiude il turno, si valuta l'avversario.
-    const end = this.checkRolloverGameEnd(autoResults);
+    // Se il cast chiude il turno si valuta il nuovo giocatore attivo; se chi lancia ha ancora il tratto (main1) e la
+    // scacchiera è cambiata, si valuta lui: un Patto di sangue può lasciarlo senza mosse.
+    let end = this.checkRolloverGameEnd(autoResults);
+    if (end === null && boardChanged && sideToMove(this.board.fen) === this.match.activePlayer) end = this.checkActivePlayerEnd();
 
     this.broadcast('spell_cast', {
       player: senderColor,
@@ -304,85 +336,130 @@ export class Room {
     this.announceEnd(end);
   }
 
-  /** `room.go:740-853`. Lancia `EffectError` per annullare il cast senza costi. */
+  /**
+   * `applySpellEffects` (`room.go`): valida i bersagli, applica gli effetti su una copia di FEN e Tracker, controlla
+   * la posizione finale e solo allora sostituisce lo stato; pesca e mana per ultimi. Lancia `EffectError` per
+   * annullare il cast senza costi.
+   */
   private applySpellEffects(def: Spell, targets: string[], caster: Color) {
-    const applied: Record<string, unknown>[] = [];
-    const drawn: DrawResult[] = [];
+    validateTargets(this.board.fen, this.tracker, def.targets, targets, caster);
+
     let fen = this.board.fen;
+    const tracker = this.tracker.clone();
     let changed = false;
-    const missingTarget = (expected: number) => new EffectError(WS.needsTargets(def.name, expected, targets.length));
+    const applied: Record<string, unknown>[] = [];
+    const deferred: (() => void)[] = [];
+    const drawn: DrawResult[] = [];
+    const target = (): string => {
+      const square = targets[0];
+      if (square === undefined) throw new EffectError(WS.needsTarget(def.name));
+      return square;
+    };
 
     for (const eff of def.effects) {
-      const target = targets[0];
+      const entry: Record<string, unknown> = { kind: eff.kind };
       switch (eff.kind) {
-        case 'noop':
-          applied.push({ kind: eff.kind });
-          break;
         case 'destroy_piece': {
-          if (target === undefined) throw missingTarget(1);
-          const result = destroyPiece(fen, target, caster);
-          validateBoardEdit(result.fen);
+          const square = target();
+          const result = destroyPiece(fen, square);
           fen = result.fen;
           changed = true;
-          this.tracker.removeAt(target);
-          applied.push({ kind: eff.kind, target, piece_destroyed: result.destroyed });
+          tracker.removeAt(square);
+          entry['target'] = square;
+          entry['piece_destroyed'] = result.destroyed;
           break;
         }
         case 'freeze_piece':
         case 'shield_piece': {
-          if (target === undefined) throw missingTarget(1);
-          const turns = paramInt(eff.params, 'turns', 1);
-          if (eff.kind === 'freeze_piece') this.tracker.freeze(target, caster, turns, def.id);
-          else this.tracker.shield(target, caster, turns, def.id);
-          applied.push({ kind: eff.kind, target, remaining_turns: turns });
+          const square = target();
+          const duration = paramInt(eff.params, 'duration', 1);
+          if (eff.kind === 'freeze_piece') tracker.freeze(square, caster, duration, def.id);
+          else tracker.shield(square, caster, duration, def.id);
+          entry['target'] = square;
+          entry['remaining_turns'] = duration;
           break;
         }
         case 'draw_card': {
-          const count = paramInt(eff.params, 'count', 1);
-          for (let i = 0; i < count; i++) {
-            const d = this.match.drawFor(caster);
-            if (d.cardId !== '') drawn.push(d);
-          }
-          applied.push({ kind: eff.kind, count: drawn.length });
+          const amount = paramInt(eff.params, 'amount', 1);
+          deferred.push(() => {
+            let count = 0;
+            for (let i = 0; i < amount; i++) {
+              const d = this.match.drawFor(caster);
+              if (d.cardId !== '') {
+                drawn.push(d);
+                count++;
+              }
+            }
+            entry['count'] = count;
+          });
           break;
         }
         case 'gain_mana': {
           const amount = paramInt(eff.params, 'amount', 1);
-          const m = this.match.gainMana(caster, amount);
-          applied.push({ kind: eff.kind, amount, mana: m.current });
+          const exceedCap = paramBool(eff.params, 'can_exceed_cap');
+          deferred.push(() => {
+            entry['amount'] = amount;
+            entry['mana'] = this.match.gainMana(caster, amount, exceedCap).current;
+          });
           break;
         }
         case 'move_piece': {
-          const to = targets[1];
-          if (target === undefined || to === undefined) throw missingTarget(2);
-          const next = movePieceFen(fen, target, to, caster);
-          if (isKingAttacked(next, caster)) throw new EffectError(WS.exposesOwnKing(caster));
-          validateBoardEdit(next);
-          fen = next;
+          const [from, to] = moveEndpoints(fen, eff.params, targets, caster);
+          fen = movePieceFen(fen, from, to, caster);
           changed = true;
-          this.tracker.relocate(target, to); // spostamento magico: niente arrocco né en passant
-          applied.push({ kind: eff.kind, from: target, to });
+          tracker.relocate(from, to); // spostamento magico: niente arrocco né en passant
+          entry['from'] = from;
+          entry['to'] = to;
+          break;
+        }
+        case 'summon_pawn': {
+          const square = target();
+          const pawn = caster === 'white' ? 'P' : 'p';
+          const limit = paramInt(eff.params, 'max_pawns', 0);
+          if (limit > 0 && countPieces(fen, pawn) >= limit) throw new EffectError(WS.maxPawns(limit, square));
+          fen = placePiece(fen, square, pawn);
+          changed = true;
+          tracker.add(square, pawn);
+          entry['target'] = square;
+          entry['piece'] = 'pawn';
           break;
         }
         default:
           throw new EffectError(WS.unsupportedEffect(eff.kind));
       }
+      applied.push(entry);
     }
-    if (changed) this.board.fen = fen; // una magia non cambia il lato al tratto
+
+    if (changed) {
+      fen = clearStaleEnPassant(fen);
+      validateNoCheck(this.board.fen, fen, caster);
+      this.board.fen = fen; // una magia non cambia il lato al tratto
+    }
+    this.tracker = tracker;
+    for (const apply of deferred) apply();
     return { applied, changed, drawn };
   }
 
-  /** `room.go:858-866`. */
+  /** `tickEffectsOnNewTurn` (`room.go`): durate alla fine del turno di chi ha appena chiuso. */
   private tickEffectsOnNewTurn(results: AdvanceResult[]): ExpiredEffect[] {
     const rollover = results.find((r) => r.newTurn);
     if (rollover === undefined) return [];
-    return this.tracker.tickColor(opponentOf(rollover.activePlayer));
+    return this.tracker.tickTurnEnd(opponentOf(rollover.activePlayer));
   }
 
-  /** `room.go:875-899`. */
+  /** `gameStatus` + `isPlayable` (`room.go`): le mosse dei pezzi congelati non sono giocabili. */
+  private gameStatus() {
+    return getGameStatus(this.board.fen, (move) => move.length < 4 || !this.tracker.isFrozen(move.slice(0, 2)));
+  }
+
+  /** `checkRolloverGameEnd` (`room.go`). */
   private checkRolloverGameEnd(results: AdvanceResult[]): GameEnd | null {
-    if (!results.some((r) => r.newTurn)) return null;
-    switch (getGameStatus(this.board.fen)) {
+    return results.some((r) => r.newTurn) ? this.checkActivePlayerEnd() : null;
+  }
+
+  /** `checkActivePlayerEnd` (`room.go`): il giocatore attivo è il lato al tratto della FEN. */
+  private checkActivePlayerEnd(): GameEnd | null {
+    switch (this.gameStatus()) {
       case 'checkmate':
         return this.finish(this.match.activePlayer === 'white' ? '0-1' : '1-0', 'checkmate', 'checkmate');
       case 'stalemate':

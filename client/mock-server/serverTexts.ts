@@ -5,7 +5,7 @@
  * se ne accorge.
  */
 
-/** Codici di `gameerr/gameerr.go:17-49`. */
+/** Codici di `gameerr/gameerr.go:17-50`. */
 export const GAME_ERROR_CODES = [
   'invalid_payload',
   'unknown_message_type',
@@ -22,6 +22,7 @@ export const GAME_ERROR_CODES = [
   'invalid_target_count',
   'invalid_target',
   'illegal_position',
+  'limit_reached',
   'draw_offer_pending',
   'no_draw_offer',
   'own_draw_offer',
@@ -60,12 +61,20 @@ export const WS = {
   illegalMove: (move: string) => e('illegal_move', `Mossa illegale: ${move}`, { move }), // :448
   frozen: (square: string) => e('piece_frozen', `Il pezzo in ${square} è congelato`, { square }), // :457
   cannotPassInPhase: (phase: string) => e('wrong_phase', `Non puoi passare nella fase ${phase}`, { phase }), // :591
-  illegalPosition: (king: string) =>
-    e('illegal_position', `posizione illegale: il re ${king} resterebbe sotto scacco senza avere il tratto`, { king }), // :728
-  needsTargets: (name: string, expected: number, received: number) =>
-    e('invalid_target_count', `la magia ${name} richiede ${expected} bersagli`, { expected, received }), // :749
-  exposesOwnKing: (king: string) => e('illegal_position', 'mossa illegale: lascerebbe il re sotto scacco', { king }), // :829
-  unsupportedEffect: (kind: string) => e('internal_error', `effetto non supportato: ${kind}`), // :844
+  // validateNoCheck, applySpellEffects, moveEndpoints
+  kingLeftInCheck: (king: string) => e('illegal_position', `il re ${king} resterebbe sotto scacco`, { king }),
+  spellGivesCheck: (king: string) => e('illegal_position', `una magia non può dare scacco al re ${king}`, { king }),
+  needsTarget: (name: string) => e('invalid_target_count', `la magia ${name} richiede un bersaglio`, { expected: 1, received: 0 }),
+  moveNeedsTwo: (received: number) =>
+    e('invalid_target_count', "lo spostamento richiede pezzo e casa d'arrivo", { expected: 2, received }),
+  unsupportedRelative: (relative: string) => e('internal_error', `movimento relativo non supportato: ${quoted(relative)}`),
+  maxPawns: (limit: number, square: string) =>
+    e('invalid_target', `hai già ${limit} pedoni`, { index: 0, reason: 'max_pawns', square }),
+  forwardBlocked: (square: string) =>
+    e('invalid_target', `la casa ${square} davanti al pezzo è occupata`, { index: 0, reason: 'not_empty', square }),
+  wouldPromote: (square: string) =>
+    e('invalid_target', `${square} porterebbe il pedone alla promozione`, { index: 0, reason: 'promotion', square }),
+  unsupportedEffect: (kind: string) => e('internal_error', `effetto non supportato: ${kind}`),
   drawOfferPending: e('draw_offer_pending', "C'è già un'offerta di patta in corso"), // :1424
   noDrawOffer: e('no_draw_offer', 'Nessuna offerta di patta in corso'), // :1463
   ownDrawOffer: e('own_draw_offer', 'Non puoi rispondere alla tua stessa offerta'), // :1470
@@ -77,14 +86,21 @@ export const WS = {
   cardNotInHand: (id: string) => e('card_not_in_hand', 'carta non in mano', { spell_id: id }), // :321
   insufficientMana: (needed: number, available: number) =>
     e('insufficient_mana', `mana insufficiente: servono ${needed}, hai ${available}`, { needed, available }), // :324
+  limitReached: (name: string, spellId: string, perTurn: number) =>
+    e('limit_reached', `${name} si può lanciare al massimo ${perTurn} volte per turno`, { spell_id: spellId, per_turn: perTurn }),
   wrongTargetCount: (name: string, expected: number, received: number) =>
-    e('invalid_target_count', `la magia ${name} richiede ${expected} bersagli, ricevuti ${received}`, { expected, received }), // :328
+    e('invalid_target_count', `la magia ${name} richiede ${expected} bersagli, ricevuti ${received}`, { expected, received }),
+  // effects/targets.go (ValidateTargets): ogni rifiuto porta indice, motivo e casella
+  target: (index: number, reason: string, square: string, message: string) =>
+    e('invalid_target', message, { index, reason, square }),
   // effects/effects.go
   invalidSquare: (square: string) => e('invalid_target', `casella non valida: ${quoted(square)}`), // :27
   offBoardSquare: (square: string) => e('invalid_target', `casella fuori scacchiera: ${quoted(square)}`), // :31
-  nothingToDestroy: (square: string) => e('invalid_target', `nessun pezzo da distruggere in ${square}`), // :193
-  cannotDestroyOwn: (square: string) => e('invalid_target', `non puoi distruggere un tuo pezzo (${square})`), // :196
-  kingIndestructible: e('invalid_target', 'il re non può essere distrutto'), // :199
+  nothingToDestroy: (square: string) => e('invalid_target', `nessun pezzo da distruggere in ${square}`),
+  kingIndestructible: (square: string) => e('invalid_target', 'il re non può essere distrutto', { reason: 'king', square }),
+  cannotAdvance: (square: string, n: number) =>
+    e('invalid_target', `${square} non può avanzare di ${n}`, { reason: 'off_board', square }),
+  squareNotEmpty: (square: string) => e('invalid_target', `la casella ${square} non è vuota`, { reason: 'not_empty', square }),
   nothingToMove: (square: string) => e('invalid_target', `nessun pezzo da spostare in ${square}`), // :231
   moveOnlyOwn: (square: string) => e('invalid_target', `puoi spostare solo i tuoi pezzi (${square})`), // :234
   destinationOccupied: (square: string) => e('invalid_target', `la casella ${square} non è vuota`), // :237
@@ -161,9 +177,14 @@ export function wsErrorSamples(): GameError[] {
     WS.illegalMove('e2e5'),
     WS.frozen('e7'),
     WS.cannotPassInPhase('move'),
-    WS.illegalPosition('black'),
-    WS.needsTargets('Teleport', 2, 1),
-    WS.exposesOwnKing('white'),
+    WS.kingLeftInCheck('white'),
+    WS.spellGivesCheck('black'),
+    WS.needsTarget('Brina'),
+    WS.moveNeedsTwo(1),
+    WS.unsupportedRelative('sideways'),
+    WS.maxPawns(8, 'b2'),
+    WS.forwardBlocked('e3'),
+    WS.wouldPromote('e8'),
     WS.unsupportedEffect('summon'),
     WS.drawOfferPending,
     WS.noDrawOffer,
@@ -171,15 +192,18 @@ export function wsErrorSamples(): GameError[] {
     WS.castNotYourTurn,
     WS.castWrongPhase('move'),
     WS.unknownSpell('fireball'),
-    WS.spellWrongPhase('Frost Bolt', 'move'),
-    WS.cardNotInHand('aegis'),
+    WS.spellWrongPhase('Brina', 'move'),
+    WS.cardNotInHand('shield'),
     WS.insufficientMana(4, 1),
-    WS.wrongTargetCount('Teleport', 2, 1),
+    WS.limitReached('Patto di sangue', 'blood_pact', 1),
+    WS.wrongTargetCount('Blink', 2, 1),
+    WS.target(1, 'too_far', 'f6', 'f6 è a distanza 3, massimo 2'),
     WS.invalidSquare('e'),
     WS.offBoardSquare('z9'),
     WS.nothingToDestroy('e5'),
-    WS.cannotDestroyOwn('e2'),
-    WS.kingIndestructible,
+    WS.kingIndestructible('e8'),
+    WS.cannotAdvance('e8', 1),
+    WS.squareNotEmpty('b2'),
     WS.nothingToMove('e5'),
     WS.moveOnlyOwn('e7'),
     WS.destinationOccupied('e4'),

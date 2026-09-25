@@ -1,17 +1,8 @@
 import { CATALOG, type Spell } from '../game/catalog';
 import { legalMoves } from '../game/engine';
-import {
-  destroyPiece,
-  isKingAttacked,
-  movePieceFen,
-  opponentOf,
-  parsePlacement,
-  pieceColor,
-  sideToMove,
-  squareName,
-  type Color,
-} from '../game/fen';
+import { parsePlacement, squareName, type Color } from '../game/fen';
 import type { GameClient, Room } from '../game/room';
+import { validateTargets } from '../game/targets';
 import type { WireClientType, WireServerMessage } from '../wire';
 
 export interface BotBehavior {
@@ -170,6 +161,11 @@ export class Bot {
     return null;
   }
 
+  /**
+   * Bersagli passo per passo: la prima casella che `validateTargets` accetta (pedoni prima, e per le magie senza
+   * `require_effect` pezzi senza effetti addosso, così un gelo non si spreca su un pezzo già congelato). Una posizione
+   * che il server rifiuta con `illegal_position` finisce in `rejected` e il bot prova un'altra carta.
+   */
   private targetsFor(room: Room, spell: Spell): string[] | null {
     const pieces: { square: string; piece: string }[] = [];
     parsePlacement(room.board.fen).forEach((row, r) =>
@@ -177,53 +173,29 @@ export class Bot {
         if (cell !== null) pieces.push({ square: squareName(r, c), piece: cell });
       }),
     );
-    const own = pieces.filter((p) => pieceColor(p.piece) === this.color && p.piece.toLowerCase() !== 'k');
-    const enemy = pieces.filter((p) => pieceColor(p.piece) !== this.color && p.piece.toLowerCase() !== 'k');
-    const pawnsFirst = (list: typeof pieces) => [...list].sort((a, b) => Number(b.piece.toLowerCase() === 'p') - Number(a.piece.toLowerCase() === 'p'));
+    const pawnsFirst = [...pieces].sort((a, b) => Number(b.piece.toLowerCase() === 'p') - Number(a.piece.toLowerCase() === 'p'));
+    const allSquares = Array.from({ length: 64 }, (_, i) => squareName(Math.floor(i / 8), i % 8));
 
-    switch (spell.target_type) {
-      case 'none':
-        return [];
-      case 'enemy_piece': {
-        // Bersaglio senza effetti, così una Disintegrate non cancella il congelamento appena lanciato; e niente
-        // posizioni che il server rifiuterebbe con `illegal_position` (`game/room.go:725-733`).
-        const legalAfterDestroy = (square: string) => {
-          if (!spell.effects.some((e) => e.kind === 'destroy_piece')) return true;
-          const next = destroyPiece(room.board.fen, square, this.color).fen;
-          return !isKingAttacked(next, opponentOf(sideToMove(next)));
-        };
-        const candidate = pawnsFirst(enemy).find(
-          (p) => !room.tracker.isFrozen(p.square) && !room.tracker.hasShield(p.square) && legalAfterDestroy(p.square),
-        );
-        return candidate === undefined ? null : [candidate.square];
-      }
-      case 'own_piece': {
-        const candidate = pawnsFirst(own).find((p) => !room.tracker.hasShield(p.square));
-        return candidate === undefined ? null : [candidate.square];
-      }
-      case 'piece_move': {
-        const occupied = new Set(pieces.map((p) => p.square));
-        // Solo pezzi non pedoni e non re: basta per lo scenario e tiene le mosse leggibili.
-        for (const from of own.filter((p) => p.piece.toLowerCase() !== 'p')) {
-          for (let r = 2; r <= 5; r++) {
-            for (let c = 0; c < 8; c++) {
-              const to = squareName(r, c);
-              if (occupied.has(to)) continue;
-              try {
-                const next = movePieceFen(room.board.fen, from.square, to, this.color);
-                const waiting = opponentOf(sideToMove(next));
-                if (!isKingAttacked(next, this.color) && !isKingAttacked(next, waiting)) return [from.square, to];
-              } catch {
-                continue;
-              }
-            }
-          }
+    const chosen: string[] = [];
+    for (const [index, spec] of spell.targets.entries()) {
+      const candidates =
+        spec.type === 'square'
+          ? allSquares
+          : pawnsFirst
+              .map((p) => p.square)
+              .filter((sq) => spec.require_effect !== undefined || (!room.tracker.isFrozen(sq) && !room.tracker.hasShield(sq)));
+      const pick = candidates.find((sq) => {
+        try {
+          validateTargets(room.board.fen, room.tracker, spell.targets.slice(0, index + 1), [...chosen, sq], this.color);
+          return true;
+        } catch {
+          return false;
         }
-        return null;
-      }
-      default:
-        return null;
+      });
+      if (pick === undefined) return null;
+      chosen.push(pick);
     }
+    return chosen;
   }
 
   dispose(): void {

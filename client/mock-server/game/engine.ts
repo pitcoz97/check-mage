@@ -54,15 +54,19 @@ export function isInCheck(fen: string): boolean {
   }
 }
 
-/** `stockfish.go:188-232`. */
-export function getGameStatus(fen: string): GameStatus {
+/**
+ * `GetGameStatusFiltered` / `classify` (`stockfish.go`): conta solo le mosse legali che `playable` accetta. Senza
+ * mosse giocabili valgono le regole degli scacchi: re sotto scacco = matto, altrimenti stallo.
+ */
+export function getGameStatus(fen: string, playable?: (move: string) => boolean): GameStatus {
   let chess: Chess;
   try {
     chess = load(fen);
   } catch {
     return 'ongoing';
   }
-  if (chess.moves().length === 0) return chess.inCheck() ? 'checkmate' : 'stalemate';
+  const moves = chess.moves({ verbose: true }).filter((m) => playable === undefined || playable(m.lan));
+  if (moves.length === 0) return chess.inCheck() ? 'checkmate' : 'stalemate';
   if (isDrawByRule(fen)) return 'draw';
   return 'ongoing';
 }

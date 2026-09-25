@@ -1,7 +1,7 @@
 import { WS, type GameError } from '../serverTexts';
 import { shuffle, type Rng } from '../util';
 import type { WirePhase } from '../wire';
-import { buildDeck, CATALOG, INITIAL_MANA, MAX_MANA_CAP, STARTING_HAND, targetCount, type Spell } from './catalog';
+import { buildDeck, CATALOG, INITIAL_MANA, LIMIT_PER_TURN, MAX_MANA_CAP, STARTING_HAND, type Spell } from './catalog';
 import type { Color } from './fen';
 
 /**
@@ -27,6 +27,8 @@ export interface PlayerState {
   discard: string[];
   mana: number;
   max_mana: number;
+  /** Cast di ogni magia nel turno corrente del giocatore (`Spell.limits`); si azzera all'inizio del suo turno. */
+  casts_this_turn?: Record<string, number>;
 }
 
 export interface DrawResult {
@@ -94,6 +96,12 @@ function takeFromDeck(ps: PlayerState, ids: readonly string[]): string[] {
   });
 }
 
+/** `withinLimits` (`match.go`): una magia senza limiti è sempre entro i limiti. */
+function withinLimits(def: Spell, ps: PlayerState): boolean {
+  const perTurn = def.limits?.[LIMIT_PER_TURN];
+  return perTurn === undefined || (ps.casts_this_turn?.[def.id] ?? 0) < perTurn;
+}
+
 export class MatchState {
   currentPhase: WirePhase = 'draw';
   turnNumber = 1;
@@ -141,6 +149,7 @@ export class MatchState {
     this.activePlayer = this.activePlayer === 'white' ? 'black' : 'white';
     this.turnNumber++;
     this.currentPhase = 'draw';
+    delete this.player(this.activePlayer).casts_this_turn; // i limiti per turno ripartono
     const mana = this.refreshMana(this.activePlayer);
     const draw = this.drawCard(this.activePlayer);
     return this.snapshot({ newTurn: true, draw, mana });
@@ -150,10 +159,10 @@ export class MatchState {
     return this.drawCard(p);
   }
 
-  /** `match.go:187-196`. */
-  gainMana(p: Color, amount: number): ManaState {
+  /** `GainMana`: senza `exceedCap` non supera il tetto assoluto (`MaxManaCap`). */
+  gainMana(p: Color, amount: number, exceedCap: boolean): ManaState {
     const ps = this.player(p);
-    ps.mana = Math.min(MAX_MANA_CAP, ps.mana + amount);
+    ps.mana = exceedCap ? ps.mana + amount : Math.min(MAX_MANA_CAP, ps.mana + amount);
     return { player: p, current: ps.mana, max: ps.max_mana };
   }
 
@@ -163,7 +172,7 @@ export class MatchState {
     const ps = this.player(this.activePlayer);
     return ps.hand.some((id) => {
       const def = CATALOG.get(id);
-      return def !== undefined && def.mana_cost <= ps.mana && def.phases.includes(this.currentPhase);
+      return def !== undefined && def.mana_cost <= ps.mana && def.phases.includes(this.currentPhase) && withinLimits(def, ps);
     });
   }
 
@@ -210,8 +219,9 @@ export class MatchState {
     const index = ps.hand.indexOf(spellId);
     if (index < 0) throw new CastError(WS.cardNotInHand(spellId));
     if (ps.mana < def.mana_cost) throw new CastError(WS.insufficientMana(def.mana_cost, ps.mana));
+    if (!withinLimits(def, ps)) throw new CastError(WS.limitReached(def.name, def.id, def.limits?.[LIMIT_PER_TURN] ?? 0));
     const received = targets?.length ?? 0;
-    const expected = targetCount(def.target_type);
+    const expected = def.targets.length;
     if (received !== expected) throw new CastError(WS.wrongTargetCount(def.name, expected, received));
 
     const effectsApplied = apply(def, targets ?? []);
@@ -219,6 +229,7 @@ export class MatchState {
     ps.mana -= def.mana_cost;
     ps.hand.splice(index, 1);
     ps.discard.push(spellId);
+    ps.casts_this_turn = { ...ps.casts_this_turn, [spellId]: (ps.casts_this_turn?.[spellId] ?? 0) + 1 };
     return { spell: def, effectsApplied, targets, manaAfter: ps.mana, manaMax: ps.max_mana, handSize: ps.hand.length };
   }
 

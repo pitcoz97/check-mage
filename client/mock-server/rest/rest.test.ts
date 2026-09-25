@@ -129,14 +129,14 @@ describe('rotte (api/router.go)', () => {
     const server = await start();
     const res = await call(server, 'GET', '/spells');
     const spells = res.body.data as { id: string; mana_cost: number }[];
-    expect(spells).toHaveLength(11);
+    expect(spells).toHaveLength(9);
     const order = spells.map((s) => `${s.mana_cost}:${s.id}`);
     expect(order).toEqual(
       [...spells]
         .sort((a, b) => a.mana_cost - b.mana_cost || a.id.localeCompare(b.id))
         .map((s) => `${s.mana_cost}:${s.id}`),
     );
-    expect(spells[0]?.id).toBe('channel');
+    expect(spells[0]?.id).toBe('blood_pact');
   });
 
   it('GET /auth/password-policy', async () => {

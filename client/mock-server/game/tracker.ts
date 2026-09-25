@@ -9,11 +9,18 @@ import { EffectError, parsePlacement, pieceColor, squareName, type Color } from 
 export const KIND_FREEZE = 'freeze';
 export const KIND_SHIELD = 'shield';
 
+/**
+ * `remaining_turns` conta i turni dell'avversario di `caster` ancora coperti; 0 = fino alla fine del turno di
+ * `caster`; `PERMANENT` = non scade (`tracker.go`, `ActiveEffect`).
+ */
 export interface ActiveEffect {
   kind: string;
   remaining_turns: number;
   source_spell_id?: string;
+  caster?: Color;
 }
+
+export const PERMANENT = -1;
 
 interface PieceState {
   id: number;
@@ -109,8 +116,26 @@ export class Tracker {
     return id === undefined ? null : pieceColor((this.pieces.get(id) as PieceState).type);
   }
 
-  /** `tracker.go:155-171`. */
-  private addEffect(square: string, kind: string, turns: number, source: string): void {
+  /** `Tracker.Add`: un pezzo nuovo (es. un pedone evocato) con un id nuovo e nessun effetto. */
+  add(square: string, piece: string): void {
+    this.removeAt(square);
+    const id = this.nextId++;
+    this.pieces.set(id, { id, type: piece, square, effects: [] });
+    this.bySquare.set(square, id);
+  }
+
+  /** `Tracker.Clone`: una copia indipendente, su cui si applicano gli effetti di una magia. */
+  clone(): Tracker {
+    const copy = Object.create(Tracker.prototype) as Tracker;
+    const fields = copy as unknown as { bySquare: Map<string, number>; pieces: Map<number, PieceState>; nextId: number };
+    fields.bySquare = new Map(this.bySquare);
+    fields.pieces = new Map([...this.pieces].map(([id, ps]) => [id, { ...ps, effects: ps.effects.map((e) => ({ ...e })) }]));
+    fields.nextId = this.nextId;
+    return copy;
+  }
+
+  /** `addEffect` (`tracker.go`). */
+  private addEffect(square: string, kind: string, turns: number, source: string, caster: Color): void {
     const id = this.bySquare.get(square);
     if (id === undefined) throw new EffectError(WS.nothingAt(square));
     const ps = this.pieces.get(id) as PieceState;
@@ -118,9 +143,10 @@ export class Tracker {
     if (existing !== undefined) {
       existing.remaining_turns = turns;
       existing.source_spell_id = source;
+      existing.caster = caster;
       return;
     }
-    ps.effects.push({ kind, remaining_turns: turns, source_spell_id: source });
+    ps.effects.push({ kind, remaining_turns: turns, source_spell_id: source, caster });
   }
 
   /** `tracker.go:173-183`. */
@@ -128,7 +154,7 @@ export class Tracker {
     const color = this.colorAt(square);
     if (color === null) throw new EffectError(WS.nothingToFreeze(square));
     if (color === caster) throw new EffectError(WS.cannotFreezeOwn(square));
-    this.addEffect(square, KIND_FREEZE, turns, source);
+    this.addEffect(square, KIND_FREEZE, turns, source, caster);
   }
 
   /** `tracker.go:185-195`. */
@@ -136,13 +162,14 @@ export class Tracker {
     const color = this.colorAt(square);
     if (color === null) throw new EffectError(WS.nothingToShield(square));
     if (color !== caster) throw new EffectError(WS.shieldOnlyOwn(square));
-    this.addEffect(square, KIND_SHIELD, turns, source);
+    this.addEffect(square, KIND_SHIELD, turns, source, caster);
   }
 
-  private hasEffect(square: string, kind: string): boolean {
+  /** `HasEffect`: gli effetti scaduti sono già stati tolti da `tickTurnEnd`, quindi basta la presenza. */
+  hasEffect(square: string, kind: string): boolean {
     const id = this.bySquare.get(square);
     if (id === undefined) return false;
-    return (this.pieces.get(id) as PieceState).effects.some((e) => e.kind === kind && e.remaining_turns > 0);
+    return (this.pieces.get(id) as PieceState).effects.some((e) => e.kind === kind);
   }
 
   isFrozen(square: string): boolean {
@@ -161,19 +188,23 @@ export class Tracker {
     ps.effects = ps.effects.filter((e) => e.kind !== KIND_SHIELD);
   }
 
-  /** `tracker.go:239-260`: decrementa gli effetti dei pezzi di `color` (chi ha appena chiuso il turno). */
-  tickColor(color: Color): ExpiredEffect[] {
+  /**
+   * `TickTurnEnd`: alla fine del turno di `finishing` scendono gli effetti lanciati dal suo avversario; quelli a 0
+   * scadono. Un effetto a 0 lanciato da `finishing` scade alla fine del suo turno. Scaduti ordinati per casella.
+   */
+  tickTurnEnd(finishing: Color): ExpiredEffect[] {
     const expired: ExpiredEffect[] = [];
     for (const ps of this.pieces.values()) {
-      if (pieceColor(ps.type) !== color || ps.effects.length === 0) continue;
+      if (ps.effects.length === 0) continue;
       ps.effects = ps.effects.filter((e) => {
-        e.remaining_turns--;
+        if (e.remaining_turns === PERMANENT) return true;
+        if (e.caster !== finishing) e.remaining_turns--;
         if (e.remaining_turns > 0) return true;
         expired.push({ pieceId: ps.id, square: ps.square, kind: e.kind });
         return false;
       });
     }
-    return expired;
+    return expired.sort((a, b) => (a.square < b.square ? -1 : a.square > b.square ? 1 : 0));
   }
 
   /** `tracker.go:279-292`: copie degli effetti, ordinate per casella. */
