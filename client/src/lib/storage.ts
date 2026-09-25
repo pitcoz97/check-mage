@@ -61,6 +61,8 @@ export function createNativeStorage(load: () => Promise<PreferencesLike>): KeyVa
 /** Chiavi note, per evitare stringhe sparse. */
 export const STORAGE_KEYS = {
   language: 'language',
+  /** Tema della scacchiera scelto dall'utente (D1). */
+  boardTheme: 'board-theme',
   session: 'session',
   /** Id dell'utente con una partita aperta, per riprenderla dopo un ricaricamento (ASSUMPTIONS C11). */
   activeMatch: 'active-match',

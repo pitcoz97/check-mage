@@ -64,15 +64,17 @@ describe('guardie di rotta', () => {
 
   it('autenticato su /login → lobby', async () => {
     const { router } = await renderApp('/login', { 'GET /me': () => data(ACCOUNT) }, { accessToken: 'a1', refreshToken: 'r1' });
-    expect(await screen.findByRole('heading', { name: 'Pronto a giocare?' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Bentornato, mario' })).toBeTruthy();
     expect(router.state.location.pathname).toBe('/lobby');
-    expect(screen.getByText('ELO 1234')).toBeTruthy();
+    expect(screen.getAllByText('Rating 1234').length).toBeGreaterThan(0);
   });
 
-  it('logout → login', async () => {
-    const { router, map } = await renderApp('/lobby', { 'GET /me': () => data(ACCOUNT) }, { accessToken: 'a1', refreshToken: 'r1' });
+  it('logout dalle Impostazioni, con conferma → login (D14)', async () => {
+    const { router, map } = await renderApp('/settings', { 'GET /me': () => data(ACCOUNT) }, { accessToken: 'a1', refreshToken: 'r1' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Esci' }));
+    expect(screen.getByText('Uscire dall’account su questo dispositivo?')).toBeTruthy();
     await act(async () => {
-      fireEvent.click(await screen.findByRole('button', { name: 'Esci' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Sì, esci' }));
     });
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
     expect(map.size).toBe(0);
@@ -94,7 +96,7 @@ describe('guardie di rotta', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Riprova' }));
     });
-    expect(await screen.findByRole('heading', { name: 'Pronto a giocare?' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Bentornato, mario' })).toBeTruthy();
   });
 });
 
@@ -152,9 +154,10 @@ describe('registrazione', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Crea account' }));
     });
-    expect(await screen.findByRole('heading', { name: 'Pronto a giocare?' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Bentornato, mario' })).toBeTruthy();
     expect(router.state.location.pathname).toBe('/lobby');
-    expect(server.hits.filter((hit) => hit !== 'GET /auth/password-policy')).toEqual(['POST /auth/register', 'POST /auth/login']);
+    // La home chiede anche la classifica (card in basso): qui conta che la registrazione faccia un solo login.
+    expect(server.hits.filter((hit) => hit.startsWith('POST'))).toEqual(['POST /auth/register', 'POST /auth/login']);
   });
 
   it('i requisiti seguono GET /auth/password-policy', async () => {

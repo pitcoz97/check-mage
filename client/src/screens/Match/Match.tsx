@@ -8,18 +8,23 @@ import { Button } from '../../design/components/Button';
 import { Panel } from '../../design/components/Panel';
 import { Spinner } from '../../design/components/Spinner';
 import { useCatalog } from '../../spells/CatalogProvider';
-import { effectPresentation } from '../../spells/effects.registry';
+import { cardRefusalMessage } from '../../spells/playability';
 import { useMatch, useMatchSession, useSessionStatus } from '../../store/MatchProvider';
 import type { GameOutcome } from '../../store/matchStore';
-import { useCasting, type Casting } from './useCasting';
-import { Actions } from './Actions';
+import { MatchRail } from '../../app/Navigation';
+import { StatePage } from '../../app/StatePage';
+import { PassButton, SecondaryActions } from './Actions';
 import { ConnectionBanner } from './ConnectionBanner';
-import { protocolErrorMessage } from './errorMessage';
+import { HintBox } from './HintBox';
+import { ManaPanel } from './ManaPanel';
 import { MatchBoard } from './MatchBoard';
 import { MatchLayout } from './MatchLayout';
-import { MoveHistory } from './MoveHistory';
-import { PhaseTrack } from './PhaseTrack';
-import { PlayerPanel } from './PlayerPanel';
+import { MatchBottomBar } from './MatchSheet';
+import { PlayerRow } from './PlayerRow';
+import { SideTabs } from './SideTabs';
+import { PhasePills, TurnPanel } from './TurnPanel';
+import { useCasting, type Casting } from './useCasting';
+import { useNotice } from './useNotice';
 
 /**
  * Dopo un ricaricamento il client riapre la connessione solo se ricorda una partita aperta (ASSUMPTIONS C11).
@@ -31,45 +36,6 @@ export const RESUME_TIMEOUT_MS = 4_000;
 /** Durata del lampeggio sulle caselle toccate da una magia. */
 const SPELL_FLASH_MS = 1_200;
 
-/**
- * Ultimo avviso da mostrare: rifiuto del server, esito di un'offerta di patta, o rifiuto deciso dal client.
- * Si sceglie per progressivo, senza effetti collaterali: l'avviso più recente vince.
- */
-function useNotice(): { text: string | null; show(text: string): void } {
-  const { t } = useTranslation();
-  const seq = useMatch((s) => s.seq);
-  const lastError = useMatch((s) => s.lastError);
-  const drawNotice = useMatch((s) => s.drawNotice);
-  const lastCast = useMatch((s) => s.lastCast);
-  const myColor = useMatch((s) => s.myColor);
-  const byId = useCatalog((s) => s.byId);
-  const [local, setLocal] = useState<{ text: string; seq: number } | null>(null);
-
-  const candidates = [
-    lastError === null ? null : { seq: lastError.seq, text: protocolErrorMessage(t, lastError.info) },
-    lastCast === null
-      ? null
-      : {
-          seq: lastCast.seq,
-          text: t(lastCast.player === myColor ? 'spells.castByYou' : 'spells.castByOpponent', {
-            name: byId.get(lastCast.spellId)?.name ?? lastCast.spellId,
-            effects: lastCast.effects.map((effect) => effectPresentation(effect.kind).label(t)).join(', '),
-          }),
-        },
-    drawNotice === null
-      ? null
-      : { seq: drawNotice.seq, text: t(drawNotice.reason === 'move_played' ? 'match.notice.drawLapsed' : 'match.notice.drawDeclined') },
-    local,
-  ].filter((candidate) => candidate !== null);
-  const latest = candidates.sort((a, b) => a.seq - b.seq).at(-1);
-
-  return {
-    text: latest?.text ?? null,
-    // Mezzo punto sopra il progressivo corrente: più recente di tutto ciò che è già arrivato dal server.
-    show: (text: string) => setLocal({ text, seq: seq + 0.5 }),
-  };
-}
-
 function outcomeHeadline(outcome: GameOutcome, myColor: Color | null): 'win' | 'loss' | 'draw' | 'whiteWins' | 'blackWins' | 'unknownResult' {
   if (outcome.result === '1/2-1/2') return 'draw';
   if (outcome.result === 'unknown') return 'unknownResult';
@@ -78,18 +44,37 @@ function outcomeHeadline(outcome: GameOutcome, myColor: Color | null): 'win' | '
   return winner === myColor ? 'win' : 'loss';
 }
 
-/** Riepilogo di fine partita: esito, motivo, ritorno alla lobby. */
+type Headline = ReturnType<typeof outcomeHeadline>;
+
+/** Banda dell'esito: verde vittoria, rosso sconfitta, oro patta, spenta se l'esito non si conosce. */
+const OUTCOME_BAND: Record<Headline, string> = {
+  win: 'bg-play',
+  loss: 'bg-danger',
+  draw: 'bg-gold',
+  whiteWins: 'bg-gold',
+  blackWins: 'bg-gold',
+  unknownResult: 'bg-quiet',
+};
+
+/**
+ * Riepilogo di fine partita: esito, motivo, ritorno alla home. Non è nelle tavole (D20): card Pietra con la banda del
+ * colore dell'esito e il titolo in Cinzel. Sta al posto delle azioni, così la posizione finale resta visibile.
+ */
 function OutcomePanel({ outcome }: { outcome: GameOutcome }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const session = useMatchSession();
   const myColor = useMatch((s) => s.myColor);
+  const headline = outcomeHeadline(outcome, myColor);
   return (
-    <Panel role="status" className="flex flex-col gap-3 p-4">
-      <h2 className="text-lg font-bold">{t('match.over.title')}</h2>
-      <p className="font-semibold">{t(`match.over.${outcomeHeadline(outcome, myColor)}`)}</p>
-      <p className="text-sm text-muted">{t(`match.over.reason.${outcome.reason}`)}</p>
+    <Panel role="status" data-outcome={headline} className="flex flex-col gap-3 overflow-hidden rounded-16 p-5 pt-0">
+      <span aria-hidden="true" className={`-mx-5 mb-2 block h-1.5 ${OUTCOME_BAND[headline]}`} />
+      <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('match.over.title')}</h2>
+      <p className="font-display text-28 leading-tight font-bold tracking-[0.02em]">{t(`match.over.${headline}`)}</p>
+      <p className="text-14 text-tertiary">{t(`match.over.reason.${outcome.reason}`)}</p>
       <Button
+        size="lg"
+        fullWidth
         onClick={() => {
           session.leave();
           void navigate('/lobby');
@@ -129,7 +114,8 @@ function effectSquares(effect: AppliedEffect): Square[] {
 }
 
 /** La mano del giocatore, con il catalogo caricato all'ingresso in partita. */
-function PlayerHand({ casting }: { casting: Casting }) {
+function PlayerHand({ casting, onRefused }: { casting: Casting; onRefused(message: string): void }) {
+  const { t } = useTranslation();
   const byId = useCatalog((s) => s.byId);
   const loading = useCatalog((s) => s.status !== 'ready');
   const hand = useMatch((s) => s.hand);
@@ -156,59 +142,63 @@ function PlayerHand({ casting }: { casting: Casting }) {
       selectedInstanceId={casting.selectedInstanceId}
       loading={loading}
       onPick={casting.pick}
+      onCancel={casting.cancel}
+      // La carta spenta non porta scritto il motivo (D5): lo dice il tocco.
+      onRefused={(refusal, spell) => onRefused(cardRefusalMessage(t, refusal, spell))}
     />
-  );
-}
-
-/** Barra della modalità targeting: cosa si sta lanciando, cosa scegliere, come annullare. */
-function TargetingBar({ casting }: { casting: Casting }) {
-  const { t } = useTranslation();
-  if (casting.spellName === null) return null;
-  return (
-    <Panel role="status" data-targeting className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-      <span className="font-semibold">{t('spells.targeting.title', { name: casting.spellName })}</span>
-      <span className="text-muted">{casting.prompt}</span>
-      <Button variant="secondary" className="ml-auto" onClick={casting.cancel}>
-        {t('spells.targeting.cancel')}
-      </Button>
-      <span className="text-xs text-muted">{t('spells.targeting.cancelHint')}</span>
-    </Panel>
   );
 }
 
 function MatchScreen() {
   const outcome = useMatch((s) => s.outcome);
-  const notice = useNotice();
-  const casting = useCasting(notice.show);
+  const { notice, show, dismiss } = useNotice();
+  const targeting = useCasting(show);
+  // Scegliere una carta porta l'istruzione del bersaglio nel box: un avviso precedente lascia il posto.
+  const casting: Casting = {
+    ...targeting,
+    pick: (card, spell) => {
+      dismiss();
+      targeting.pick(card, spell);
+    },
+  };
   const flash = useSpellFlash();
   return (
     <MatchLayout
-      banner={
-        <>
-          <ConnectionBanner />
-          {notice.text !== null && outcome === null && (
-            <p role="status" aria-live="polite" className="bg-elevated px-4 py-2 text-center text-sm">
-              {notice.text}
-            </p>
-          )}
-        </>
+      nav={<MatchRail />}
+      banner={<ConnectionBanner />}
+      opponent={<PlayerRow side="opponent" />}
+      board={<MatchBoard onRefused={show} targeting={casting.boardTargeting} flash={flash} />}
+      self={<PlayerRow side="self" />}
+      hand={
+        outcome === null ? (
+          <PlayerHand casting={casting} onRefused={show} />
+        ) : (
+          <div className="px-3 lg:hidden">
+            <OutcomePanel outcome={outcome} />
+          </div>
+        )
       }
-      opponent={<PlayerPanel side="opponent" />}
-      board={<MatchBoard onRefused={notice.show} targeting={casting.boardTargeting} flash={flash} />}
-      phases={<PhaseTrack />}
-      history={<MoveHistory />}
+      turn={<TurnPanel hint={<HintBox casting={casting} notice={notice} variant="panel" />} />}
+      mana={<ManaPanel />}
+      tabs={<SideTabs className="grow" />}
       actions={
         outcome === null ? (
           <>
-            <TargetingBar casting={casting} />
-            <Actions />
+            <PassButton />
+            <SecondaryActions />
           </>
         ) : (
           <OutcomePanel outcome={outcome} />
         )
       }
-      self={<PlayerPanel side="self" />}
-      hand={outcome === null ? <PlayerHand casting={casting} /> : null}
+      phasesCompact={
+        <>
+          <PhasePills compact />
+          <PassButton compact />
+        </>
+      }
+      hintLine={<HintBox casting={casting} notice={notice} variant="line" />}
+      bottomBar={<MatchBottomBar />}
     />
   );
 }
@@ -252,11 +242,13 @@ export function Match() {
   if (lifecycle === 'playing' || lifecycle === 'over') return <MatchScreen />;
   if (lifecycle === 'queued' || resume === 'none') return <Navigate to="/lobby" replace />;
   return (
-    <div className="safe-area flex min-h-full flex-col">
-      <ConnectionBanner />
-      <div className="flex flex-1 items-center justify-center">
-        <Spinner label={t('match.joining')} />
+    <>
+      <div className="fixed inset-x-0 top-[env(safe-area-inset-top,0px)] z-50 flex justify-center">
+        <ConnectionBanner />
       </div>
-    </div>
+      <StatePage>
+        <Spinner label={t('match.joining')} />
+      </StatePage>
+    </>
   );
 }

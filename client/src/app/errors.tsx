@@ -1,16 +1,16 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 
+import { StatePage } from './StatePage';
+
 function ErrorPage({ title, lead }: { title: string; lead: string }) {
   const { t } = useTranslation();
   return (
-    <div className="safe-area flex min-h-full flex-col items-center justify-center gap-3 px-4 text-center">
-      <h1 className="text-xl font-bold">{title}</h1>
-      <p className="text-muted">{lead}</p>
-      <Link to="/lobby" className="inline-flex min-h-[var(--hit-target)] items-center font-semibold text-accent hover:text-accent-hover">
+    <StatePage title={title} lead={lead}>
+      <Link to="/lobby" className="inline-flex min-h-[var(--hit-target)] items-center font-bold text-accent hover:text-accent-hover">
         {t('errors.backToLobby')}
       </Link>
-    </div>
+    </StatePage>
   );
 }
 

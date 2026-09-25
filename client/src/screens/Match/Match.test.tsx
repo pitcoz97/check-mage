@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 
 import { initI18n } from '../../i18n';
@@ -13,6 +13,7 @@ import { testCatalogStore } from '../../testing/catalog';
 import { ACCOUNT, data, fakeServer, memoryStorage } from '../../testing/fakes';
 import { testMatchSession } from '../../testing/session';
 import { Match } from './Match';
+import { NOTICE_MS } from './useNotice';
 
 /**
  * Schermata di partita collegata a store e sessione: i frame arrivano da un socket finto e passano dall'adapter
@@ -99,6 +100,10 @@ async function setup() {
 const square = (name: string) => document.querySelector(`[data-square="${name}"]`) as HTMLButtonElement;
 /** Il layout monta azioni e storico due volte (colonna desktop e sezione mobile): si prende il primo. */
 const first = (role: string, name: string) => screen.getAllByRole(role, { name })[0] as HTMLElement;
+/** Il box del suggerimento della colonna laterale: avvisi, carta in corso, cosa fare nella fase (D16). */
+const hint = () => (document.querySelector('[data-hint-box="panel"]') as HTMLElement).textContent ?? '';
+/** La CTA della fase nella colonna laterale (su Android c'è la gemella compatta). */
+const passButton = () => document.querySelector('[data-region="side"] [data-action="pass"]') as HTMLButtonElement;
 
 describe('schermata di partita', () => {
   it('pannelli: nomi, colori, ELO e orologi dal server', async () => {
@@ -108,7 +113,7 @@ describe('schermata di partita', () => {
     expect(self.textContent).toContain('mario');
     expect(self.textContent).toContain('Bianco');
     expect(opponent.textContent).toContain('luigi');
-    expect(await waitFor(() => self.textContent)).toContain('ELO 1250');
+    expect(await waitFor(() => self.textContent)).toContain('(1250)');
     expect((document.querySelector('[data-clock="opponent"]') as HTMLElement).textContent).toBe('9:55');
     expect(self.dataset['active']).toBe('true');
   });
@@ -116,7 +121,7 @@ describe('schermata di partita', () => {
   it('fasi, turno e storico delle mosse, con la mossa assorbita dallo scudo', async () => {
     const { receive } = await setup();
     expect((document.querySelector('[data-phase="move"]') as HTMLElement).dataset['current']).toBe('true');
-    expect(screen.getAllByText('Tocca a te').length).toBeGreaterThan(0);
+    expect((document.querySelector('[data-turn]') as HTMLElement).textContent).toContain('Turno 1 · Tocca a te');
     receive(gameState({ board: { fen: START, moves: ['e2e4', '0000'], turn: 'white', status: 'active' } }));
     const history = document.querySelector('[data-history]') as HTMLElement;
     expect(history.textContent).toContain('e2e4');
@@ -132,14 +137,14 @@ describe('schermata di partita', () => {
 
     receive({ type: 'error', payload: { message: 'Mossa illegale: e2e4', code: 'illegal_move', details: { move: 'e2e4' } } });
     await waitFor(() => expect(square('e2').getAttribute('aria-label')).toBe('e2, pedone Bianco'));
-    expect(screen.getByText('Mossa non valida.')).toBeTruthy();
+    expect(hint()).toContain('Mossa non valida.');
   });
 
   it('il rifiuto deciso dal client non disturba il server', async () => {
     const { sent, receive } = await setup();
     receive(gameState({ phase: 'main1' }));
     fireEvent.click(square('e2'));
-    expect(await screen.findByText('Non è la fase della mossa.')).toBeTruthy();
+    await waitFor(() => expect(hint()).toContain('Non è la fase della mossa.'));
     expect(sent()).toEqual([]);
   });
 
@@ -151,14 +156,17 @@ describe('schermata di partita', () => {
     // Il catalogo arriva in modo asincrono: prima le carte non ci sono.
     const card = await waitFor(() => document.querySelector('[data-card="frostbolt"]') as HTMLButtonElement);
     expect(card.textContent).toContain('Frost Bolt');
-    // Nova costa 5 e il mana è 3: resta visibile, disabilitata, col motivo.
+    // Nova costa 5 e il mana è 3: resta visibile, spenta; il motivo è nell'etichetta e compare al tocco (D5).
     const nova = document.querySelector('[data-card="nova"]') as HTMLButtonElement;
-    expect(nova.disabled).toBe(true);
-    expect(nova.textContent).toContain('Servono 5 mana');
+    expect(nova.getAttribute('aria-disabled')).toBe('true');
+    expect(nova.getAttribute('aria-label')).toContain('Servono 5 mana');
+    fireEvent.click(nova);
+    expect(hint()).toContain('Servono 5 mana.');
+    expect(sent()).toEqual([]);
     fireEvent.click(card);
 
     // Modalità targeting: la scacchiera evidenzia solo i pezzi avversari.
-    expect(screen.getAllByText('Bersaglio per Frost Bolt').length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-hint-box="panel"]')?.getAttribute('data-mode')).toBe('casting');
     expect(square('e7').dataset['castTarget']).toBe('true');
     expect(square('e2').dataset['castTarget']).toBe('false');
     fireEvent.click(square('e7'));
@@ -169,37 +177,48 @@ describe('schermata di partita', () => {
     receive({ type: 'spell_cast', payload: { player: 'white', spell_id: 'frostbolt', targets: ['e7'], effects_applied: [{ kind: 'freeze_piece', target: 'e7', remaining_turns: 2 }] } });
     await waitFor(() => expect(document.querySelector('[data-card="frostbolt"]')).toBeNull());
     expect(square('e7').getAttribute('aria-label')).toBe('e7, pedone Nero, Congelato, ancora 2 turni');
-    expect(screen.getAllByText('Hai lanciato Frost Bolt: Gelo').length).toBeGreaterThan(0);
+    expect(hint()).toContain('Hai lanciato Frost Bolt: Gelo');
     expect(sent()).toHaveLength(1);
   });
 
-  it('il targeting si annulla con Esc, senza disturbare il server', async () => {
+  it('il targeting si annulla con Esc o con un secondo tocco sulla carta, senza disturbare il server', async () => {
     const { receive, sent } = await setup();
     receive(gameState({ phase: 'main1', white_mana: 5, white_max_mana: 5 }));
     receive({ type: 'hand', payload: { hand: ['frostbolt'], mana: 5, max_mana: 5, deck_size: 35 } });
     fireEvent.click(await waitFor(() => document.querySelector('[data-card="frostbolt"]') as HTMLButtonElement));
-    expect(screen.getAllByText('Bersaglio per Frost Bolt').length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-hint-box="panel"]')?.getAttribute('data-mode')).toBe('casting');
 
     fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByText('Bersaglio per Frost Bolt')).toBeNull());
+    await waitFor(() => expect(document.querySelector('[data-hint-box="panel"]')?.getAttribute('data-mode')).not.toBe('casting'));
     expect(square('e7').dataset['castTarget']).toBe('false');
+    expect(sent()).toEqual([]);
+
+    // Secondo tocco sulla carta selezionata: annulla anche quello, senza pulsante (D8).
+    const card = document.querySelector('[data-card="frostbolt"]') as HTMLButtonElement;
+    fireEvent.click(card);
+    expect(card.dataset['selected']).toBe('true');
+    expect(screen.queryByRole('button', { name: 'Annulla' })).toBeNull();
+    fireEvent.click(card);
+    await waitFor(() => expect(document.querySelector('[data-hint-box="panel"]')?.getAttribute('data-mode')).not.toBe('casting'));
     expect(sent()).toEqual([]);
   });
 
   it('azioni: passa fase secondo la fase, patta e resa con conferma', async () => {
     const { receive, expectSent } = await setup();
-    expect((first('button', 'Passa fase') as HTMLButtonElement).disabled).toBe(true); // in fase move si deve muovere
+    expect(passButton().disabled).toBe(true); // in fase move si deve muovere
+    expect(passButton().textContent).toContain('Muovi un pezzo');
     receive(gameState({ phase: 'main1' }));
-    expect((first('button', 'Passa fase') as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(first('button', 'Passa fase'));
+    expect(passButton().disabled).toBe(false);
+    expect(passButton().textContent).toContain('Passa alla fase Mossa');
+    fireEvent.click(passButton());
     await expectSent({ type: 'pass_phase', payload: {} });
 
-    fireEvent.click(first('button', 'Patta'));
+    fireEvent.click(first('button', '½ Offri patta'));
     await expectSent({ type: 'draw_offer', payload: {} });
     receive({ type: 'draw_offer_sent', payload: { message: 'x' } });
     expect((first('button', 'Patta offerta') as HTMLButtonElement).disabled).toBe(true);
     receive({ type: 'draw_declined', payload: { message: 'x', reason: 'declined' } });
-    expect(screen.getByText('L’avversario ha rifiutato la patta.')).toBeTruthy();
+    expect(hint()).toContain('L’avversario ha rifiutato la patta.');
 
     fireEvent.click(first('button', 'Abbandona'));
     expect(screen.getAllByText('Abbandonare la partita?').length).toBeGreaterThan(0);
@@ -209,10 +228,65 @@ describe('schermata di partita', () => {
     await expectSent({ type: 'resign', payload: {} });
   });
 
+  it('box del suggerimento: fase corrente e propri pezzi congelati; un avviso lo sostituisce per qualche secondo (D16)', async () => {
+    const { receive } = await setup();
+    receive(gameState({ phase: 'main1', active_effects: [{ square: 'e2', effects: [{ kind: 'freeze', remaining_turns: 2 }] }] }));
+    expect(hint()).toContain('Magie 1');
+    expect(hint()).toContain('Il tuo pedone in e2 è congelato: ancora 2 turni.');
+
+    vi.useFakeTimers();
+    try {
+      receive({ type: 'error', payload: { message: 'x', code: 'rate_limited' } });
+      expect(hint()).toContain('Troppe azioni ravvicinate');
+      act(() => void vi.advanceTimersByTime(NOTICE_MS + 10));
+      expect(hint()).not.toContain('Troppe azioni ravvicinate');
+      expect(hint()).toContain('Il tuo pedone in e2 è congelato');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('storico: le magie della sessione stanno dopo la mossa che le precede, con chi le ha lanciate (D11)', async () => {
+    const { receive } = await setup();
+    receive(gameState({ board: { fen: START, moves: ['e2e4'], turn: 'black', status: 'active' }, active_player: 'black', phase: 'main1' }));
+    receive({ type: 'spell_cast', payload: { player: 'black', spell_id: 'frostbolt', targets: ['e4'], effects_applied: [{ kind: 'noop' }] } });
+    const items = [...document.querySelectorAll('[data-region="side"] [data-history] li')].map((item) => item.textContent);
+    expect(items[0]).toContain('e2e4');
+    expect(items[1]).toContain('Frost Bolt');
+    expect(items[1]).toContain('→ e4');
+    expect(items[1]).toContain('luigi');
+  });
+
+  it('orologio in esaurimento: sotto il minuto è segnato (D19)', async () => {
+    const { receive } = await setup();
+    receive(gameState({ white_time: 45_000 }));
+    const clock = document.querySelector('[data-region="main"] [data-clock="self"]') as HTMLElement;
+    expect(clock.dataset['low']).toBe('true');
+    expect((document.querySelector('[data-clock="opponent"]') as HTMLElement).dataset['low']).toBe('false');
+  });
+
+  it('Android: la barra apre il foglio sulla scheda scelta, Esc lo chiude; la Chat è «Presto» (D17, D9)', async () => {
+    await setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Grimorio' }));
+    const sheet = screen.getByRole('dialog');
+    expect(sheet.getAttribute('data-sheet')).toBe('grimoire');
+    expect(sheet.querySelector('[data-grimoire]')?.textContent).toContain('Frost Bolt');
+    expect(sheet.textContent).toContain('½ Offri patta');
+    // Su Android è l'unica uscita dalla partita, che resta in background (D13).
+    expect(within(sheet).getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('/lobby');
+    // La scheda Chat non si seleziona.
+    fireEvent.click(sheet.querySelector('[data-tab="chat"]') as HTMLElement);
+    expect(sheet.querySelector('[data-tab="grimoire"]')?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('offerta di patta ricevuta: accetta o rifiuta', async () => {
     const { receive, expectSent } = await setup();
     receive({ type: 'draw_offer', payload: { from: 'luigi' } });
-    expect(screen.getAllByText('L’avversario offre patta').length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-draw-offer]')?.textContent).toContain('L’avversario offre patta');
+    // Su Android i pulsanti stanno nel foglio del Menu: la riga del suggerimento lo dice.
+    expect(document.querySelector('[data-hint-box="line"]')?.textContent).toContain('rispondi dal Menu');
     fireEvent.click(first('button', 'Rifiuta'));
     await expectSent({ type: 'draw_declined', payload: {} });
   });
@@ -223,9 +297,37 @@ describe('schermata di partita', () => {
     receive(gameState({ board: { fen: START, moves: [], turn: 'white', status: 'resigned' } }));
     receive({ type: 'game_over', payload: { result: '0-1', reason: 'resign', winner: 'luigi' } });
     expect(screen.getAllByText('Hai perso').length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-outcome]')?.getAttribute('data-outcome')).toBe('loss');
     expect(screen.getAllByText('Abbandono.').length).toBeGreaterThan(0);
     fireEvent.click(first('button', 'Torna alla lobby'));
     expect(await screen.findByRole('heading', { name: 'Lobby' })).toBeTruthy();
     expect(await storage.get('active-match')).toBeNull();
+  });
+
+  it('promozione: quattro pezzi sulle case del tema, la scelta parte col pezzo, un tocco fuori annulla', async () => {
+    const { receive, expectSent, sent } = await setup();
+    receive(gameState({ board: { fen: '4k3/P7/8/8/8/8/8/4K3 w - - 0 1', moves: [], turn: 'white', status: 'active' } }));
+    fireEvent.click(square('a7'));
+    fireEvent.click(square('a8'));
+    const dialog = screen.getByRole('dialog', { name: 'Scegli il pezzo' });
+    expect(within(dialog).getAllByRole('button')).toHaveLength(4);
+    fireEvent.click(dialog);
+    expect(screen.queryByRole('dialog', { name: 'Scegli il pezzo' })).toBeNull();
+    expect(sent()).toEqual([]);
+
+    fireEvent.click(square('a7'));
+    fireEvent.click(square('a8'));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Scegli il pezzo' })).getByRole('button', { name: 'donna' }));
+    await expectSent({ type: 'move', payload: { move: 'a7a8q' } });
+  });
+
+  it('banner di connessione: riconnessione coi secondi, partita aperta altrove con "Riprendi qui"', async () => {
+    const { sockets } = await setup();
+    act(() => sockets.last().drop(1006));
+    expect(document.querySelector('[data-banner="reconnecting"]')?.textContent).toMatch(/\d+ s/);
+    act(() => sockets.last().open());
+    act(() => sockets.last().drop(4001));
+    const replaced = document.querySelector('[data-banner="replaced"]') as HTMLElement;
+    expect(within(replaced).getByRole('button', { name: 'Riprendi qui' })).toBeTruthy();
   });
 });

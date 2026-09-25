@@ -1,16 +1,45 @@
 /*
- * Collega Tailwind ai token. La palette e la scala tipografica di default sono azzerate:
- * una classe come `bg-red-500` non esiste, l'unico modo di colorare passa da tokens.css.
+ * Collega Tailwind ai token. Palette, scala tipografica, raggi e ombre di default sono azzerati:
+ * una classe come `bg-red-500` o `shadow-lg` non esiste, l'unico modo di colorare passa da tokens.css.
+ * Le scale sono numeriche e ricalcano le misure del design: `text-13` è 13px, `rounded-10` è 10px.
  */
 @import 'tailwindcss';
 @import './tokens.css';
 
 @theme inline {
   --color-*: initial;
+  --color-nav: var(--bg-nav);
   --color-app: var(--bg-app);
+  --color-sunken: var(--bg-sunken);
   --color-panel: var(--bg-panel);
+  --color-quiet: var(--bg-quiet);
   --color-elevated: var(--bg-elevated);
+  --color-arcane-deep: var(--bg-arcane);
+  --color-parchment: var(--bg-parchment);
+  --color-nav-border: var(--border-nav);
   --color-subtle: var(--border-subtle);
+
+  --color-primary: var(--text-primary);
+  --color-muted: var(--text-muted);
+  --color-tertiary: var(--text-tertiary);
+  --color-faint: var(--text-faint);
+  --color-on-play: var(--text-on-play);
+  --color-on-gold: var(--text-on-gold);
+  --color-on-parchment: var(--text-on-parchment);
+
+  --color-gold: var(--gold);
+  --color-gold-edge: var(--gold-edge);
+  --color-gold-bright: var(--gold-bright);
+  --color-arcane: var(--arcane);
+  --color-arcane-bright: var(--arcane-bright);
+  --color-arcane-pale: var(--arcane-pale);
+  --color-play: var(--play);
+  --color-play-bright: var(--play-bright);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-danger: var(--danger);
+  --color-danger-surface: var(--danger-surface);
+  --color-on-danger: var(--text-on-danger);
 
   --color-board-light: var(--board-light);
   --color-board-dark: var(--board-dark);
@@ -18,35 +47,113 @@
   --color-board-last: var(--board-last);
   --color-board-check: var(--board-check);
   --color-board-select: var(--board-select);
+  --color-board-frozen: var(--board-frozen);
+  --color-board-cast-dot: var(--board-cast-dot);
+  --color-board-cast-veil: var(--board-cast-veil);
+  --color-state-frost-ink: var(--state-frost-ink);
+  --color-state-shield-ink: var(--state-shield-ink);
   --color-piece-light: var(--piece-light);
   --color-piece-dark: var(--piece-dark);
   --color-piece-edge: var(--piece-edge);
 
-  --color-accent: var(--accent);
-  --color-accent-hover: var(--accent-hover);
-  --color-primary: var(--text-primary);
-  --color-muted: var(--text-muted);
-  --color-danger: var(--danger);
+  --color-clock-low: var(--clock-low-ring);
+  --color-rank-silver: var(--rank-silver);
+  --color-rank-bronze: var(--rank-bronze);
+  --color-row-self: var(--row-self);
+  --color-row-stripe: var(--row-stripe);
+  --color-row-current: var(--row-current);
+  --color-spell-chip: var(--spell-chip);
+  --color-hint-casting: var(--hint-casting);
+  --color-card-frame: var(--card-frame);
+  --color-card-inner: var(--card-inner);
+  --color-card-type: var(--card-type-text);
+  --color-rarity-common: var(--rarity-common);
+  --color-rarity-rare: var(--rarity-rare);
+  --color-rarity-mythic: var(--rarity-mythic);
+  --color-card-disabled: var(--card-disabled-veil);
+  --color-art-leap: var(--art-leap);
+  --color-art-frost: var(--art-frost);
+  --color-art-gold: var(--art-gold);
+  --color-art-arcane: var(--art-arcane);
+  --color-art-doom: var(--art-doom);
+  --color-art-quiet: var(--art-quiet);
+  --color-art-ink-gold: var(--art-ink-gold);
+  --color-art-ink-frost: var(--art-ink-frost);
+  --color-art-ink-arcane: var(--art-ink-arcane);
+  --color-art-ink-doom: var(--art-ink-doom);
+  --color-art-ink-quiet: var(--art-ink-quiet);
+  --color-art-ring: var(--art-ring);
 
-  --color-mana-full: var(--mana-full);
-  --color-mana-empty: var(--mana-empty);
-  --color-spell-frame: var(--spell-frame);
-  --color-effect-freeze: var(--effect-freeze);
-  --color-effect-shield: var(--effect-shield);
-  --color-effect-doom: var(--effect-doom);
+  --shadow-*: initial;
+  --shadow-edge-play: var(--edge-play);
+  --shadow-edge-play-lg: var(--edge-play-lg);
+  --shadow-edge-gold: var(--edge-gold);
+  --shadow-edge-elevated: var(--edge-elevated);
+  --shadow-edge-danger: var(--edge-danger);
+  --shadow-ring-arcane: var(--ring-arcane);
+  --shadow-ring-play: var(--ring-play);
+  --shadow-ring-quiet: var(--ring-quiet);
+  --shadow-ring-gold: var(--ring-gold);
+  --shadow-glow-selected: var(--glow-selected);
+  --shadow-glow-selected-sm: var(--glow-selected-sm);
+  --shadow-edge-coin: var(--edge-coin);
+  --shadow-ring-card-frame: var(--ring-card-frame);
+  --shadow-glow-mana: var(--glow-mana);
+  --shadow-glow-mana-sm: var(--glow-mana-sm);
+  --shadow-glow-mana-chip: var(--glow-mana-chip);
+  --shadow-ring-mana-spent: var(--ring-mana-spent);
+  --shadow-ring-mana-locked: var(--ring-mana-locked);
+  --shadow-ring-clock-low: var(--ring-clock-low);
+  --shadow-ring-hint-casting: var(--ring-hint-casting);
+  --shadow-ring-self: var(--ring-self);
+  --shadow-ring-danger: var(--ring-danger);
+  --shadow-ring-elevated: var(--ring-elevated);
+  --shadow-card: var(--drop-card);
+  --shadow-board: var(--drop-board);
+  --shadow-ring-frozen: var(--ring-frozen);
+  --shadow-ring-shielded: var(--ring-shielded);
+  --shadow-ring-cast-target: var(--ring-cast-target);
+  --shadow-ring-move-target: var(--ring-move-target);
+  --shadow-glow-cast-dot: var(--glow-cast-dot);
 
   --font-*: initial;
-  --font-sans: var(--font-ui);
-  --font-spell: var(--font-spell-name);
+  --font-sans: var(--family-ui);
+  --font-display: var(--family-display);
+  --font-mono: var(--family-mono);
+  --font-pieces: var(--family-pieces);
 
   --text-*: initial;
-  --text-xs: var(--text-12);
-  --text-sm: var(--text-14);
-  --text-base: var(--text-16);
-  --text-lg: var(--text-20);
-  --text-xl: var(--text-28);
-  --text-2xl: var(--text-40);
+  --text-11: var(--size-11);
+  --text-12: var(--size-12);
+  --text-13: var(--size-13);
+  --text-14: var(--size-14);
+  --text-15: var(--size-15);
+  --text-16: var(--size-16);
+  --text-18: var(--size-18);
+  --text-20: var(--size-20);
+  --text-22: var(--size-22);
+  --text-24: var(--size-24);
+  --text-28: var(--size-28);
+  --text-30: var(--size-30);
+  --text-32: var(--size-32);
+  --text-36: var(--size-36);
+  --text-46: var(--size-46);
 
-  --radius-sm: var(--radius-chip);
-  --radius-md: var(--radius-control);
+  --tracking-*: initial;
+  --tracking-label: var(--letter-label);
+  --tracking-display: var(--letter-display);
+
+  --radius-*: initial;
+  --radius-2: 2px;
+  --radius-3: 3px;
+  --radius-4: 4px;
+  --radius-6: 6px;
+  --radius-7: 7px;
+  --radius-8: 8px;
+  --radius-9: 9px;
+  --radius-10: 10px;
+  --radius-12: 12px;
+  --radius-14: 14px;
+  --radius-16: 16px;
+  --radius-pill: 999px;
 }

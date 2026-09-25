@@ -125,7 +125,7 @@ async function toMovePhase(session: TestSession): Promise<void> {
     await waitFor(() => expect(turnOf(session).mine).toBe(true), { timeout: 10_000 });
     const { phase } = turnOf(session);
     if (phase === 'move') return;
-    fireEvent.click(screen.getAllByRole('button', { name: 'Passa fase' })[0] as HTMLButtonElement);
+    fireEvent.click((document.querySelector('[data-region="side"] [data-action="pass"]') as HTMLButtonElement));
     await waitFor(() => expect(turnOf(session).phase).not.toBe(phase), { timeout: 10_000 });
   }
   throw new Error('la fase di mossa non è mai arrivata');
@@ -134,7 +134,7 @@ async function toMovePhase(session: TestSession): Promise<void> {
 /** Chiude il proprio turno: dopo la mossa il server si ferma in main2 finché non si passa. */
 async function endTurn(session: TestSession): Promise<void> {
   if (!turnOf(session).mine) return;
-  fireEvent.click(screen.getAllByRole('button', { name: 'Passa fase' })[0] as HTMLButtonElement);
+  fireEvent.click((document.querySelector('[data-region="side"] [data-action="pass"]') as HTMLButtonElement));
   await waitFor(() => expect(turnOf(session).mine).toBe(false), { timeout: 10_000 });
 }
 
@@ -151,11 +151,11 @@ async function play(session: TestSession, move: string): Promise<void> {
 type Session = Awaited<ReturnType<typeof startMatch>>['session'];
 
 const cardOf = (spellId: string) => document.querySelector(`[data-card="${spellId}"]`) as HTMLButtonElement | null;
-const passButton = () => screen.getAllByRole('button', { name: 'Passa fase' })[0] as HTMLButtonElement;
+const passButton = () => (document.querySelector('[data-region="side"] [data-action="pass"]') as HTMLButtonElement);
 
 /** Lancia una magia dalla mano: tap sulla carta, tap sui bersagli, e si aspetta lo `spell_cast` del server. */
 async function cast(session: Session, spellId: string, targets: readonly string[]): Promise<void> {
-  await waitFor(() => expect(cardOf(spellId)?.disabled).toBe(false), { timeout: 10_000 });
+  await waitFor(() => expect(cardOf(spellId)?.getAttribute('aria-disabled')).toBe('false'), { timeout: 10_000 });
   fireEvent.click(cardOf(spellId) as HTMLButtonElement);
   for (const target of targets) fireEvent.click(square(target));
   await waitFor(() => expect(session.match.getState().lastCast?.spellId).toBe(spellId), { timeout: 10_000 });
@@ -187,7 +187,7 @@ describe('schermata di partita contro il mock', () => {
 
       // Lo scenario "restart" chiude i socket senza avvisare: la connessione se ne accorge e rientra da sola.
       await waitFor(() => expect(session.status.getState().connection.kind).not.toBe('open'), { timeout: 10_000 });
-      expect(screen.getByRole('status', { name: '' }).textContent ?? '').toContain('Connessione persa');
+      expect(document.querySelector('[data-region="banner"]')?.textContent ?? '').toContain('Connessione persa');
 
       await waitFor(() => expect(session.status.getState().connection.kind).toBe('open'), { timeout: 15_000 });
       await waitFor(() => expect(session.match.getState().game?.moves.length ?? 0).toBeGreaterThan(0), { timeout: 10_000 });
@@ -207,11 +207,11 @@ describe('schermata di partita contro il mock', () => {
       await waitFor(() => expect(turnOf(session).phase).toBe('main1'), { timeout: 10_000 });
 
       // Targeting annullabile: si apre la scelta del bersaglio e si annulla con Esc, senza mandare nulla.
-      await waitFor(() => expect(cardOf('teleport')?.disabled).toBe(false), { timeout: 10_000 });
+      await waitFor(() => expect(cardOf('teleport')?.getAttribute('aria-disabled')).toBe('false'), { timeout: 10_000 });
       fireEvent.click(cardOf('teleport') as HTMLButtonElement);
-      expect(screen.getAllByText('Bersaglio per Teleport').length).toBeGreaterThan(0);
+      expect(document.querySelector('[data-hint-box="panel"]')?.textContent).toContain('Teleport · 3 mana');
       fireEvent.keyDown(document, { key: 'Escape' });
-      await waitFor(() => expect(screen.queryByText('Bersaglio per Teleport')).toBeNull());
+      await waitFor(() => expect(document.querySelector('[data-hint-box="panel"]')?.getAttribute('data-mode')).not.toBe('casting'));
       expect(session.match.getState().lastCast).toBeNull();
 
       // main1: congela, protegge, distrugge.
@@ -222,11 +222,11 @@ describe('schermata di partita contro il mock', () => {
       expect(square('e2').getAttribute('aria-label')).toContain('Protetto');
       expect(square('b8').getAttribute('aria-label')).toBe('b8');
 
-      // In fase di mossa le carte restano visibili, disabilitate col motivo.
+      // In fase di mossa le carte restano visibili, spente, col motivo nell'etichetta (D5).
       fireEvent.click(passButton());
       await waitFor(() => expect(turnOf(session).phase).toBe('move'), { timeout: 10_000 });
-      expect(cardOf('spark')?.disabled).toBe(true);
-      expect(cardOf('spark')?.textContent).toContain('Non puoi lanciare magie in questa fase');
+      expect(cardOf('spark')?.getAttribute('aria-disabled')).toBe('true');
+      expect(cardOf('spark')?.getAttribute('aria-label')).toContain('Non puoi lanciare magie in questa fase');
 
       // L'effetto segue il pezzo: lo scudo era su e2, il pedone va in e4.
       fireEvent.click(square('e2'));

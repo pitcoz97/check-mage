@@ -101,6 +101,21 @@ describe('applyServerEvent: aggiornamenti puntuali', () => {
     expect(state.game?.mana.white).toEqual({ current: 0, max: 1 });
   });
 
+  it('le magie della sessione finiscono nel registro, con il punto dello storico in cui sono arrivate (D11)', () => {
+    const state = run([
+      ...START,
+      { type: 'spell_cast', player: 'white', spellId: 'aegis', targets: ['e2'], effects: [{ kind: 'shield_piece', target: 'e2', remainingTurns: 2 }] },
+      { type: 'game_state', state: publicState({ fen: AFTER_E4, turn: 'black', moves: [{ kind: 'move', uci: 'e2e4' }], phase: 'main2' }) },
+      { type: 'spell_cast', player: 'black', spellId: 'frostbolt', targets: ['e4'], effects: [{ kind: 'noop' }] },
+    ]);
+    expect(state.spellLog.map(({ player, spellId, targets, moveIndex }) => ({ player, spellId, targets, moveIndex }))).toEqual([
+      { player: 'white', spellId: 'aegis', targets: ['e2'], moveIndex: 0 },
+      { player: 'black', spellId: 'frostbolt', targets: ['e4'], moveIndex: 1 },
+    ]);
+    // Una partita nuova (reset della sessione) riparte da un registro vuoto.
+    expect(initialMatchState('1').spellLog).toEqual([]);
+  });
+
   it('cast in volo: parte con beginCast, si chiude col proprio spell_cast, e un error lo libera', () => {
     const store = createMatchStore('1');
     for (const event of START) store.getState().dispatch(event);

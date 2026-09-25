@@ -46,8 +46,8 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
   (nessuna mossa evidenziabile, resa sempre disponibile).
 
 ### P2-1 — Scelta del time control
-- **Stato:** aperta, **da decidere insieme** (risposta del server: servono più code di matchmaking; vanno scelte
-  le cadenze e la UI della lobby).
+- **Stato:** non più necessaria (2026-09-25, decisione di prodotto durante il redesign: il gioco resta a cadenza
+  unica). Prima: da decidere insieme, perché servivano più code di matchmaking.
 - **Perché:** coda unica con time control fisso 10' + 5" (`config/config.go`, `game/manager.go:31`).
 
 ### P2-11 — Refresh token in cookie `HttpOnly`
@@ -92,6 +92,49 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
 - **Contratto proposto:** campi facoltativi per magia: `description` (testo di regole scritto a mano, se un giorno
   servisse più preciso di quello generato) e `flavor` (ambientazione). Il client li mostra se ci sono, altrimenti
   continua a generare il testo dagli effetti.
+- **Estensione (redesign):** la carta del nuovo design ha una cornice e un rombo per **rarità** (comune, rara, mitica)
+  e una riga del **tipo** ("Magia · Protezione"). Sono contenuto di gioco: il client non li assegna per singola magia.
+  Campi facoltativi proposti: `rarity` (`"common" | "rare" | "mythic"`) e `type` (stringa-codice, es. `"protection"`,
+  che il client traduce). Finché mancano, ogni carta è disegnata come comune e la riga del tipo si ricava dal kind
+  del primo effetto.
+
+### P2-17 — Tetto del mana nel `game_state`
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** la barra del mana del redesign disegna tutti i cristalli fino al tetto, distinguendo quelli non ancora
+  sbloccati. Il tetto è `MaxManaCap = 10` (`spells/spells.go:22`) ma non arriva al client, che lo assume (ASSUMPTIONS C16).
+- **Contratto proposto:** `max_mana_cap` in `game_state` (o in `GET /status`).
+
+### P2-18 — Magie nello stato di rientro
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** lo storico del redesign mostra anche le magie lanciate ("Scudo Runico → e4"). Il client le ricava dagli
+  eventi `spell_cast` della sessione, ma al rientro il server manda solo lo stato pubblico con le mosse UCI
+  (`game/room.go:1135-1137`, `Moves` in `match/match.go:71`): le magie lanciate prima della disconnessione si perdono.
+- **Contratto proposto:** `spells_cast` nello stato pubblico: lista ordinata di
+  `{spell_id, caster_color, targets, move_index}`, dove `move_index` è il numero di mosse già giocate al momento del
+  lancio (per intercalarle nello storico).
+
+### P2-19 — Variazione dell'ELO a fine partita
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** il redesign mostra la variazione dell'ELO ("▲ 18"). Il server la calcola e la salva
+  (`db/db.go:78-85`) ma non la comunica: `game_over` non la porta. Il client la omette.
+- **Contratto proposto:** `elo_change: {white, black}` (o `elo_before`/`elo_after`) in `game_over`, oppure l'ultima
+  variazione in `GET /me`.
+
+### P2-20 — Classifica: posizione propria e stagione
+- **Stato:** aperta · **Priorità:** P2
+- **Perché:** `GET /leaderboard` restituisce i primi 10 (`handlers/stats.go:14-40`). Il redesign mostra anche la
+  posizione dell'utente quando è fuori dai primi 10, e una stagione. Il client omette entrambe.
+- **Contratto proposto:** `GET /leaderboard` (Bearer facoltativo) con `me: {rank, elo}`; la stagione solo se il gioco
+  ne avrà una (decisione di prodotto).
+
+### P2-21 — Funzioni del design mostrate come «Presto»
+- **Stato:** aperta, **da decidere insieme** (decisione di prodotto prima che di contratto) · **Priorità:** P2
+- **Perché:** il redesign mostra funzioni che il server non ha. Nel client sono visibili ma disattivate, senza dati
+  finti: modalità **amichevole** e **contro bot** (oggi una sola coda classificata, `game/manager.go:31`; Stockfish è
+  usato solo per le regole, `game/room.go:446`), **mazzi** e deckbuilding (un solo mazzo condiviso; fuori scope v1
+  nel briefing), **collezione**, **amici** e sfida diretta, **notifiche**, **chat** di partita.
+- **Nel client:** nessun aggiramento. Le **cadenze** del design non sono incluse: per decisione di prodotto il gioco
+  resterà a cadenza unica (vedi P2-1).
 
 ### P2-16 — Origini ammesse sull'handshake del WebSocket
 - **Stato:** aperta · **Priorità:** P2

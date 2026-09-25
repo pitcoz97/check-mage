@@ -1,5 +1,16 @@
 @import './theme.css';
 
+/* Pezzi degli scacchi: Noto Sans Symbols 2 ritagliato ai sei glifi pieni (scripts/subset-pieces-font.ts, D2).
+   `block`: meglio un istante senza pezzi che un pezzo disegnato col font di sistema e poi sostituito. */
+@font-face {
+  font-family: 'CheckMage Pieces';
+  src: url('./fonts/checkmage-pieces.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+  unicode-range: U+265A-265F;
+}
+
 @layer base {
   html,
   body,
@@ -11,8 +22,8 @@
     margin: 0;
     background-color: var(--bg-app);
     color: var(--text-primary);
-    font-family: var(--font-ui);
-    font-size: var(--text-16);
+    font-family: var(--family-ui);
+    font-size: var(--size-16);
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
@@ -50,6 +61,84 @@
     50% {
       box-shadow: inset 0 0 0 100vmax var(--board-cast);
     }
+  }
+
+  /* Pezzi: glifi pieni colorati dal CSS, stesso glifo per i due colori (componente Scacchiera del design). */
+  .piece-light {
+    color: var(--piece-light);
+    text-shadow: var(--piece-light-outline);
+  }
+
+  .piece-dark {
+    color: var(--piece-dark);
+    text-shadow: var(--piece-dark-outline);
+  }
+
+  /*
+   * Mano a ventaglio (tavole della partita): la carta 200×280 scalata, disposta attorno al centro. `--k` è la distanza
+   * dal centro (…, -1, 0, 1, …), `--k2` il suo quadrato, `--n` il numero di carte. Il passo si stringe da solo quando
+   * le carte non entrano. Valori Android di default, desktop da 1024px.
+   */
+  .hand-fan {
+    --card-w: 100px;
+    --card-h: 140px;
+    --card-scale: 0.5;
+    --card-radius: 7px;
+    --fan-step: 66px;
+    --fan-arc: 4px;
+    --fan-rot: 6deg;
+    --fan-lift: 38px;
+    --fan-glow: var(--glow-selected-sm);
+    position: relative;
+    height: calc(var(--card-h) + var(--fan-lift));
+  }
+
+  @media (min-width: 1024px) {
+    .hand-fan {
+      --card-w: 136px;
+      --card-h: 190px;
+      --card-scale: 0.68;
+      --card-radius: 9px;
+      --fan-step: 124px;
+      --fan-arc: 5px;
+      --fan-rot: 5deg;
+      --fan-lift: 58px;
+      --fan-glow: var(--glow-selected);
+    }
+  }
+
+  .hand-card {
+    position: absolute;
+    left: calc(50% + var(--k) * min(var(--fan-step), (100% - var(--card-w)) / max(var(--n) - 1, 1)) - var(--card-w) / 2);
+    top: calc(var(--fan-lift) + var(--k2) * var(--fan-arc));
+    z-index: calc(10 + var(--i));
+    width: var(--card-w);
+    height: var(--card-h);
+    padding: 0;
+    border-radius: var(--card-radius);
+    transform: rotate(calc(var(--k) * var(--fan-rot)));
+    transform-origin: 50% 100%;
+    transition:
+      top 0.18s ease,
+      transform 0.18s ease;
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+
+  .hand-card[data-selected='true'] {
+    top: 0;
+    z-index: 30;
+    transform: none;
+    box-shadow: var(--fan-glow);
+  }
+
+  .hand-card-scale {
+    display: block;
+    width: 200px;
+    height: 280px;
+    transform: scale(var(--card-scale));
+    transform-origin: 0 0;
+    pointer-events: none;
   }
 
   /* Rispetta notch e barre di sistema su mobile (briefing §9). */

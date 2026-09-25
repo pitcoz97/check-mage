@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router';
 
 import type { HttpErrorInfo } from '../../api/types';
 import { Button } from '../../design/components/Button';
+import { InfoBox } from '../../design/components/InfoBox';
 import { TextField } from '../../design/components/TextField';
 import { useAuth } from '../../store/AuthProvider';
 import { readLoginState } from '../../app/guards';
@@ -38,19 +39,19 @@ export function Login() {
   return (
     <form className="flex flex-col gap-4" onSubmit={(e) => void onSubmit(e)} noValidate>
       <div className="flex flex-col gap-1">
-        <h1 className="text-lg font-bold">{t('auth.loginTitle')}</h1>
-        <p className="text-sm text-muted">{t('auth.loginLead')}</p>
+        <h1 className="font-display text-22 font-bold tracking-[0.02em]">{t('auth.loginTitle')}</h1>
+        <p className="text-14 text-muted">{t('auth.loginLead')}</p>
       </div>
 
       {notice === 'session_expired' && error === null && (
-        <p role="status" className="rounded-md border border-subtle bg-elevated px-3 py-2 text-sm">
+        <InfoBox role="status">
           {t('session.expired')}
-        </p>
+        </InfoBox>
       )}
       {state.accountCreated === true && error === null && (
-        <p role="status" className="rounded-md border border-subtle bg-elevated px-3 py-2 text-sm">
+        <InfoBox role="status">
           {t('auth.accountCreatedLoginFailed')}
-        </p>
+        </InfoBox>
       )}
 
       <TextField
@@ -74,16 +75,16 @@ export function Login() {
       />
 
       {error !== null && (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="text-14 text-danger">
           {httpErrorMessage(t, error)}
         </p>
       )}
 
-      <Button type="submit" fullWidth disabled={submitting || email.trim() === '' || password === ''}>
+      <Button type="submit" size="lg" fullWidth disabled={submitting || email.trim() === '' || password === ''}>
         {submitting ? t('auth.submitting') : t('auth.submitLogin')}
       </Button>
 
-      <Link to="/register" className="inline-flex min-h-[var(--hit-target)] items-center text-sm font-semibold text-accent hover:text-accent-hover">
+      <Link to="/register" className="inline-flex min-h-[var(--hit-target)] items-center text-14 font-semibold text-accent hover:text-accent-hover">
         {t('auth.toRegister')}
       </Link>
     </form>

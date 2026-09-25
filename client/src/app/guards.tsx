@@ -5,6 +5,7 @@ import { Navigate, Outlet, useLocation } from 'react-router';
 import { Button } from '../design/components/Button';
 import { Spinner } from '../design/components/Spinner';
 import { useAuth } from '../store/AuthProvider';
+import { StatePage } from './StatePage';
 
 /** Stato di navigazione passato al login: pagina da riaprire, email da precompilare, account appena creato. */
 export interface LoginRedirectState {
@@ -40,18 +41,16 @@ export function SessionGate() {
 
   if (status === 'checking') {
     return (
-      <div className="safe-area flex min-h-full items-center justify-center">
+      <StatePage>
         <Spinner label={t('session.checking')} />
-      </div>
+      </StatePage>
     );
   }
   if (status === 'unreachable') {
     return (
-      <div className="safe-area flex min-h-full flex-col items-center justify-center gap-4 px-4 text-center">
-        <h1 className="text-xl font-bold">{t('session.unreachableTitle')}</h1>
-        <p className="max-w-sm text-muted">{t('session.unreachableLead')}</p>
+      <StatePage title={t('session.unreachableTitle')} lead={t('session.unreachableLead')}>
         <Button onClick={() => void bootstrap()}>{t('session.retry')}</Button>
-      </div>
+      </StatePage>
     );
   }
   return <Outlet />;

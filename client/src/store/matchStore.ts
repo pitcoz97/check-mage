@@ -55,6 +55,19 @@ export interface ResolvedSpell {
   readonly seq: number;
 }
 
+/**
+ * Magia lanciata in questa sessione, per lo storico (REDESIGN_PLAN.md D11). `moveIndex` = mosse già giocate quando
+ * è arrivata: dice dove intercalarla fra le mosse. Il server non rimanda le magie al rientro (P2-18): dopo un
+ * ricaricamento il registro riparte vuoto.
+ */
+export interface LoggedSpell {
+  readonly player: Color;
+  readonly spellId: SpellId;
+  readonly targets: readonly Square[];
+  readonly moveIndex: number;
+  readonly seq: number;
+}
+
 export interface GameOutcome {
   readonly result: GameResult;
   readonly reason: GameOverReason;
@@ -85,6 +98,8 @@ export interface MatchState {
   /** Cast in volo: la mano resta ferma finché il server non risponde. Mai un cambio di stato di gioco. */
   readonly pendingCast: PendingCast | null;
   readonly lastCast: ResolvedSpell | null;
+  /** Magie viste in questa sessione, in ordine d'arrivo. */
+  readonly spellLog: readonly LoggedSpell[];
   readonly outcome: GameOutcome | null;
   /** Numero di eventi applicati: rende distinguibili avvisi ed errori uguali e consecutivi. */
   readonly seq: number;
@@ -106,6 +121,7 @@ export function initialMatchState(selfId: UserId | null): MatchState {
     optimistic: null,
     pendingCast: null,
     lastCast: null,
+    spellLog: [],
     outcome: null,
     seq: 0,
   };
@@ -282,6 +298,10 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
         game: game === null ? game : { ...game, activeEffects },
         pendingCast: event.player === state.myColor ? null : state.pendingCast,
         lastCast: { player: event.player, spellId: event.spellId, targets: event.targets, effects: event.effects, seq },
+        spellLog: [
+          ...state.spellLog,
+          { player: event.player, spellId: event.spellId, targets: event.targets, moveIndex: game?.moves.length ?? 0, seq },
+        ],
       };
     }
 

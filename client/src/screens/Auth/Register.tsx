@@ -50,7 +50,7 @@ function usePasswordPolicy(): CredentialPolicy {
 
 function RequirementIcon({ met }: { met: boolean }) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" className={`size-4 shrink-0 ${met ? 'text-accent' : 'text-muted'}`}>
+    <svg aria-hidden="true" viewBox="0 0 16 16" className={`size-4 shrink-0 ${met ? 'text-play-bright' : 'text-faint'}`}>
       {met ? (
         <path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       ) : (
@@ -98,8 +98,8 @@ export function Register() {
   return (
     <form className="flex flex-col gap-4" onSubmit={(e) => void onSubmit(e)} noValidate>
       <div className="flex flex-col gap-1">
-        <h1 className="text-lg font-bold">{t('auth.registerTitle')}</h1>
-        <p className="text-sm text-muted">{t('auth.registerLead')}</p>
+        <h1 className="font-display text-22 font-bold tracking-[0.02em]">{t('auth.registerTitle')}</h1>
+        <p className="text-14 text-muted">{t('auth.registerLead')}</p>
       </div>
 
       <TextField
@@ -135,13 +135,13 @@ export function Register() {
         onChange={(e) => setPassword(e.target.value)}
       />
 
-      <section aria-labelledby="requirements-title" className="flex flex-col gap-1">
-        <h2 id="requirements-title" className="text-sm font-semibold">
+      <section aria-labelledby="requirements-title" className="flex flex-col gap-2 rounded-10 bg-sunken px-3.5 py-3 shadow-ring-quiet">
+        <h2 id="requirements-title" className="text-12 font-extrabold tracking-label text-muted uppercase">
           {t('auth.requirements')}
         </h2>
         <ul className="flex flex-col gap-1">
           {requiredChecks(policy).map((check) => (
-            <li key={check} data-check={check} data-met={checks[check]} className="flex items-center gap-2 text-sm">
+            <li key={check} data-check={check} data-met={checks[check]} className="flex items-center gap-2 text-14">
               <RequirementIcon met={checks[check]} />
               <span className={checks[check] ? 'text-primary' : 'text-muted'}>{t(`auth.checks.${check}`, checkParams(check, policy))}</span>
               <span className="sr-only">{checks[check] ? t('auth.requirementMet') : t('auth.requirementUnmet')}</span>
@@ -151,16 +151,16 @@ export function Register() {
       </section>
 
       {error !== null && errorField === null && (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="text-14 text-danger">
           {httpErrorMessage(t, error)}
         </p>
       )}
 
-      <Button type="submit" fullWidth disabled={submitting || !ready}>
+      <Button type="submit" size="lg" fullWidth disabled={submitting || !ready}>
         {submitting ? t('auth.submitting') : t('auth.submitRegister')}
       </Button>
 
-      <Link to="/login" className="inline-flex min-h-[var(--hit-target)] items-center text-sm font-semibold text-accent hover:text-accent-hover">
+      <Link to="/login" className="inline-flex min-h-[var(--hit-target)] items-center text-14 font-semibold text-accent hover:text-accent-hover">
         {t('auth.toLogin')}
       </Link>
     </form>
