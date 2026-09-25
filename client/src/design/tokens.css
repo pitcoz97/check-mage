@@ -194,8 +194,6 @@
   /* --- Interazione e forma --- */
   --focus-ring: var(--gold-bright);
   --hit-target: 44px;
-  --side-column: 320px;
-  --header-height: 56px;
 }
 
 [data-board-theme='salvia'] {

@@ -86,17 +86,12 @@ export const it = {
     },
   },
   lobby: {
-    title: 'Pronto a giocare?',
-    lead: 'Trova un avversario: la partita inizia appena ne arriva uno.',
     play: 'Gioca',
-    elo: 'ELO {{elo}}',
     searching: 'In cerca di un avversario…',
     searchingReconnect: 'Connessione persa: riprovo a collegarmi…',
     cancel: 'Annulla',
     searchMoved: 'La ricerca è continuata in un’altra scheda.',
     retry: 'Riprova',
-    savedMatch: 'Hai una partita in corso.',
-    resumeMatch: 'Riprendi la partita',
   },
   home: {
     welcome: 'Bentornato, {{name}}',
@@ -133,7 +128,6 @@ export const it = {
   settings: {
     title: 'Impostazioni',
     boardTheme: 'Tema della scacchiera',
-    language: 'Lingua',
     account: 'Account',
     logout: 'Esci',
     logoutConfirm: 'Uscire dall’account su questo dispositivo?',
@@ -159,10 +153,7 @@ export const it = {
     opponent: 'Avversario',
     you: 'Tu',
     phases: 'Fasi del turno',
-    history: 'Storico mosse',
     actions: 'Azioni',
-    hand: 'Mano',
-    showHistory: 'Mostra storico mosse',
     promotion: {
       title: 'Scegli il pezzo',
     },
@@ -181,7 +172,6 @@ export const it = {
       opponentShort: 'Tocca all’avversario',
     },
     hint: {
-      label: 'Suggerimento',
       opponentText: 'Aspetta la sua mossa: le magie si lanciano nel tuo turno.',
       idle: {
         draw: 'Stai pescando la carta del turno.',
@@ -223,7 +213,6 @@ export const it = {
       soon: 'Presto',
       chatSoon: 'La chat della partita arriverà presto.',
       grimoireEmpty: 'Catalogo delle magie non disponibile.',
-      spellBy: '{{name}} → {{targets}}',
     },
     sheet: {
       nav: 'Azioni partita',
@@ -231,7 +220,6 @@ export const it = {
       close: 'Chiudi',
     },
     panel: {
-      elo: 'ELO {{elo}}',
       eloShort: '({{elo}})',
       library: '{{count}} nel grimorio',
       cards: '{{count}} carte in mano',
@@ -335,22 +323,16 @@ export const it = {
     hand: 'La tua mano',
     handEmpty: 'Nessuna carta in mano.',
     handLoading: 'Caricamento del catalogo…',
-    deck: 'Mazzo: {{count}}',
     mana: 'Mana {{current}} su {{max}}',
     manaShort: '{{current}}/{{max}}',
     manaSpaced: '{{current}} / {{max}}',
-    cost: '{{cost}} mana',
     costUnknown: '?',
-    unknownSpell: 'Magia sconosciuta',
-    cast: 'Lancia',
-    casting: 'Lancio in corso…',
     card: {
       type: 'Magia · {{kind}}',
       typePlain: 'Magia',
       label: '{{name}}, costo {{cost}}',
     },
     targeting: {
-      title: 'Bersaglio per {{name}}',
       cancelHint: 'Tocca di nuovo la carta o premi Esc per annullare',
     },
     castByYou: 'Hai lanciato {{name}}: {{effects}}',

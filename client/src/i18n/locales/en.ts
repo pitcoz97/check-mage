@@ -84,17 +84,12 @@ export const en: Translation = {
     },
   },
   lobby: {
-    title: 'Ready to play?',
-    lead: 'Find an opponent: the game starts as soon as one joins.',
     play: 'Play',
-    elo: 'ELO {{elo}}',
     searching: 'Looking for an opponent…',
     searchingReconnect: 'Connection lost: trying to reconnect…',
     cancel: 'Cancel',
     searchMoved: 'The search continued in another tab.',
     retry: 'Try again',
-    savedMatch: 'You have a game in progress.',
-    resumeMatch: 'Resume the game',
   },
   home: {
     welcome: 'Welcome back, {{name}}',
@@ -131,7 +126,6 @@ export const en: Translation = {
   settings: {
     title: 'Settings',
     boardTheme: 'Board theme',
-    language: 'Language',
     account: 'Account',
     logout: 'Sign out',
     logoutConfirm: 'Sign out of this device?',
@@ -157,10 +151,7 @@ export const en: Translation = {
     opponent: 'Opponent',
     you: 'You',
     phases: 'Turn phases',
-    history: 'Move history',
     actions: 'Actions',
-    hand: 'Hand',
-    showHistory: 'Show move history',
     promotion: {
       title: 'Choose the piece',
     },
@@ -179,7 +170,6 @@ export const en: Translation = {
       opponentShort: 'Opponent to move',
     },
     hint: {
-      label: 'Hint',
       opponentText: 'Wait for their move: spells are cast on your turn.',
       idle: {
         draw: 'Drawing this turn’s card.',
@@ -221,7 +211,6 @@ export const en: Translation = {
       soon: 'Soon',
       chatSoon: 'Match chat is coming soon.',
       grimoireEmpty: 'Spell catalogue unavailable.',
-      spellBy: '{{name}} → {{targets}}',
     },
     sheet: {
       nav: 'Match actions',
@@ -229,7 +218,6 @@ export const en: Translation = {
       close: 'Close',
     },
     panel: {
-      elo: 'ELO {{elo}}',
       eloShort: '({{elo}})',
       library: '{{count}} in library',
       cards: '{{count}} cards in hand',
@@ -332,22 +320,16 @@ export const en: Translation = {
     hand: 'Your hand',
     handEmpty: 'No cards in hand.',
     handLoading: 'Loading the catalogue…',
-    deck: 'Deck: {{count}}',
     mana: 'Mana {{current}} of {{max}}',
     manaShort: '{{current}}/{{max}}',
     manaSpaced: '{{current}} / {{max}}',
-    cost: '{{cost}} mana',
     costUnknown: '?',
-    unknownSpell: 'Unknown spell',
-    cast: 'Cast',
-    casting: 'Casting…',
     card: {
       type: 'Spell · {{kind}}',
       typePlain: 'Spell',
       label: '{{name}}, cost {{cost}}',
     },
     targeting: {
-      title: 'Target for {{name}}',
       cancelHint: 'Tap the card again or press Esc to cancel',
     },
     castByYou: 'You cast {{name}}: {{effects}}',
