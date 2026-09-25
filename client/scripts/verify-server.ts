@@ -189,7 +189,7 @@ async function verifyCatalog(ctx: Ctx, client: E2EClient): Promise<void> {
       const local = fallback.find((f) => f.id === spell.id);
       if (local === undefined) return `${spell.id}: nuova`;
       if (local.manaCost !== spell.manaCost) return `${spell.id}: costo ${local.manaCost} → ${spell.manaCost}`;
-      if (local.targetType !== spell.targetType) return `${spell.id}: bersaglio ${local.targetType} → ${spell.targetType}`;
+      if (JSON.stringify(local.targets) !== JSON.stringify(spell.targets)) return `${spell.id}: bersagli cambiati`;
       return null;
     })
     .filter((line) => line !== null);
@@ -368,7 +368,7 @@ async function verifyCasting(ctx: Ctx, client: E2EClient): Promise<void> {
     if (!manaChecked) {
       const expensive = c.hand.find((card) => (catalog.find((s) => s.id === card.spellId)?.manaCost ?? 0) > c.myMana);
       if (expensive !== undefined) {
-        const from = c.send({ type: 'cast_spell', card: expensive, targets: [] });
+        const from = c.send({ type: 'cast_spell', card: expensive, targets: [], choice: null });
         const error = await c.event(from, isType('error'), 'rifiuto per mana insufficiente');
         ledger.check(
           'G6',
@@ -384,16 +384,15 @@ async function verifyCasting(ctx: Ctx, client: E2EClient): Promise<void> {
       if (c.gameOver !== null || !c.isMyTurn || !isMain(c)) return;
       const card = c.hand.find((h) => {
         const spell = catalog.find((s) => s.id === h.spellId);
-        return spell !== undefined && !tried.has(h.spellId) && spell.manaCost <= c.myMana && spell.targetType !== 'piece_move';
+        return spell !== undefined && !tried.has(h.spellId) && spell.manaCost <= c.myMana && spell.targets.length === 1 && spell.targets[0]?.type !== 'square';
       });
       if (card === undefined) return;
       tried.add(card.spellId);
       const spell = catalog.find((s) => s.id === card.spellId);
       if (spell === undefined) return;
-      const targets =
-        spell.targetType === 'none' ? [] : spell.targetType === 'enemy_piece' ? [pawnOn('h', color === 'white' ? 'black' : 'white')] : [pawnOn('a', color)];
+      const targets = spell.targets[0]?.type === 'enemy_piece' ? [pawnOn('h', color === 'white' ? 'black' : 'white')] : [pawnOn('c', color)];
       if (targets.some((t) => t === null)) continue;
-      const from = c.send({ type: 'cast_spell', card, targets: targets as Square[] });
+      const from = c.send({ type: 'cast_spell', card, targets: targets as Square[], choice: null });
       const outcome = await c.event(
         from,
         (e): e is Extract<typeof e, { type: 'spell_cast' | 'error' }> => (e.type === 'spell_cast' && e.player === color) || e.type === 'error',

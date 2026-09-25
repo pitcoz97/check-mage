@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Board, type BoardTargeting } from '../../game/board/Board';
-import { PromotionDialog } from '../../game/board/PromotionDialog';
+import { PieceChoiceDialog, PromotionDialog } from '../../game/board/PromotionDialog';
 import type { BoardContext, PickupRefusal } from '../../game/board/selection';
-import type { Color, Square } from '../../game/model';
+import type { Color, PieceKind, Square } from '../../game/model';
 import { toUci } from '../../game/position';
 import { useMatch, useMatchSession, useSessionStatus } from '../../store/MatchProvider';
 import { refusalMessage } from './errorMessage';
@@ -20,10 +20,12 @@ export interface MatchBoardProps {
   readonly targeting: BoardTargeting | null;
   /** Caselle toccate dall'ultima magia risolta, da far pulsare. */
   readonly flash: readonly Square[];
+  /** Scelta del pezzo di una magia (promozione, ritorno dal cimitero), sopra la scacchiera. */
+  readonly choice?: { readonly options: readonly PieceKind[]; choose(piece: PieceKind): void; cancel(): void } | null;
 }
 
 /** Scacchiera collegata alla partita: legge lo stato, manda gli intenti, mostra l'anteprima della propria mossa. */
-export function MatchBoard({ onRefused, targeting, flash }: MatchBoardProps) {
+export function MatchBoard({ onRefused, targeting, flash, choice = null }: MatchBoardProps) {
   const { t } = useTranslation();
   const session = useMatchSession();
   const game = useMatch((s) => s.game);
@@ -42,6 +44,7 @@ export function MatchBoard({ onRefused, targeting, flash }: MatchBoardProps) {
     activePlayer: game.activePlayer,
     phase: game.phase,
     frozen: frozenSquares(game.activeEffects),
+    squareStates: game.squareStates,
     canAct: playing && connected,
   };
 
@@ -69,6 +72,15 @@ export function MatchBoard({ onRefused, targeting, flash }: MatchBoardProps) {
         onMove={(from, to, needsPromotion) => (needsPromotion ? setPromotion({ from, to }) : sendMove(from, to))}
         onRefused={(reason: PickupRefusal) => onRefused(refusalMessage(t, reason))}
       />
+      {choice !== null && (
+        <PieceChoiceDialog
+          color={(myColor ?? 'white') as Color}
+          title={t('spells.choice.title')}
+          options={choice.options}
+          onChoose={choice.choose}
+          onCancel={choice.cancel}
+        />
+      )}
       {promotion !== null && (
         <PromotionDialog
           color={(myColor ?? 'white') as Color}

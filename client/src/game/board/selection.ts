@@ -1,5 +1,7 @@
 import type { Color, Phase, Square } from '../model';
+import type { SquareEffects } from '../model';
 import { legalTargets, needsPromotion, piecesOf } from '../position';
+import { blockedMove } from './squareRules';
 
 /**
  * Macchina della selezione sulla scacchiera: tap-casella → tap-casella (obbligatorio, è il pattern mobile) e drag,
@@ -18,6 +20,8 @@ export interface BoardContext {
   readonly phase: Phase | 'unknown';
   /** Caselle con un pezzo congelato, dagli `active_effects` del server: il pickup è bloccato prima del tentativo. */
   readonly frozen: ReadonlySet<Square>;
+  /** Stati delle case (`square_effects`): le mosse che muri e santuari vietano non si evidenziano (ASSUMPTIONS M27). */
+  readonly squareStates: readonly SquareEffects[];
   /** Partita in corso e socket aperto. */
   readonly canAct: boolean;
 }
@@ -44,7 +48,8 @@ export function pickupRefusal(ctx: BoardContext, square: Square): PickupRefusal 
 function pickup(ctx: BoardContext, square: Square): BoardOutcome {
   const refusal = pickupRefusal(ctx, square);
   if (refusal !== null) return { kind: 'refused', reason: refusal };
-  return { kind: 'selection', selection: { from: square, targets: legalTargets(ctx.fen, square) } };
+  const targets = legalTargets(ctx.fen, square).filter((to) => !blockedMove(ctx.fen, ctx.squareStates, square, to));
+  return { kind: 'selection', selection: { from: square, targets } };
 }
 
 function moveTo(ctx: BoardContext, from: Square, to: Square): BoardOutcome {

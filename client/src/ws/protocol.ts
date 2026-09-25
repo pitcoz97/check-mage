@@ -21,11 +21,13 @@ import type {
   HandCard,
   ManaState,
   Phase,
+  PieceKind,
   PrivateHand,
   ProtocolErrorInfo,
   PublicGameState,
   SpellId,
   Square,
+  SquareEffects,
   UciMove,
   Username,
 } from '../game/model';
@@ -44,8 +46,10 @@ export type ClientIntent =
   | {
       readonly type: 'cast_spell';
       readonly card: HandCard;
-      /** `[]` per `none`, `[casella]` per `*_piece`, `[from, to]` per `piece_move` (`spells/spells.go:37`). */
+      /** Una casella per ogni bersaglio della magia, nell'ordine di `spell.targets`. */
       readonly targets: readonly Square[];
+      /** Pezzo scelto per promozione o ritorno dal cimitero; `null` se la magia non chiede nulla. */
+      readonly choice: PieceKind | null;
     };
 
 export type ClientIntentType = ClientIntent['type'];
@@ -63,6 +67,8 @@ export const SERVER_MESSAGE_TYPES = [
   'phase_changed',
   'spell_cast',
   'effect_expired',
+  'graveyard_changed',
+  'square_effects_changed',
   'timer_update',
   'game_over',
   'error',
@@ -110,6 +116,10 @@ export type ServerEvent =
       readonly effects: readonly AppliedEffect[];
     }
   | { readonly type: 'effect_expired'; readonly expired: ExpiredEffect }
+  /** Il cimitero di un giocatore è cambiato: la lista intera, in ordine. */
+  | { readonly type: 'graveyard_changed'; readonly player: Color; readonly graveyard: readonly PieceKind[] }
+  /** Gli stati delle case sono cambiati (creati o scaduti): la lista intera. */
+  | { readonly type: 'square_effects_changed'; readonly squareStates: readonly SquareEffects[] }
   /** `turn` = giocatore di cui scorre il tempo, non il tratto scacchistico (`game/room.go:1331-1340`). */
   | { readonly type: 'timer_update'; readonly clocks: Clocks; readonly turn: Color | 'unknown' }
   | {

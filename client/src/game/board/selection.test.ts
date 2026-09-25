@@ -13,6 +13,7 @@ function context(overrides: Partial<BoardContext> = {}): BoardContext {
     activePlayer: 'white',
     phase: 'move',
     frozen: new Set<Square>(),
+    squareStates: [],
     canAct: true,
     ...overrides,
   };
@@ -49,6 +50,12 @@ describe('tapSquare', () => {
     const selection = { from: 'e2' as Square, targets: ['e3', 'e4'] as Square[] };
     expect(tapSquare(context(), selection, 'h5')).toEqual({ kind: 'selection', selection: null });
     expect(tapSquare(context({ phase: 'main1' }), null, 'e2')).toEqual({ kind: 'refused', reason: 'wrong_phase' });
+  });
+
+  it('le mosse vietate da muri e santuari non sono fra i bersagli', () => {
+    const wall = { square: 'e3' as Square, effects: [{ kind: 'wall', remainingTurns: 2, sourceSpellId: 'ice_wall' }] };
+    expect(tapSquare(context({ squareStates: [wall] }), null, 'e2')).toEqual({ kind: 'selection', selection: { from: 'e2', targets: [] } });
+    expect(tapSquare(context({ squareStates: [wall] }), null, 'd2')).toEqual({ kind: 'selection', selection: { from: 'd2', targets: ['d3', 'd4'] } });
   });
 
   it('promozione segnalata alla UI, che chiede quale pezzo', () => {

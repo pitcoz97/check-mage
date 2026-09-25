@@ -69,6 +69,12 @@
   --board-shield-glow: rgba(217, 168, 69, 0.6);
   --state-frost-ink: #0f3e52;
   --state-shield-ink: #5a3f0e;
+  /* Stati delle case, non disegnati (D20): muro = blocco di ghiaccio, santuario = alone dorato. */
+  --board-wall: rgba(186, 228, 244, 0.88);
+  --board-wall-edge: rgba(240, 251, 255, 0.95);
+  --board-wall-shade: rgba(15, 62, 82, 0.4);
+  --board-sanctuary: rgba(242, 211, 138, 0.55);
+  --board-sanctuary-edge: rgba(217, 168, 69, 0.85);
   /* Bersagli delle magie: viola. */
   --board-cast-dot: rgba(155, 123, 224, 0.9);
   --board-cast-glow: rgba(155, 123, 224, 0.8);
@@ -164,6 +170,8 @@
   --drop-board: 0 12px 32px rgba(0, 0, 0, 0.45);
   --ring-frozen: inset 0 0 0 2px var(--board-frozen-edge);
   --ring-shielded: inset 0 0 0 3px var(--gold), 0 0 14px var(--board-shield-glow);
+  --ring-wall: inset 0 0 0 2px var(--board-wall-edge), inset 0 -4px 0 var(--board-wall-shade);
+  --ring-sanctuary: inset 0 0 0 2px var(--board-sanctuary-edge);
   --ring-cast-target: inset 0 0 0 4px var(--board-cast-ring);
   --ring-move-target: inset 0 0 0 4px var(--board-hint);
   --glow-cast-dot: 0 0 10px var(--board-cast-glow);

@@ -17,7 +17,7 @@ const MOVES = ['e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4', 'f8e7', 'd2d3', 'g8f6', '
 const FEN = 'r2q1rk1/pp2bppp/2np1n2/2p1p3/2B1P3/2NP1N1P/PPP2PP1/R1BQ1RK1 w - - 0 8';
 
 /** Stati della partita che le tavole non disegnano, per vederli nell'anteprima (`/dev/match?scenario=…`). */
-export const DEV_SCENARIOS = ['over', 'draw', 'reconnecting', 'replaced', 'disconnected', 'promotion'] as const;
+export const DEV_SCENARIOS = ['over', 'draw', 'reconnecting', 'replaced', 'disconnected', 'promotion', 'spells'] as const;
 export type DevScenario = (typeof DEV_SCENARIOS)[number];
 
 export function isDevScenario(value: string | null): value is DevScenario {
@@ -27,7 +27,11 @@ export function isDevScenario(value: string | null): value is DevScenario {
 /** La posizione della tavola con un pedone bianco in b7 pronto a promuovere. */
 const PROMOTION_FEN = 'r2q1rk1/pP2bppp/2np1n2/2p1p3/2B1P3/2NP1N1P/PPP2PP1/R1BQ1RK1 w - - 0 8';
 
-function gameState(moves: readonly string[], activeEffects: readonly object[], overrides: { fen?: string; phase?: string } = {}) {
+function gameState(
+  moves: readonly string[],
+  activeEffects: readonly object[],
+  overrides: { fen?: string; phase?: string; extra?: Record<string, unknown> } = {},
+) {
   return {
     type: 'game_state',
     payload: {
@@ -49,6 +53,7 @@ function gameState(moves: readonly string[], activeEffects: readonly object[], o
       white_deck_size: 18,
       black_deck_size: 19,
       active_effects: activeEffects,
+      ...overrides.extra,
     },
   };
 }
@@ -62,8 +67,8 @@ const LEADERBOARD = [
   { rank: 5, id: 7, username: 'Riccardo', elo: 1240 },
 ];
 
-const SHIELD = { square: 'e4', effects: [{ kind: 'shield', remaining_turns: 2, source_spell_id: 'aegis' }] };
-const FREEZE = { square: 'c3', effects: [{ kind: 'freeze', remaining_turns: 1, source_spell_id: 'frostbolt' }] };
+const SHIELD = { square: 'e4', effects: [{ kind: 'shield', remaining_turns: 1, source_spell_id: 'shield' }] };
+const FREEZE = { square: 'c3', effects: [{ kind: 'freeze', remaining_turns: 1, source_spell_id: 'ice_chain' }] };
 
 /** Account e sessione finti per le anteprime: con `withMatch` la partita delle tavole è già in corso. */
 export async function startDevSession({
@@ -106,19 +111,43 @@ export async function startDevSession({
   socket.receive(gameState(MOVES.slice(0, 12), []));
   socket.receive({
     type: 'spell_cast',
-    payload: { player: 'white', spell_id: 'aegis', targets: ['e4'], effects_applied: [{ kind: 'shield_piece', target: 'e4', remaining_turns: 2 }] },
+    payload: { player: 'white', spell_id: 'shield', targets: ['e4'], effects_applied: [{ kind: 'shield_piece', target: 'e4', remaining_turns: 1 }] },
   });
   socket.receive(gameState(MOVES, [SHIELD]));
   socket.receive({
     type: 'spell_cast',
-    payload: { player: 'black', spell_id: 'frostbolt', targets: ['c3'], effects_applied: [{ kind: 'freeze_piece', target: 'c3', remaining_turns: 1 }] },
+    payload: { player: 'black', spell_id: 'ice_chain', targets: ['c3'], effects_applied: [{ kind: 'freeze_piece', target: 'c3', remaining_turns: 1 }] },
   });
   socket.receive(gameState(MOVES, [SHIELD, FREEZE]));
-  socket.receive({ type: 'hand', payload: { hand: ['teleport', 'frostbolt', 'aegis', 'disintegrate', 'nova'], mana: 4, max_mana: 8, deck_size: 18 } });
+  socket.receive({ type: 'hand', payload: { hand: ['blink', 'frost', 'shield', 'shatter', 'conscription'], mana: 4, max_mana: 8, deck_size: 18 } });
   if (scenario === 'over') socket.receive({ type: 'game_over', payload: { result: '1-0', reason: 'checkmate', winner: SELF.username } });
   if (scenario === 'draw') socket.receive({ type: 'draw_offer', payload: { from: OPPONENT.username } });
   if (scenario === 'disconnected') socket.receive({ type: 'opponent_disconnected', payload: { message: 'x' } });
   if (scenario === 'promotion') socket.receive(gameState(MOVES, [], { fen: PROMOTION_FEN, phase: 'move' }));
+  // Magie dello Step 2: cimiteri non vuoti nelle righe dei giocatori e carte che chiedono la scelta del pezzo
+  // (Promozione anticipata sul pedone in b7, Resurrezione con due tipi nel cimitero). Dello Step 3: un muro e un
+  // santuario sulle case, e le due carte in mano.
+  if (scenario === 'spells') {
+    socket.receive(
+      gameState(MOVES, [], {
+        fen: PROMOTION_FEN,
+        extra: {
+          white_mana: 10,
+          white_max_mana: 10,
+          white_graveyard: ['knight', 'rook', 'pawn'],
+          black_graveyard: ['pawn', 'pawn', 'bishop'],
+          square_effects: [
+            { square: 'd5', effects: [{ kind: 'wall', remaining_turns: 2, source_spell_id: 'ice_wall', caster: 'black' }] },
+            { square: 'e4', effects: [{ kind: 'no_capture', remaining_turns: 3, source_spell_id: 'sanctuary', caster: 'white' }] },
+          ],
+        },
+      }),
+    );
+    socket.receive({
+      type: 'hand',
+      payload: { hand: ['early_promotion', 'resurrection', 'ice_wall', 'sanctuary', 'swap'], mana: 10, max_mana: 10, deck_size: 18 },
+    });
+  }
   // Il socket cade: la sessione riprova (banner con i secondi) o, con 4001, la partita è stata aperta altrove.
   if (scenario === 'reconnecting') socket.drop(1006);
   if (scenario === 'replaced') socket.drop(4001);

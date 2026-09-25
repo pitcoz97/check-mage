@@ -47,9 +47,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** Mani e pesche da 5 mana: nei primi turni ogni fase main si salta da sola. */
-const NOVAS = ['nova', 'nova', 'nova', 'nova'];
-const NOTHING_CASTABLE: MatchOverrides = { hand: { white: NOVAS, black: NOVAS }, deckTop: { white: NOVAS, black: NOVAS } };
+/** Mani e pesche da 4 mana: nei primi turni ogni fase main si salta da sola. */
+const EXPENSIVE = ['shatter', 'shatter', 'shatter', 'shatter'];
+const NOTHING_CASTABLE: MatchOverrides = { hand: { white: EXPENSIVE, black: EXPENSIVE }, deckTop: { white: EXPENSIVE, black: EXPENSIVE } };
 
 function setup(opts: { overrides?: MatchOverrides; fen?: string; baseTimeMs?: number } = {}) {
   const white = new FakeClient(1, 'mario');
@@ -96,12 +96,12 @@ describe('avvio (room.go:76-121)', () => {
       time_control: { base_ms: 600_000, increment_ms: 5_000 },
     });
     expect(white.all('phase_changed').map((p) => p['phase'])).toEqual(['main1', 'move']);
-    expect(white.last('hand')).toEqual({ hand: ['nova', 'nova', 'nova', 'nova'], mana: 1, max_mana: 1, deck_size: 36 });
+    expect(white.last('hand')).toEqual({ hand: ['shatter', 'shatter', 'shatter', 'shatter'], mana: 1, max_mana: 1, deck_size: 36 });
     expect(black.types()).toEqual(['game_state', 'hand', 'phase_changed', 'phase_changed']);
   });
 
   it('con una carta castabile si ferma in main1', () => {
-    const { white } = setup({ overrides: { hand: { white: ['spark'] } } });
+    const { white } = setup({ overrides: { hand: { white: ['frost'] } } });
     expect(white.all('phase_changed').map((p) => p['phase'])).toEqual(['main1']);
   });
 });
@@ -115,7 +115,7 @@ describe('mosse (room.go:423-570)', () => {
     expect(white.last('error')).toEqual({ message: 'Mossa illegale: e2e5', code: 'illegal_move', details: { move: 'e2e5' } });
     send(white, 'move');
     expect(white.last('error')).toEqual({ message: 'Formato mossa non valido', code: 'invalid_payload' });
-    room.tracker.freeze('e2', 'black', 2, 'frostbolt');
+    room.tracker.freeze('e2', 'black', 2, 'frost');
     send(white, 'move', { move: 'e2e4' });
     expect(white.last('error')).toEqual({ message: 'Il pezzo in e2 è congelato', code: 'piece_frozen', details: { square: 'e2' } });
     send(white, 'pass_phase');
@@ -153,7 +153,7 @@ describe('mosse (room.go:423-570)', () => {
   it('scudo che assorbe la cattura: nessun pezzo si muove, mossa registrata come 0000, il turno passa', () => {
     const fen = '4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1';
     const { room, white, black, send } = setup({ fen });
-    room.tracker.shield('d5', 'black', 2, 'aegis');
+    room.tracker.shield('d5', 'black', 2, 'shield');
     black.clear();
     send(white, 'move', { move: 'e4d5' });
     expect(black.types().slice(0, 2)).toEqual(['effect_expired', 'game_state']);
@@ -168,7 +168,7 @@ describe('mosse (room.go:423-570)', () => {
   it('scudo ed en passant (B11): assorbe la cattura, effect_expired sulla casella del pedone', () => {
     const fen = '4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1';
     const { room, white, black, send } = setup({ fen });
-    room.tracker.shield('d5', 'black', 2, 'aegis');
+    room.tracker.shield('d5', 'black', 2, 'shield');
     black.clear();
     send(white, 'move', { move: 'e5d6' });
     expect(black.messages[0]?.payload).toEqual({ square: 'd5', effect_kind: 'shield', reason: 'shield_absorbed' });
@@ -179,7 +179,7 @@ describe('mosse (room.go:423-570)', () => {
     // Il re bianco in a1 è sotto scacco dalla torre in a8; l'unica difesa è Th8xa8.
     const fen = 'r6R/8/6k1/8/8/8/1P6/KR6 w - - 0 1';
     const { room, white, black, send } = setup({ fen });
-    room.tracker.shield('a8', 'black', 2, 'aegis');
+    room.tracker.shield('a8', 'black', 2, 'shield');
     black.clear();
     send(white, 'move', { move: 'h8a8' });
     expect(black.types()).not.toContain('effect_expired');
@@ -187,9 +187,9 @@ describe('mosse (room.go:423-570)', () => {
     expect(room.tracker.hasShield('a8')).toBe(false);
   });
 
-  it('effetti scaduti al rollover del proprietario, con piece_id', () => {
+  it('effetti scaduti alla fine del turno dell’avversario di chi lancia, con piece_id', () => {
     const { room, white, black, send } = setup();
-    room.tracker.freeze('e7', 'white', 1, 'frostbolt');
+    room.tracker.freeze('e7', 'white', 1, 'frost');
     send(white, 'move', { move: 'e2e4' });
     black.clear();
     send(black, 'move', { move: 'd7d5' });
@@ -210,122 +210,331 @@ describe('mosse (room.go:423-570)', () => {
   });
 });
 
-describe('magie (room.go:624-853)', () => {
-  it('ordine dei broadcast, cast senza cambio di fase, Channel e Insight', () => {
-    const { white, black, send } = setup({ overrides: { hand: { white: ['channel', 'insight', 'spark', 'nova'] } } });
+describe('magie (room.go: handleCastSpell, applySpellEffects)', () => {
+  const FILLER = ['shatter', 'shatter'];
+
+  it('ordine dei broadcast: spell_cast, mana, mano, poi lo stato se la scacchiera cambia; Patto di sangue', () => {
+    const { white, black, send } = setup({ overrides: { hand: { white: ['blood_pact', 'frost', ...FILLER] } } });
     black.clear();
     white.clear();
-    send(white, 'cast_spell', { spell_id: 'channel', targets: [] });
-    expect(black.types()).toEqual(['spell_cast', 'mana_changed', 'hand_size_changed']);
+    send(white, 'cast_spell', { spell_id: 'blood_pact', targets: ['a2'] });
+    expect(black.types()).toEqual(['spell_cast', 'mana_changed', 'hand_size_changed', 'game_state', 'graveyard_changed']);
+    expect(black.last('graveyard_changed')).toEqual({ player: 'white', graveyard: ['pawn'] });
     expect(black.messages[0]?.payload).toEqual({
       player: 'white',
-      spell_id: 'channel',
-      targets: [],
-      effects_applied: [{ kind: 'gain_mana', amount: 2, mana: 3 }],
+      spell_id: 'blood_pact',
+      targets: ['a2'],
+      effects_applied: [
+        { kind: 'destroy_piece', target: 'a2', piece_destroyed: 'pawn' },
+        { kind: 'gain_mana', amount: 2, mana: 3 },
+      ],
     });
     expect(black.last('mana_changed')).toEqual({ player: 'white', current: 3, max: 1 });
-    send(white, 'cast_spell', { spell_id: 'insight', targets: [] });
-    expect(white.types().slice(-4)).toEqual(['spell_cast', 'mana_changed', 'hand_size_changed', 'card_drawn']);
-    expect(black.types()).not.toContain('card_drawn');
-    expect(white.all('spell_cast')[1]?.['effects_applied']).toEqual([{ kind: 'draw_card', count: 1 }]);
+    expect(black.last('game_state')).toMatchObject({ board: { fen: 'rnbqkbnr/pppppppp/8/8/8/8/1PPPPPPP/RNBQKBNR w KQkq - 0 1' } });
   });
 
   it('dopo l’ultimo cast possibile la fase avanza da sola', () => {
-    const { white, send } = setup({ overrides: { hand: { white: ['spark', 'nova', 'nova', 'nova'] } } });
+    const { white, send } = setup({ overrides: { hand: { white: ['frost', 'shatter', ...FILLER] } } });
     white.clear();
-    send(white, 'cast_spell', { spell_id: 'spark', targets: [] });
+    send(white, 'cast_spell', { spell_id: 'frost', targets: ['e7'] });
     expect(white.all('phase_changed').map((p) => p['phase'])).toEqual(['move']);
   });
 
-  it('rifiuti degli effetti a costo zero, con codici e dettagli', () => {
-    const { white, send, lastError, lastCode, room } = setup({
-      overrides: { hand: { white: ['disintegrate', 'frostbolt', 'aegis', 'teleport'] }, manaFloor: { white: 10 } },
+  it('rifiuti dei bersagli a costo zero, con indice, motivo e casella', () => {
+    const { white, send, lastCode, room } = setup({
+      overrides: { hand: { white: ['shatter', 'frost', 'shield', 'blink'] }, manaFloor: { white: 10 } },
     });
-    send(white, 'cast_spell', { spell_id: 'disintegrate', targets: ['e8'] });
-    expect([lastCode(white), lastError(white)]).toEqual(['invalid_target', 'il re non può essere distrutto']);
-    send(white, 'cast_spell', { spell_id: 'frostbolt', targets: ['e2'] });
-    expect([lastCode(white), lastError(white)]).toEqual(['invalid_target', 'non puoi congelare un tuo pezzo (e2)']);
-    send(white, 'cast_spell', { spell_id: 'aegis', targets: ['e4'] });
-    expect([lastCode(white), lastError(white)]).toEqual(['invalid_target', 'nessun pezzo da proteggere in e4']);
-    send(white, 'cast_spell', { spell_id: 'teleport', targets: ['b1', 'd2'] });
-    expect([lastCode(white), lastError(white)]).toEqual(['invalid_target', 'la casella d2 non è vuota']);
-    send(white, 'cast_spell', { spell_id: 'teleport', targets: ['b1'] });
+    send(white, 'cast_spell', { spell_id: 'shatter', targets: ['e7'] });
+    expect(white.last('error')).toEqual({
+      message: "il pezzo in e7 non ha l'effetto freeze",
+      code: 'invalid_target',
+      details: { index: 0, reason: 'missing_effect', square: 'e7' },
+    });
+    send(white, 'cast_spell', { spell_id: 'frost', targets: ['e2'] });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_target', details: { reason: 'wrong_owner' } });
+    send(white, 'cast_spell', { spell_id: 'shield', targets: ['e4'] });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_target', details: { reason: 'no_piece' } });
+    send(white, 'cast_spell', { spell_id: 'shield', targets: ['e8'] });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_target', details: { reason: 'wrong_owner' } });
+    send(white, 'cast_spell', { spell_id: 'blink', targets: ['b1', 'd2'] });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_target', details: { index: 1, reason: 'not_empty', square: 'd2' } });
+    send(white, 'cast_spell', { spell_id: 'blink', targets: ['b1', 'b4'] });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_target', details: { index: 1, reason: 'too_far' } });
+    send(white, 'cast_spell', { spell_id: 'blink', targets: ['b1'] });
     expect(white.last('error')).toMatchObject({ code: 'invalid_target_count', details: { expected: 2, received: 1 } });
-    send(white, 'cast_spell', { spell_id: 'teleport', targets: 'b1' });
-    expect([lastCode(white), lastError(white)]).toEqual(['invalid_payload', 'Formato cast_spell non valido']);
-    send(white, 'cast_spell', { spell_id: 'nova', targets: [] });
-    expect(white.last('error')).toMatchObject({ code: 'card_not_in_hand', details: { spell_id: 'nova' } });
+    send(white, 'cast_spell', { spell_id: 'blink', targets: 'b1' });
+    expect(lastCode(white)).toBe('invalid_payload');
+    send(white, 'cast_spell', { spell_id: 'royal_shield', targets: ['d1'] });
+    expect(white.last('error')).toMatchObject({ code: 'card_not_in_hand', details: { spell_id: 'royal_shield' } });
     expect(room.match.white.mana).toBe(10);
   });
 
-  it('Disintegrate cambia la FEN (game_state); Teleport che scopre il proprio re è rifiutato', () => {
-    const { white, send } = setup({
-      fen: '4k3/4p3/8/8/8/8/4R3/4K2q w - - 0 1',
-      overrides: { hand: { white: ['teleport', 'disintegrate', 'nova', 'nova'] }, manaFloor: { white: 10 } },
-    });
-    // Il re bianco in e1 è sotto scacco dalla donna in h1: spostare la torre in e3 non para lo scacco.
-    send(white, 'cast_spell', { spell_id: 'teleport', targets: ['e2', 'e3'] });
+  it('Patto di sangue una volta per turno (limit_reached)', () => {
+    const { white, send, room } = setup({ overrides: { hand: { white: ['blood_pact', 'blood_pact', ...FILLER] }, manaFloor: { white: 10 } } });
+    send(white, 'cast_spell', { spell_id: 'blood_pact', targets: ['a2'] });
+    send(white, 'cast_spell', { spell_id: 'blood_pact', targets: ['b2'] });
     expect(white.last('error')).toEqual({
-      message: 'mossa illegale: lascerebbe il re sotto scacco',
+      message: 'Patto di sangue si può lanciare al massimo 1 volte per turno',
+      code: 'limit_reached',
+      details: { spell_id: 'blood_pact', per_turn: 1 },
+    });
+    expect(room.match.white.mana).toBe(10);
+  });
+
+  it('Brina → Frantumare cambia la FEN; il proprio re sotto scacco resta un vincolo', () => {
+    const { white, send } = setup({
+      fen: '4k3/4p3/8/8/8/8/P7/4K3 w - - 0 1',
+      overrides: { hand: { white: ['frost', 'shatter', ...FILLER] }, manaFloor: { white: 10 } },
+    });
+    send(white, 'cast_spell', { spell_id: 'frost', targets: ['e7'] });
+    send(white, 'cast_spell', { spell_id: 'shatter', targets: ['e7'] });
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([{ kind: 'destroy_piece', target: 'e7', piece_destroyed: 'pawn' }]);
+    expect(white.last('game_state')).toMatchObject({ board: { fen: '4k3/8/8/8/8/8/P7/4K3 w - - 0 1' } });
+
+    const inCheck = setup({
+      fen: '4k3/8/8/8/8/8/4B3/4K2q w - - 0 1',
+      overrides: { hand: { white: ['blink', ...FILLER, 'shatter'] }, manaFloor: { white: 10 } },
+    });
+    // Il re bianco è sotto scacco dalla donna in h1: spostare l'alfiere in c4 non para lo scacco.
+    inCheck.send(inCheck.white, 'cast_spell', { spell_id: 'blink', targets: ['e2', 'c4'] });
+    expect(inCheck.white.last('error')).toEqual({
+      message: 'il re white resterebbe sotto scacco',
       code: 'illegal_position',
       details: { king: 'white' },
     });
-    send(white, 'cast_spell', { spell_id: 'disintegrate', targets: ['h1'] });
-    expect(white.last('spell_cast')?.['effects_applied']).toEqual([{ kind: 'destroy_piece', target: 'h1', piece_destroyed: 'queen' }]);
-    expect(white.last('game_state')).toMatchObject({ board: { fen: '4k3/4p3/8/8/8/8/4R3/4K3 w - - 0 1' } });
   });
 
-  it('B5: in main1 una magia non può dare scacco all’avversario; in main2 sì', () => {
+  it('niente scacco da magia, in main1 come in main2', () => {
     const { room, white, send } = setup({
-      fen: 'k7/8/8/p7/8/8/8/R3K3 w - - 0 1',
-      overrides: { hand: { white: ['teleport', 'disintegrate', 'nova', 'nova'] }, manaFloor: { white: 10 } },
+      fen: 'k7/8/8/8/2N5/8/P7/4K3 w - - 0 1',
+      overrides: { hand: { white: ['blink', 'blink', ...FILLER] }, manaFloor: { white: 10 } },
     });
-    send(white, 'cast_spell', { spell_id: 'disintegrate', targets: ['a5'] }); // scopre la torre su a8
-    const illegal = {
-      message: 'posizione illegale: il re black resterebbe sotto scacco senza avere il tratto',
-      code: 'illegal_position',
-      details: { king: 'black' },
-    };
-    expect(white.last('error')).toEqual(illegal);
-    send(white, 'cast_spell', { spell_id: 'teleport', targets: ['e1', 'd1'] }); // nessuno scacco: accettata
-    expect(white.last('spell_cast')).toMatchObject({ spell_id: 'teleport' });
-    expect(room.match.currentPhase).toBe('main1');
+    const givesCheck = { message: 'una magia non può dare scacco al re black', code: 'illegal_position', details: { king: 'black' } };
+    send(white, 'cast_spell', { spell_id: 'blink', targets: ['c4', 'b6'] }); // il cavallo in b6 attaccherebbe a8
+    expect(white.last('error')).toEqual(givesCheck);
+    send(white, 'cast_spell', { spell_id: 'blink', targets: ['c4', 'd6'] }); // nessuno scacco: accettata
+    expect(white.last('spell_cast')).toMatchObject({ spell_id: 'blink' });
     send(white, 'pass_phase');
-    send(white, 'move', { move: 'd1d2' });
+    send(white, 'move', { move: 'e1e2' });
     expect(room.match.currentPhase).toBe('main2');
-    // In main2 il tratto è del nero: lo scacco è legale.
-    send(white, 'cast_spell', { spell_id: 'disintegrate', targets: ['a5'] });
-    expect(white.last('spell_cast')).toMatchObject({ spell_id: 'disintegrate' });
-    expect(room.board.fen).toBe('k7/8/8/8/8/8/3K4/R7 b - - 1 1');
-    expect(room.isActive()).toBe(true);
+    white.clear();
+    send(white, 'cast_spell', { spell_id: 'blink', targets: ['d6', 'b6'] });
+    expect(white.last('error')).toEqual(givesCheck);
+    expect(room.board.fen).toBe('k7/8/3N4/8/8/8/P3K3/8 b - - 1 1');
   });
 
-  it('B13: Teleport del re su g1 non sposta la torre nel Tracker', () => {
+  it('Marcia forzata e Leva militare: movimento relativo, tetto dei pedoni, pedone evocato con id nuovo', () => {
     const { room, white, send } = setup({
-      fen: '4k3/8/8/8/8/8/8/4K2R w K - 0 1',
-      overrides: { hand: { white: ['teleport', 'nova', 'nova', 'nova'] }, manaFloor: { white: 10 } },
+      overrides: { hand: { white: ['forced_march', 'conscription', ...FILLER] }, manaFloor: { white: 10 } },
     });
-    const rookId = room.tracker.idAt('h1');
-    send(white, 'cast_spell', { spell_id: 'teleport', targets: ['e1', 'g1'] });
-    expect(white.last('spell_cast')?.['effects_applied']).toEqual([{ kind: 'move_piece', from: 'e1', to: 'g1' }]);
-    expect(room.tracker.idAt('h1')).toBe(rookId);
-    expect(room.tracker.idAt('f1')).toBeUndefined();
-    expect(room.board.fen).toBe('4k3/8/8/8/8/8/8/6KR w - - 0 1');
+    send(white, 'cast_spell', { spell_id: 'forced_march', targets: ['e2'] });
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([{ kind: 'move_piece', from: 'e2', to: 'e3' }]);
+    send(white, 'cast_spell', { spell_id: 'conscription', targets: ['e2'] });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_target', details: { reason: 'max_pawns', square: 'e2' } });
+
+    const empty = setup({
+      fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+      overrides: { hand: { white: ['conscription', ...FILLER, 'shatter'] }, manaFloor: { white: 10 } },
+    });
+    empty.send(empty.white, 'cast_spell', { spell_id: 'conscription', targets: ['b2'] });
+    expect(empty.white.last('spell_cast')?.['effects_applied']).toEqual([{ kind: 'summon_pawn', target: 'b2', piece: 'pawn' }]);
+    expect(empty.room.board.fen).toBe('4k3/8/8/8/8/8/1P6/4K3 w - - 0 1');
+    expect(empty.room.tracker.idAt('b2')).toBe(3);
+    expect(room.board.fen).toBe('rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQKBNR w KQkq - 0 1');
   });
 
-  it('matto da magia rilevato al rollover, game_state finale prima di game_over', () => {
-    const { white, black, send, ended } = setup({
-      fen: 'R5rk/6pp/8/8/8/8/8/6K1 w - - 0 1',
-      overrides: { hand: { white: ['disintegrate', 'nova', 'nova', 'nova'] }, manaFloor: { white: 4 } },
+  it('senza mosse giocabili per il gelo è stallo (M6)', () => {
+    const { white, send } = setup({
+      fen: 'k7/7p/1Q6/8/8/8/8/4K3 w - - 0 1',
+      overrides: { hand: { white: ['frost', ...FILLER, 'shatter'] } },
     });
-    send(white, 'pass_phase');
-    send(white, 'move', { move: 'g1f1' });
-    send(white, 'cast_spell', { spell_id: 'disintegrate', targets: ['g8'] });
-    expect(black.last('game_over')).toEqual({ result: '1-0', reason: 'checkmate', winner: 'mario' });
-    expect(black.last('game_state')).toMatchObject({ board: { status: 'checkmate' } });
-    expect(black.types().indexOf('game_over')).toBeGreaterThan(black.types().lastIndexOf('game_state'));
-    vi.runAllTicks();
-    expect(ended).toEqual([]); // onEnded è asincrono (setImmediate)
+    send(white, 'cast_spell', { spell_id: 'frost', targets: ['h7'] }); // l'unico pezzo nero che può muovere
+    send(white, 'move', { move: 'e1e2' });
+    expect(white.last('game_over')).toMatchObject({ result: '1/2-1/2', reason: 'stalemate' });
+    expect(white.last('game_state')).toMatchObject({ board: { status: 'stalemate' } });
+  });
+});
+
+describe('magie dello step 2: cimitero e gruppo A', () => {
+  const FILLER = ['shatter', 'shatter'];
+  const rich = { white: 10 };
+
+  it('la cattura manda il pezzo nel cimitero, con game_state e graveyard_changed', () => {
+    const { white, black, send } = setup();
+    send(white, 'move', { move: 'e2e4' });
+    send(black, 'move', { move: 'd7d5' });
+    white.clear();
+    send(white, 'move', { move: 'e4d5' });
+    expect(white.last('graveyard_changed')).toEqual({ player: 'black', graveyard: ['pawn'] });
+    expect(white.last('game_state')).toMatchObject({ black_graveyard: ['pawn'], white_graveyard: [] });
+  });
+
+  it('Inverno eterno congela i pedoni nemici; senza pedoni è no_effect a costo zero', () => {
+    const { room, white, send } = setup({ overrides: { hand: { white: ['eternal_winter', ...FILLER] }, manaFloor: rich } });
+    send(white, 'cast_spell', { spell_id: 'eternal_winter', targets: [] });
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([
+      { kind: 'freeze_all', targets: ['a7', 'b7', 'c7', 'd7', 'e7', 'f7', 'g7', 'h7'], remaining_turns: 1 },
+    ]);
+    expect(room.tracker.isFrozen('a7')).toBe(true);
+
+    const empty = setup({ fen: '4k3/8/8/8/8/8/P7/4K3 w - - 0 1', overrides: { hand: { white: ['eternal_winter', ...FILLER] }, manaFloor: rich } });
+    empty.send(empty.white, 'cast_spell', { spell_id: 'eternal_winter', targets: [] });
+    expect(empty.white.last('error')).toEqual({
+      message: 'la magia Inverno eterno non avrebbe effetto',
+      code: 'no_effect',
+      details: { reason: 'no_pieces' },
+    });
+    expect(empty.room.match.white.mana).toBe(10);
+  });
+
+  it('Guardia reale (regina compresa) e Falange (solo pedoni di lato)', () => {
+    const { room, white, send } = setup({ overrides: { hand: { white: ['royal_guard', 'phalanx', ...FILLER] }, manaFloor: rich } });
+    send(white, 'cast_spell', { spell_id: 'royal_guard', targets: [] });
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([
+      { kind: 'shield_area', targets: ['d2', 'e2', 'f2', 'd1', 'f1'], remaining_turns: 1 },
+    ]);
+    send(white, 'cast_spell', { spell_id: 'phalanx', targets: [] });
+    expect(room.tracker.hasShield('a2')).toBe(true);
+
+    const apart = setup({ fen: '4k3/8/8/8/8/1P6/P7/4K3 w - - 0 1', overrides: { hand: { white: ['phalanx', ...FILLER] }, manaFloor: rich } });
+    apart.send(apart.white, 'cast_spell', { spell_id: 'phalanx', targets: [] });
+    expect(apart.white.last('error')).toMatchObject({ code: 'no_effect', details: { reason: 'no_pieces' } });
+  });
+
+  it('Scambio e Metamorfosi conservano id ed effetti; nessun pedone in prima traversa', () => {
+    const { room, white, send } = setup({ overrides: { hand: { white: ['swap', 'metamorphosis', 'swap', ...FILLER] }, manaFloor: rich } });
+    const knight = room.tracker.idAt('b1');
+    send(white, 'cast_spell', { spell_id: 'swap', targets: ['b1', 'b2'] });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_target', details: { reason: 'pawn_rank' } });
+    send(white, 'cast_spell', { spell_id: 'swap', targets: ['b1', 'c1'] });
+    expect(room.board.fen).toBe('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RBNQKBNR w KQkq - 0 1');
+    expect(room.tracker.idAt('c1')).toBe(knight);
+    send(white, 'cast_spell', { spell_id: 'metamorphosis', targets: ['c1'] });
+    expect(room.board.fen).toBe('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RBBQKBNR w KQkq - 0 1');
+    expect(room.tracker.idAt('c1')).toBe(knight);
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([{ kind: 'transform_piece', target: 'c1', piece: 'bishop' }]);
+  });
+
+  it('Promozione anticipata vuole una scelta ammessa', () => {
+    const { room, white, send } = setup({
+      fen: 'k7/4P3/8/8/8/8/8/4K3 w - - 0 1',
+      overrides: { hand: { white: ['early_promotion', ...FILLER] }, manaFloor: rich },
+    });
+    send(white, 'cast_spell', { spell_id: 'early_promotion', targets: ['e7'] });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_choice', details: { reason: 'missing' } });
+    send(white, 'cast_spell', { spell_id: 'early_promotion', targets: ['e7'], choice: { piece: 'king' } });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_choice', details: { reason: 'not_allowed' } });
+    send(white, 'cast_spell', { spell_id: 'early_promotion', targets: ['e7'], choice: 7 });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_payload' });
+    send(white, 'cast_spell', { spell_id: 'early_promotion', targets: ['e7'], choice: { piece: 'knight' } });
+    expect(room.board.fen).toBe('k7/4N3/8/8/8/8/8/4K3 w - - 0 1');
+  });
+
+  it('Richiamo e Resurrezione riportano dal cimitero; a cimitero vuoto è no_effect', () => {
+    const { room, white, black, send } = setup({
+      fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+      overrides: { hand: { white: ['recall', 'resurrection', ...FILLER] }, manaFloor: rich },
+    });
+    send(white, 'cast_spell', { spell_id: 'recall', targets: ['b2'] });
+    expect(white.last('error')).toMatchObject({ code: 'no_effect', details: { reason: 'empty_graveyard' } });
+    room.match.white.graveyard = [
+      { piece: 'knight', piece_id: 2 },
+      { piece: 'rook', piece_id: 1 },
+      { piece: 'pawn', piece_id: 9 },
+    ];
+    send(white, 'cast_spell', { spell_id: 'resurrection', targets: ['b1'] });
+    expect(white.last('error')).toMatchObject({ code: 'invalid_choice', details: { reason: 'missing' } });
+    black.clear();
+    send(white, 'cast_spell', { spell_id: 'resurrection', targets: ['b1'], choice: { piece: 'rook' } });
+    expect(room.board.fen).toBe('4k3/8/8/8/8/8/8/1R2K3 w - - 0 1');
+    expect(black.last('graveyard_changed')).toEqual({ player: 'white', graveyard: ['knight', 'pawn'] });
+    // La Resurrezione ha speso 8 mana e la main1 si è chiusa da sola: si riparte da main1 con mana pieno.
+    room.match.white.mana = 10;
+    room.match.currentPhase = 'main1';
+    send(white, 'cast_spell', { spell_id: 'recall', targets: ['b2'] });
+    expect(room.match.white.graveyard.map((g) => g.piece)).toEqual(['knight']);
+  });
+
+  it('Arrocco divino: solo in main1 e solo con re e torri a posto', () => {
+    const { room, white, send } = setup({
+      fen: 'r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w - - 0 1',
+      overrides: { hand: { white: ['divine_castling', ...FILLER] }, manaFloor: rich },
+    });
+    send(white, 'cast_spell', { spell_id: 'divine_castling', targets: [] });
+    expect(room.board.fen).toBe('r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQ - 0 1');
+
+    const moved = setup({
+      fen: 'r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R4K1R w - - 0 1',
+      overrides: { hand: { white: ['divine_castling', ...FILLER] }, manaFloor: rich },
+    });
+    moved.send(moved.white, 'cast_spell', { spell_id: 'divine_castling', targets: [] });
+    expect(moved.white.last('error')).toMatchObject({ code: 'no_effect', details: { reason: 'no_castling' } });
+  });
+});
+
+describe('magie dello step 3: muri e santuari', () => {
+  const FILLER = ['shatter', 'shatter'];
+  const rich = { white: 10 };
+
+  it('il muro blocca il percorso con move_blocked e scade dopo due turni del nero', () => {
+    const { room, white, black, send } = setup();
+    room.tracker.addSquareEffect('e3', 'wall', 2, 'ice_wall', 'white');
+    send(white, 'move', { move: 'e2e4' });
+    expect(white.last('error')).toEqual({ message: 'La mossa e2e4 è bloccata in e3', code: 'move_blocked', details: { square: 'e3', reason: 'wall' } });
+    expect(room.isPlayable('e2e4')).toBe(false);
+    send(white, 'move', { move: 'f2f3' });
+    expect(white.last('game_state')?.['square_effects']).toEqual([
+      { square: 'e3', effects: [{ kind: 'wall', remaining_turns: 2, source_spell_id: 'ice_wall', caster: 'white' }] },
+    ]);
+    send(black, 'move', { move: 'e7e5' });
+    send(white, 'move', { move: 'g1h3' });
+    expect(white.all('square_effects_changed')).toEqual([]);
+    send(black, 'move', { move: 'd7d5' });
+    expect(white.last('square_effects_changed')).toEqual({ square_effects: [] });
+    expect(room.isPlayable('e2e4')).toBe(true);
+  });
+
+  it('Muro di ghiaccio: create_wall, lista a entrambi, niente muro sul muro', () => {
+    const { white, black, send } = setup({ overrides: { hand: { white: ['ice_wall', 'ice_wall', ...FILLER] }, manaFloor: rich } });
+    send(white, 'cast_spell', { spell_id: 'ice_wall', targets: ['e4'] });
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([{ kind: 'create_wall', target: 'e4', remaining_turns: 2 }]);
+    expect(black.last('square_effects_changed')).toEqual({
+      square_effects: [{ square: 'e4', effects: [{ kind: 'wall', remaining_turns: 2, source_spell_id: 'ice_wall', caster: 'white' }] }],
+    });
+    send(white, 'cast_spell', { spell_id: 'ice_wall', targets: ['e4'] });
+    expect(white.last('error')).toEqual({
+      message: 'la casella e4 ha un muro',
+      code: 'invalid_target',
+      details: { index: 0, reason: 'wall', square: 'e4' },
+    });
+  });
+
+  it('Santuario: nessuna cattura con le mosse né con Frantumare; il proprio sacrificio è ammesso', () => {
+    const { room, white, send } = setup({ fen: '4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1' });
+    room.tracker.addSquareEffect('d5', 'no_capture', 3, 'sanctuary', 'black');
+    send(white, 'move', { move: 'e4d5' });
+    expect(white.last('error')).toEqual({
+      message: 'La mossa e4d5 è bloccata in d5',
+      code: 'move_blocked',
+      details: { square: 'd5', reason: 'no_capture' },
+    });
+
+    const cast = setup({ fen: '4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1', overrides: { hand: { white: ['shatter', 'blood_pact', 'sanctuary'] }, manaFloor: rich } });
+    cast.room.tracker.addSquareEffect('d5', 'no_capture', 3, 'sanctuary', 'black');
+    cast.room.tracker.addSquareEffect('e4', 'no_capture', 3, 'sanctuary', 'black');
+    cast.room.tracker.freeze('d5', 'white', 1, 'frost');
+    cast.send(cast.white, 'cast_spell', { spell_id: 'shatter', targets: ['d5'] });
+    expect(cast.white.last('error')).toEqual({
+      message: 'd5 è su una casa dove non si cattura',
+      code: 'invalid_target',
+      details: { index: 0, reason: 'no_capture', square: 'd5' },
+    });
+    cast.send(cast.white, 'cast_spell', { spell_id: 'blood_pact', targets: ['e4'] });
+    expect(cast.room.board.fen).toBe('4k3/8/8/3p4/8/8/8/4K3 w - - 0 1');
+    cast.send(cast.white, 'cast_spell', { spell_id: 'sanctuary', targets: ['e1'] });
+    expect(cast.white.last('spell_cast')?.['effects_applied']).toEqual([
+      { kind: 'create_square_effect', target: 'e1', effect: 'no_capture', remaining_turns: 3 },
+    ]);
   });
 });
 
@@ -442,7 +651,7 @@ describe('connessioni e fine partita', () => {
     for (const [type, payload] of [
       ['move', { move: 'e2e4' }],
       ['pass_phase', undefined],
-      ['cast_spell', { spell_id: 'nova', targets: [] }],
+      ['cast_spell', { spell_id: 'frost', targets: ['e7'] }],
       ['resign', undefined],
       ['draw_offer', undefined],
       ['draw_accepted', undefined],

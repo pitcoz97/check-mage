@@ -1,21 +1,45 @@
 import { INFO, WS, type GameError } from '../serverTexts';
 import type { Rng } from '../util';
 import type { WireServerMessage, WireServerType } from '../wire';
-import { paramInt, type Spell } from './catalog';
+import { paramBool, paramInt, paramStringMap, paramStrings, type Spell } from './catalog';
 import { getGameStatus, isMoveLegal, applyMove as engineApplyMove } from './engine';
 import {
+  aroundKing,
+  clearStaleEnPassant,
+  countPieces,
   destroyPiece,
   EffectError,
+  forwardSquare,
   isKingAttacked,
   movePieceFen,
   opponentOf,
   passTurn,
+  pawnsSideBySide,
   pieceAt,
+  pieceColor,
+  pieceLetter,
+  pieceName,
+  piecesOf,
+  placePiece,
+  relativeRank,
+  restoreCastling,
+  setPiece,
   sideToMove,
+  swapPieces,
   type Color,
 } from './fen';
-import { CastError, MatchState, type AdvanceResult, type DrawResult, type ManaState, type MatchOverrides } from './match';
-import { KIND_SHIELD, Tracker, type ExpiredEffect } from './tracker';
+import {
+  CastError,
+  MatchState,
+  type AdvanceResult,
+  type DrawResult,
+  type GraveEntry,
+  type ManaState,
+  type MatchOverrides,
+} from './match';
+import { captureSquare, KIND_NO_CAPTURE, KIND_WALL, moveBlock } from './squares';
+import { validateTargets } from './targets';
+import { KIND_SHIELD, Tracker, type ExpiredEffect, type PieceEffectInfo } from './tracker';
 
 /**
  * Porting di `game/room.go` (branch `fix/backend-requests`). I commenti `room.go:N` rimandano alla riga del server.
@@ -87,18 +111,34 @@ function decodePayload(payload: unknown, fields: Record<string, 'string' | 'stri
   return record;
 }
 
-/** `captureSquare` (`room.go:413-421`): casella del pezzo catturato, anche per l'en passant; `null` se non cattura. */
-function captureSquare(fen: string, from: string, to: string): string | null {
-  if (pieceAt(fen, to) !== null) return to;
-  const mover = pieceAt(fen, from);
-  if ((mover === 'P' || mover === 'p') && from[0] !== to[0]) return `${to[0]}${from[1]}`;
-  return null;
+/**
+ * `validateNoCheck` (`room.go`): niente scacco da magia, in main1 come in main2. Il re di chi lancia non resta sotto
+ * scacco; il re avversario non va sotto scacco per la magia (se lo era già per la mossa del turno, la magia è ammessa).
+ */
+function validateNoCheck(before: string, after: string, caster: Color): void {
+  if (isKingAttacked(after, caster)) throw new EffectError(WS.kingLeftInCheck(caster));
+  const opponent = opponentOf(caster);
+  if (isKingAttacked(after, opponent) && !isKingAttacked(before, opponent)) throw new EffectError(WS.spellGivesCheck(opponent));
 }
 
-/** `validateBoardEdit` (`room.go:725-733`): il re di chi NON ha il tratto non può restare sotto scacco. */
-function validateBoardEdit(fen: string): void {
-  const waiting = opponentOf(sideToMove(fen));
-  if (isKingAttacked(fen, waiting)) throw new EffectError(WS.illegalPosition(waiting));
+/**
+ * `moveEndpoints` (`room.go`): partenza e arrivo di un `move_piece`, dai due bersagli oppure, con `relative:
+ * "forward"`, dal solo pezzo e dai passi in avanti. Il movimento relativo non cattura e con `no_promotion` non arriva
+ * all'ultima traversa.
+ */
+function moveEndpoints(fen: string, params: Record<string, unknown> | undefined, targets: string[], caster: Color): [string, string] {
+  const relative = typeof params?.['relative'] === 'string' ? params['relative'] : '';
+  const from = targets[0];
+  if (relative === '') {
+    const to = targets[1];
+    if (from === undefined || to === undefined) throw new EffectError(WS.moveNeedsTwo(targets.length));
+    return [from, to];
+  }
+  if (relative !== 'forward' || from === undefined) throw new EffectError(WS.unsupportedRelative(relative));
+  const to = forwardSquare(from, caster, paramInt(params, 'squares', 1));
+  if (pieceAt(fen, to) !== null) throw new EffectError(WS.forwardBlocked(to));
+  if (paramBool(params, 'no_promotion') && relativeRank(to, caster) === 8) throw new EffectError(WS.wouldPromote(to));
+  return [from, to];
 }
 
 export class Room {
@@ -107,7 +147,7 @@ export class Room {
   black: GameClient;
   readonly board: Board;
   readonly match: MatchState;
-  readonly tracker: Tracker;
+  tracker: Tracker;
   whiteTime: number;
   blackTime: number;
   private drawOfferer: GameClient | null = null;
@@ -159,7 +199,15 @@ export class Room {
         const data = decodePayload(payload, { spell_id: 'string', targets: 'string[]' });
         if (data === null) return this.sendError(sender, WS.malformedCast);
         const targets = Array.isArray(data['targets']) ? (data['targets'] as string[]) : null;
-        return this.handleCastSpell(sender, typeof data['spell_id'] === 'string' ? data['spell_id'] : '', targets);
+        // `choice` è un oggetto `{piece}`: un tipo sbagliato fa fallire lo Unmarshal come nel server.
+        const rawChoice = data['choice'];
+        if (rawChoice !== undefined && rawChoice !== null && (typeof rawChoice !== 'object' || Array.isArray(rawChoice))) {
+          return this.sendError(sender, WS.malformedCast);
+        }
+        const piece = (rawChoice as Record<string, unknown> | null | undefined)?.['piece'];
+        if (piece !== undefined && piece !== null && typeof piece !== 'string') return this.sendError(sender, WS.malformedCast);
+        const choice = typeof piece === 'string' ? piece : '';
+        return this.handleCastSpell(sender, typeof data['spell_id'] === 'string' ? data['spell_id'] : '', targets, choice);
       }
       case 'resign':
         return this.handleResign(sender);
@@ -185,10 +233,14 @@ export class Room {
     const from = move.slice(0, 2);
     const to = move.slice(2, 4);
     if (this.tracker.isFrozen(from)) return this.sendError(sender, WS.frozen(from));
+    // Stati delle case, prima dello scudo: una mossa bloccata non lo consuma.
+    const blocked = moveBlock(this.board.fen, this.tracker, move);
+    if (blocked !== null) return this.sendError(sender, WS.moveBlocked(move, blocked.square, blocked.reason));
 
     // Lo scudo assorbe la cattura (anche en passant), salvo che la mossa nulla lasci in scacco chi muove:
     // la cattura era l'unico modo di uscire dallo scacco, quindi lo scudo si rompe (`room.go:461-473`).
     const captured = captureSquare(this.board.fen, from, to);
+    const graveOwners: Color[] = [];
     let shieldAbsorbed = captured !== null && this.tracker.hasShield(captured);
     if (shieldAbsorbed && isKingAttacked(passTurn(this.board.fen), senderColor)) shieldAbsorbed = false;
 
@@ -200,6 +252,9 @@ export class Room {
       this.board.fen = passTurn(this.board.fen);
       this.board.moves.push(NULL_MOVE);
     } else {
+      // Il pezzo catturato (anche en passant) va nel cimitero del proprietario.
+      const owner = captured === null ? null : this.buryCaptured(captured);
+      if (owner !== null) graveOwners.push(owner);
       this.board.moves.push(move);
       this.board.fen = engineApplyMove(this.board.fen, move);
       this.tracker.movePiece(from, to, move.length >= 5 ? (move[4] as string) : null);
@@ -214,12 +269,13 @@ export class Room {
       drawOfferExpiredFor = this.getOpponent(sender);
     }
 
-    let status = getGameStatus(this.board.fen);
+    let status = this.gameStatus();
     if (status === 'ongoing' && this.isThreefold()) status = 'draw';
 
     let end: GameEnd | null = null;
     let results: AdvanceResult[] = [];
     let expired: ExpiredEffect[] = [];
+    let squares: PieceEffectInfo[] | null = null;
     switch (status) {
       case 'checkmate':
         end = this.finish(senderColor === 'white' ? '1-0' : '0-1', 'checkmate', 'checkmate');
@@ -232,7 +288,7 @@ export class Room {
         break;
       case 'ongoing':
         results = [this.match.advance(), ...this.match.autoAdvance()];
-        expired = this.tickEffectsOnNewTurn(results);
+        [expired, squares] = this.tickEffectsOnNewTurn(results);
     }
 
     if (shieldAbsorbed) {
@@ -241,8 +297,10 @@ export class Room {
     drawOfferExpiredFor?.send(msg('draw_declined', { message: INFO.drawLapsed(sender.username), reason: 'move_played' }));
     // Lo stato parte anche a fine partita: i client vedono la mossa decisiva prima del game_over.
     this.broadcastState();
+    this.broadcastGraveyards(graveOwners);
     for (const res of results) this.applyAdvanceBroadcasts(res);
     this.broadcastExpired(expired);
+    this.broadcastSquareEffects(squares);
     this.announceEnd(end);
   }
 
@@ -254,27 +312,32 @@ export class Room {
     if (!this.match.allows('pass_phase')) return this.sendError(sender, WS.cannotPassInPhase(this.match.currentPhase));
 
     const results = [this.match.advance(), ...this.match.autoAdvance()];
-    const expired = this.tickEffectsOnNewTurn(results);
+    const [expired, squares] = this.tickEffectsOnNewTurn(results);
     const end = this.checkRolloverGameEnd(results);
     for (const res of results) this.applyAdvanceBroadcasts(res);
     this.broadcastExpired(expired);
+    this.broadcastSquareEffects(squares);
     if (end !== null) this.broadcastState();
     this.announceEnd(end);
   }
 
   /** `room.go:624-718`. */
-  private handleCastSpell(sender: GameClient, spellId: string, targets: string[] | null): void {
+  private handleCastSpell(sender: GameClient, spellId: string, targets: string[] | null, choice: string): void {
     if (this.ended) return this.sendError(sender, WS.gameOver);
     const senderColor = this.getColor(sender);
     let boardChanged = false;
     let drawn: DrawResult[] = [];
+    let graveOwners: Color[] = [];
+    let squaresChanged = false;
 
     let res;
     try {
       res = this.match.castSpell(senderColor, spellId, targets, (def, t) => {
-        const out = this.applySpellEffects(def, t, senderColor);
+        const out = this.applySpellEffects(def, t, senderColor, choice);
         boardChanged = out.changed;
         drawn = out.drawn;
+        graveOwners = out.graveOwners;
+        squaresChanged = out.squaresChanged;
         return out.applied;
       });
     } catch (error) {
@@ -284,9 +347,15 @@ export class Room {
 
     if (boardChanged) this.recordPosition();
     const autoResults = this.match.autoAdvance();
-    const expired = this.tickEffectsOnNewTurn(autoResults);
-    // Una magia che edita la board può dare matto: se il cast chiude il turno, si valuta l'avversario.
-    const end = this.checkRolloverGameEnd(autoResults);
+    // Gli stati creati dal cast partono prima delle scadenze del rollover.
+    const castSquares = squaresChanged ? this.tracker.squareEffects() : null;
+    const [expired, squares] = this.tickEffectsOnNewTurn(autoResults);
+    // Se il cast chiude il turno si valuta il nuovo giocatore attivo; se chi lancia ha ancora il tratto (main1) e la
+    // scacchiera o le case sono cambiate, si valuta lui: un Patto di sangue o un muro possono lasciarlo senza mosse.
+    let end = this.checkRolloverGameEnd(autoResults);
+    if (end === null && (boardChanged || squaresChanged) && sideToMove(this.board.fen) === this.match.activePlayer) {
+      end = this.checkActivePlayerEnd();
+    }
 
     this.broadcast('spell_cast', {
       player: senderColor,
@@ -298,91 +367,302 @@ export class Room {
     this.broadcast('hand_size_changed', { player: senderColor, size: res.handSize });
     for (const d of drawn) this.clientOf(senderColor).send(msg('card_drawn', { card_id: d.cardId, deck_size: d.deckSize }));
     if (boardChanged) this.broadcastState();
+    this.broadcastGraveyards(graveOwners);
+    this.broadcastSquareEffects(castSquares);
     for (const ar of autoResults) this.applyAdvanceBroadcasts(ar);
     this.broadcastExpired(expired);
+    this.broadcastSquareEffects(squares);
     if (end !== null && !boardChanged) this.broadcastState();
     this.announceEnd(end);
   }
 
-  /** `room.go:740-853`. Lancia `EffectError` per annullare il cast senza costi. */
-  private applySpellEffects(def: Spell, targets: string[], caster: Color) {
-    const applied: Record<string, unknown>[] = [];
-    const drawn: DrawResult[] = [];
+  /**
+   * `applySpellEffects` (`room.go`): valida i bersagli, applica gli effetti su una copia di FEN, Tracker e cimiteri,
+   * controlla la posizione finale e solo allora sostituisce lo stato; pesca e mana per ultimi. Lancia `EffectError`
+   * per annullare il cast senza costi.
+   */
+  private applySpellEffects(def: Spell, targets: string[], caster: Color, choice: string) {
+    validateTargets(this.board.fen, this.tracker, def.targets, targets, caster);
+
     let fen = this.board.fen;
+    const tracker = this.tracker.clone();
+    const graves: Record<Color, GraveEntry[]> = { white: [...this.match.white.graveyard], black: [...this.match.black.graveyard] };
+    const gravesChanged = new Set<Color>();
     let changed = false;
-    const missingTarget = (expected: number) => new EffectError(WS.needsTargets(def.name, expected, targets.length));
+    let squaresChanged = false;
+    const applied: Record<string, unknown>[] = [];
+    const deferred: (() => void)[] = [];
+    const drawn: DrawResult[] = [];
+    const target = (): string => {
+      const square = targets[0];
+      if (square === undefined) throw new EffectError(WS.needsTarget(def.name));
+      return square;
+    };
+    const noEffect = (reason: string) => new EffectError(WS.noEffect(def.name, reason));
+    const invalidChoice = (reason: string) => new EffectError(WS.invalidChoice(def.name, choice, reason));
+    // Il pezzo nella casa va nel cimitero del proprietario, prima di sparire da FEN e Tracker.
+    const bury = (square: string) => {
+      const info = tracker.info(square);
+      const piece = info?.piece ?? pieceAt(fen, square);
+      if (piece === null) return;
+      const owner = pieceColor(piece);
+      graves[owner].push({ piece: pieceName(piece), piece_id: info?.id ?? 0 });
+      gravesChanged.add(owner);
+    };
 
     for (const eff of def.effects) {
-      const target = targets[0];
+      const entry: Record<string, unknown> = { kind: eff.kind };
       switch (eff.kind) {
-        case 'noop':
-          applied.push({ kind: eff.kind });
-          break;
         case 'destroy_piece': {
-          if (target === undefined) throw missingTarget(1);
-          const result = destroyPiece(fen, target, caster);
-          validateBoardEdit(result.fen);
+          const square = target();
+          // Santuario: nessun pezzo nemico sparisce da quella casa (il sacrificio di un proprio pezzo è ammesso).
+          const victim = pieceAt(fen, square);
+          if (tracker.hasSquareEffect(square, KIND_NO_CAPTURE) && victim !== null && pieceColor(victim) !== caster) {
+            throw new EffectError(WS.sanctuaryDestroy(square));
+          }
+          bury(square);
+          const result = destroyPiece(fen, square);
           fen = result.fen;
           changed = true;
-          this.tracker.removeAt(target);
-          applied.push({ kind: eff.kind, target, piece_destroyed: result.destroyed });
+          tracker.removeAt(square);
+          entry['target'] = square;
+          entry['piece_destroyed'] = result.destroyed;
           break;
         }
         case 'freeze_piece':
         case 'shield_piece': {
-          if (target === undefined) throw missingTarget(1);
-          const turns = paramInt(eff.params, 'turns', 1);
-          if (eff.kind === 'freeze_piece') this.tracker.freeze(target, caster, turns, def.id);
-          else this.tracker.shield(target, caster, turns, def.id);
-          applied.push({ kind: eff.kind, target, remaining_turns: turns });
+          const square = target();
+          const duration = paramInt(eff.params, 'duration', 1);
+          if (eff.kind === 'freeze_piece') tracker.freeze(square, caster, duration, def.id);
+          else tracker.shield(square, caster, duration, def.id);
+          entry['target'] = square;
+          entry['remaining_turns'] = duration;
+          break;
+        }
+        case 'freeze_all': {
+          const side = eff.params?.['side'] === 'own' ? caster : opponentOf(caster);
+          const squares = piecesOf(fen, side, paramStrings(eff.params, 'pieces'));
+          if (squares.length === 0) throw noEffect('no_pieces');
+          const duration = paramInt(eff.params, 'duration', 1);
+          for (const square of squares) tracker.freeze(square, caster, duration, def.id);
+          entry['targets'] = squares;
+          entry['remaining_turns'] = duration;
+          break;
+        }
+        case 'shield_area': {
+          let squares: string[];
+          if (eff.params?.['around'] === 'own_king') squares = aroundKing(fen, caster, paramInt(eff.params, 'radius', 1));
+          else if (eff.params?.['filter'] === 'own_pawns_side_by_side') squares = pawnsSideBySide(fen, caster);
+          else throw new EffectError(WS.unknownAreaFilter(def.id));
+          if (squares.length === 0) throw noEffect('no_pieces');
+          const duration = paramInt(eff.params, 'duration', 1);
+          for (const square of squares) tracker.shield(square, caster, duration, def.id);
+          entry['targets'] = squares;
+          entry['remaining_turns'] = duration;
           break;
         }
         case 'draw_card': {
-          const count = paramInt(eff.params, 'count', 1);
-          for (let i = 0; i < count; i++) {
-            const d = this.match.drawFor(caster);
-            if (d.cardId !== '') drawn.push(d);
-          }
-          applied.push({ kind: eff.kind, count: drawn.length });
+          const amount = paramInt(eff.params, 'amount', 1);
+          deferred.push(() => {
+            let count = 0;
+            for (let i = 0; i < amount; i++) {
+              const d = this.match.drawFor(caster);
+              if (d.cardId !== '') {
+                drawn.push(d);
+                count++;
+              }
+            }
+            entry['count'] = count;
+          });
           break;
         }
         case 'gain_mana': {
           const amount = paramInt(eff.params, 'amount', 1);
-          const m = this.match.gainMana(caster, amount);
-          applied.push({ kind: eff.kind, amount, mana: m.current });
+          const exceedCap = paramBool(eff.params, 'can_exceed_cap');
+          deferred.push(() => {
+            entry['amount'] = amount;
+            entry['mana'] = this.match.gainMana(caster, amount, exceedCap).current;
+          });
           break;
         }
         case 'move_piece': {
-          const to = targets[1];
-          if (target === undefined || to === undefined) throw missingTarget(2);
-          const next = movePieceFen(fen, target, to, caster);
-          if (isKingAttacked(next, caster)) throw new EffectError(WS.exposesOwnKing(caster));
-          validateBoardEdit(next);
+          const [from, to] = moveEndpoints(fen, eff.params, targets, caster);
+          if (tracker.hasSquareEffect(to, KIND_WALL)) throw new EffectError(WS.wallAhead(to));
+          fen = movePieceFen(fen, from, to, caster);
+          changed = true;
+          tracker.relocate(from, to); // spostamento magico: niente arrocco né en passant
+          entry['from'] = from;
+          entry['to'] = to;
+          break;
+        }
+        case 'swap_pieces': {
+          const [a, b] = targets;
+          if (a === undefined || b === undefined) throw new EffectError(WS.swapNeedsTwoTargets(def.name, targets.length));
+          fen = swapPieces(fen, a, b);
+          changed = true;
+          tracker.swap(a, b);
+          entry['targets'] = [a, b];
+          break;
+        }
+        case 'transform_piece': {
+          const square = target();
+          const piece = pieceAt(fen, square);
+          const to = piece === null ? undefined : paramStringMap(eff.params, 'map')[pieceName(piece)];
+          const letter = piece === null || to === undefined ? null : pieceLetter(to, pieceColor(piece));
+          if (letter === null || to === undefined) throw new EffectError(WS.cannotTransform(square));
+          fen = setPiece(fen, square, letter);
+          changed = true;
+          tracker.setType(square, letter);
+          entry['target'] = square;
+          entry['piece'] = to;
+          break;
+        }
+        case 'promote_piece': {
+          const square = target();
+          if (choice === '') throw invalidChoice('missing');
+          if (!paramStrings(eff.params, 'choices').includes(choice)) throw invalidChoice('not_allowed');
+          const piece = pieceAt(fen, square);
+          const letter = piece === null ? null : pieceLetter(choice, pieceColor(piece));
+          if (letter === null) throw invalidChoice('not_allowed');
+          fen = setPiece(fen, square, letter);
+          changed = true;
+          tracker.setType(square, letter);
+          entry['target'] = square;
+          entry['piece'] = choice;
+          break;
+        }
+        case 'revive_piece': {
+          const square = target();
+          const available = paramStrings(eff.params, 'pieces').filter((kind) => graves[caster].some((g) => g.piece === kind));
+          if (available.length === 0) throw noEffect('empty_graveyard');
+          let kind = choice;
+          if (kind === '') {
+            if (available.length > 1) throw invalidChoice('missing');
+            kind = available[0] as string;
+          }
+          if (!available.includes(kind)) throw invalidChoice('not_allowed');
+          const letter = pieceLetter(kind, caster) as string;
+          fen = placePiece(fen, square, letter);
+          changed = true;
+          tracker.add(square, letter);
+          const index = graves[caster].findIndex((g) => g.piece === kind);
+          graves[caster].splice(index, 1);
+          gravesChanged.add(caster);
+          entry['target'] = square;
+          entry['piece'] = kind;
+          break;
+        }
+        case 'restore_castling_rights': {
+          const next = restoreCastling(fen, caster);
+          if (next === null) throw noEffect('no_castling');
           fen = next;
           changed = true;
-          this.tracker.relocate(target, to); // spostamento magico: niente arrocco né en passant
-          applied.push({ kind: eff.kind, from: target, to });
+          break;
+        }
+        case 'create_wall':
+        case 'create_square_effect': {
+          const square = target();
+          let kind = KIND_WALL;
+          if (eff.kind === 'create_square_effect') {
+            kind = typeof eff.params?.['effect'] === 'string' ? eff.params['effect'] : '';
+            if (kind !== KIND_NO_CAPTURE) throw new EffectError(WS.unsupportedSquareEffect(kind, def.id));
+            entry['effect'] = kind;
+          }
+          const duration = paramInt(eff.params, 'duration', 1);
+          tracker.addSquareEffect(square, kind, duration, def.id, caster);
+          squaresChanged = true;
+          entry['target'] = square;
+          entry['remaining_turns'] = duration;
+          break;
+        }
+        case 'summon_pawn': {
+          const square = target();
+          const pawn = caster === 'white' ? 'P' : 'p';
+          const limit = paramInt(eff.params, 'max_pawns', 0);
+          if (limit > 0 && countPieces(fen, pawn) >= limit) throw new EffectError(WS.maxPawns(limit, square));
+          fen = placePiece(fen, square, pawn);
+          changed = true;
+          tracker.add(square, pawn);
+          entry['target'] = square;
+          entry['piece'] = 'pawn';
           break;
         }
         default:
           throw new EffectError(WS.unsupportedEffect(eff.kind));
       }
+      applied.push(entry);
     }
-    if (changed) this.board.fen = fen; // una magia non cambia il lato al tratto
-    return { applied, changed, drawn };
+
+    if (changed) {
+      fen = clearStaleEnPassant(fen);
+      validateNoCheck(this.board.fen, fen, caster);
+      this.board.fen = fen; // una magia non cambia il lato al tratto
+    }
+    this.tracker = tracker;
+    const graveOwners: Color[] = [];
+    for (const color of ['white', 'black'] as const) {
+      if (!gravesChanged.has(color)) continue;
+      this.match.player(color).graveyard = graves[color];
+      graveOwners.push(color);
+    }
+    for (const apply of deferred) apply();
+    return { applied, changed, drawn, graveOwners, squaresChanged };
   }
 
-  /** `room.go:858-866`. */
-  private tickEffectsOnNewTurn(results: AdvanceResult[]): ExpiredEffect[] {
+  /** `buryCaptured` (`room.go`): il pezzo catturato da una mossa va nel cimitero del proprietario. */
+  private buryCaptured(square: string): Color | null {
+    const info = this.tracker.info(square);
+    const piece = info?.piece ?? pieceAt(this.board.fen, square);
+    if (piece === null) return null;
+    const owner = pieceColor(piece);
+    this.match.player(owner).graveyard.push({ piece: pieceName(piece), piece_id: info?.id ?? 0 });
+    return owner;
+  }
+
+  /** `graveyard_changed` a entrambi, per ogni cimitero cambiato. */
+  private broadcastGraveyards(owners: readonly Color[]): void {
+    for (const player of owners) {
+      this.broadcast('graveyard_changed', { player, graveyard: this.match.player(player).graveyard.map((g) => g.piece) });
+    }
+  }
+
+  /**
+   * `tickEffectsOnNewTurn` (`room.go`): durate alla fine del turno di chi ha appena chiuso. Restituisce gli effetti
+   * scaduti sui pezzi e, se uno stato di una casa è scaduto, la nuova lista degli stati delle case.
+   */
+  private tickEffectsOnNewTurn(results: AdvanceResult[]): [ExpiredEffect[], PieceEffectInfo[] | null] {
     const rollover = results.find((r) => r.newTurn);
-    if (rollover === undefined) return [];
-    return this.tracker.tickColor(opponentOf(rollover.activePlayer));
+    if (rollover === undefined) return [[], null];
+    const finishing = opponentOf(rollover.activePlayer);
+    const expired = this.tracker.tickTurnEnd(finishing);
+    return [expired, this.tracker.tickSquares(finishing) ? this.tracker.squareEffects() : null];
   }
 
-  /** `room.go:875-899`. */
+  /** `square_effects_changed` a entrambi, con la lista completa (`null` = nessun cambiamento). */
+  private broadcastSquareEffects(squares: PieceEffectInfo[] | null): void {
+    if (squares !== null) this.broadcast('square_effects_changed', { square_effects: squares });
+  }
+
+  /** `isPlayable` (`room.go`): gli stessi controlli di `handleMove` (gelo, muri, santuari). */
+  isPlayable(move: string): boolean {
+    if (move.length < 4) return true;
+    if (this.tracker.isFrozen(move.slice(0, 2))) return false;
+    return moveBlock(this.board.fen, this.tracker, move) === null;
+  }
+
+  /** `gameStatus` (`room.go`): solo le mosse giocabili contano. */
+  private gameStatus() {
+    return getGameStatus(this.board.fen, (move) => this.isPlayable(move));
+  }
+
+  /** `checkRolloverGameEnd` (`room.go`). */
   private checkRolloverGameEnd(results: AdvanceResult[]): GameEnd | null {
-    if (!results.some((r) => r.newTurn)) return null;
-    switch (getGameStatus(this.board.fen)) {
+    return results.some((r) => r.newTurn) ? this.checkActivePlayerEnd() : null;
+  }
+
+  /** `checkActivePlayerEnd` (`room.go`): il giocatore attivo è il lato al tratto della FEN. */
+  private checkActivePlayerEnd(): GameEnd | null {
+    switch (this.gameStatus()) {
       case 'checkmate':
         return this.finish(this.match.activePlayer === 'white' ? '0-1' : '1-0', 'checkmate', 'checkmate');
       case 'stalemate':
@@ -602,6 +882,9 @@ export class Room {
       white_deck_size: white.deck.length,
       black_deck_size: black.deck.length,
       active_effects: this.tracker.activeEffects(),
+      white_graveyard: white.graveyard.map((g) => g.piece),
+      black_graveyard: black.graveyard.map((g) => g.piece),
+      square_effects: this.tracker.squareEffects(),
     };
   }
 

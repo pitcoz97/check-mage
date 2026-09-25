@@ -118,6 +118,8 @@ describe('game_state', () => {
         handSizes: { white: 4, black: 4 },
         deckSizes: { white: 36, black: 36 },
         activeEffects: [{ square: 'e7', effects: [{ kind: 'freeze', remainingTurns: 2, sourceSpellId: 'frostbolt' }] }],
+        graveyards: { white: [], black: [] },
+        squareStates: [],
         reconnected: false,
         players: { white: { id: '42', username: 'mario' }, black: { id: '7', username: 'luigi' } },
         timeControl: { baseMs: 600000, incrementMs: 5000 },
@@ -272,6 +274,72 @@ describe('magie ed effetti', () => {
     expect(codes.filter((c) => c === 'effect_unknown')).toHaveLength(2);
   });
 
+  it('effetti dello Step 2: di massa con targets, scambio, trasformazioni e ritorni con il pezzo', () => {
+    const { event, codes } = decodeOk(
+      frame('spell_cast', {
+        player: 'white',
+        spell_id: 'x',
+        targets: [],
+        effects_applied: [
+          { kind: 'freeze_all', targets: ['a7', 'b7'], remaining_turns: 1 },
+          { kind: 'shield_area', targets: ['d2'], remaining_turns: 1 },
+          { kind: 'swap_pieces', targets: ['b1', 'c1'] },
+          { kind: 'transform_piece', target: 'c1', piece: 'bishop' },
+          { kind: 'promote_piece', target: 'e7', piece: 'queen' },
+          { kind: 'revive_piece', target: 'b1', piece: 'rook' },
+          { kind: 'restore_castling_rights' },
+        ],
+      }),
+    );
+    expect(codes).toEqual([]);
+    expect(event.type === 'spell_cast' && event.effects).toEqual([
+      { kind: 'freeze_all', targets: ['a7', 'b7'], remainingTurns: 1 },
+      { kind: 'shield_area', targets: ['d2'], remainingTurns: 1 },
+      { kind: 'swap_pieces', targets: ['b1', 'c1'] },
+      { kind: 'transform_piece', target: 'c1', piece: 'bishop' },
+      { kind: 'promote_piece', target: 'e7', piece: 'queen' },
+      { kind: 'revive_piece', target: 'b1', piece: 'rook' },
+      { kind: 'restore_castling_rights' },
+    ]);
+  });
+
+  it('cimitero: nel game_state (assente = vuoto) e in graveyard_changed; tipi sconosciuti scartati', () => {
+    const withGraves = decodeOk(frame('game_state', publicState({ white_graveyard: ['pawn', 'knight'], black_graveyard: [] }))).event;
+    expect(withGraves.type === 'game_state' && withGraves.state.graveyards).toEqual({ white: ['pawn', 'knight'], black: [] });
+    const legacy = decodeOk(frame('game_state', publicState())).event;
+    expect(legacy.type === 'game_state' && legacy.state.graveyards).toEqual({ white: [], black: [] });
+    const changed = decodeOk(frame('graveyard_changed', { player: 'black', graveyard: ['rook', 'dragon'] }));
+    expect(changed.event).toEqual({ type: 'graveyard_changed', player: 'black', graveyard: ['rook'] });
+    expect(changed.codes.length).toBe(1);
+  });
+
+  it('stati delle case: nel game_state (assente = nessuno), in square_effects_changed e nei nuovi effetti', () => {
+    const wall = { square: 'e5', effects: [{ kind: 'wall', remaining_turns: 2, source_spell_id: 'ice_wall', caster: 'white' }] };
+    const withWall = decodeOk(frame('game_state', publicState({ square_effects: [wall] }))).event;
+    expect(withWall.type === 'game_state' && withWall.state.squareStates).toEqual([
+      { square: 'e5', effects: [{ kind: 'wall', remainingTurns: 2, sourceSpellId: 'ice_wall' }] },
+    ]);
+    const legacy = decodeOk(frame('game_state', publicState())).event;
+    expect(legacy.type === 'game_state' && legacy.state.squareStates).toEqual([]);
+    expect(decodeOk(frame('square_effects_changed', { square_effects: [] })).event).toEqual({ type: 'square_effects_changed', squareStates: [] });
+    const { event, codes } = decodeOk(
+      frame('spell_cast', {
+        player: 'white',
+        spell_id: 'x',
+        targets: [],
+        effects_applied: [
+          { kind: 'create_wall', target: 'e5', remaining_turns: 2 },
+          { kind: 'create_square_effect', target: 'd4', effect: 'no_capture', remaining_turns: 3 },
+        ],
+      }),
+    );
+    expect(codes).toEqual([]);
+    expect(event.type === 'spell_cast' && event.effects).toEqual([
+      { kind: 'create_wall', target: 'e5', state: 'wall', remainingTurns: 2 },
+      { kind: 'create_square_effect', target: 'd4', state: 'no_capture', remainingTurns: 3 },
+    ]);
+  });
+
   it('effect_expired: scadenza con piece_id numerico e scudo assorbito', () => {
     expect(decodeOk(frame('effect_expired', { square: 'e7', effect_kind: 'freeze', piece_id: 12 })).event).toEqual({
       type: 'effect_expired',
@@ -329,7 +397,7 @@ describe('orologio, fine partita, patta, connessione', () => {
 });
 
 describe('error: codici e dettagli (§3b, gameerr/gameerr.go)', () => {
-  const none = { square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null };
+  const none = { square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null, index: null, reason: null, perTurn: null };
 
   it('il codice arriva così com’è, il testo resta fuori', () => {
     const { event, codes } = decodeOk(frame('error', { message: 'Non è il tuo turno', code: 'not_your_turn' }));
@@ -349,6 +417,7 @@ describe('error: codici e dettagli (§3b, gameerr/gameerr.go)', () => {
     expect(decode('wrong_phase', { phase: 'move' })).toMatchObject({ error: { phase: 'move' } });
     expect(decode('invalid_target_count', { expected: 2, received: 1 })).toMatchObject({ error: { expected: 2, received: 1 } });
     expect(decode('illegal_position', { king: 'black' })).toMatchObject({ error: { code: 'illegal_position', king: 'black' } });
+    expect(decode('move_blocked', { square: 'e3', reason: 'wall' })).toMatchObject({ error: { code: 'move_blocked', square: 'e3', reason: 'wall' } });
     // Dettagli di forma inattesa vengono ignorati, non fanno fallire l'evento.
     expect(decode('wrong_phase', { phase: 'lunch', square: 'z9', needed: '4' })).toEqual({
       type: 'error',
@@ -374,9 +443,15 @@ describe('encoder', () => {
     expect(JSON.parse(encodeClientIntent({ type: 'pass_phase' }))).toEqual({ type: 'pass_phase', payload: {} });
     expect(
       JSON.parse(
-        encodeClientIntent({ type: 'cast_spell', card: { instanceId: 'local-9', spellId: 'teleport' }, targets: ['b1', 'c3'] }),
+        encodeClientIntent({ type: 'cast_spell', card: { instanceId: 'local-9', spellId: 'blink' }, targets: ['b1', 'c3'], choice: null }),
       ),
-    ).toEqual({ type: 'cast_spell', payload: { spell_id: 'teleport', targets: ['b1', 'c3'] } });
+    ).toEqual({ type: 'cast_spell', payload: { spell_id: 'blink', targets: ['b1', 'c3'] } });
+    // La scelta del pezzo viaggia solo quando c'è.
+    expect(
+      JSON.parse(
+        encodeClientIntent({ type: 'cast_spell', card: { instanceId: 'local-3', spellId: 'resurrection' }, targets: ['b1'], choice: 'rook' }),
+      ),
+    ).toEqual({ type: 'cast_spell', payload: { spell_id: 'resurrection', targets: ['b1'], choice: { piece: 'rook' } } });
   });
 
   it('connection.ts: ticket monouso come query param', () => {
@@ -507,23 +582,30 @@ describe('REST', () => {
 });
 
 describe('catalogo', () => {
-  it('fallback.json: le 11 magie di spells/spells.go, tutte valide', () => {
+  it('fallback.json: le 20 magie degli step 1–3 (spells/catalog.go), tutte valide', () => {
     const { spells, warnings } = normalizeSpellCatalog(fallbackCatalog);
     expect(warnings).toEqual([]);
-    expect(spells).toHaveLength(11);
-    expect(spells.find((s) => s.id === 'teleport')).toEqual({
-      id: 'teleport',
-      name: 'Teleport',
-      manaCost: 3,
+    expect(spells).toHaveLength(20);
+    expect(spells.find((s) => s.id === 'blink')).toEqual({
+      id: 'blink',
+      name: 'Blink',
+      manaCost: 4,
       phases: ['main1', 'main2'],
-      targetType: 'piece_move',
-      effects: [{ kind: 'move_piece', params: {} }],
+      targets: [
+        { type: 'own_piece', pieces: ['knight', 'bishop'], requireEffect: null, emptySquare: false, maxDistance: 0, ownRanks: [], minRank: 0 },
+        { type: 'square', pieces: [], requireEffect: null, emptySquare: true, maxDistance: 2, ownRanks: [], minRank: 0 },
+      ],
+      effects: [{ kind: 'move_piece', params: { no_check: true } }],
+      tags: ['arcano'],
+      rarity: 'common',
+      perTurn: null,
     });
+    expect(spells.find((s) => s.id === 'blood_pact')?.perTurn).toBe(1);
   });
 
   it('voci invalide scartate una per una; forma inattesa', () => {
     const { spells, warnings } = normalizeSpellCatalog({
-      spells: [{ id: 'x', name: 'X', mana_cost: 1, phases: ['main1'], target_type: 'hex', effects: [] }, { name: 'no id' }],
+      spells: [{ id: 'x', name: 'X', mana_cost: 1, phases: ['main1'], targets: [{ type: 'hex' }], effects: [], tags: null, rarity: 'mythic' }, { name: 'no id' }],
     });
     expect(spells.map((s) => s.id)).toEqual(['x']);
     expect(warnings.map((w) => w.code)).toEqual(['catalog_entry_invalid']);

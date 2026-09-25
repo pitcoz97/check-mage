@@ -92,6 +92,7 @@ export function Board({
   const pieceOn = new Map(pieces.map((piece) => [piece.square, piece]));
   const checkSquare = kingInCheckSquare(context.fen);
   const effectsOn = new Map(effects.map((entry) => [entry.square, entry.effects]));
+  const squareStatesOn = new Map(context.squareStates.map((entry) => [entry.square, entry.effects]));
   const flashing = new Set(flash);
 
   /** Etichetta accessibile di uno stato sul pezzo: "Congelato, ancora 2 turni". */
@@ -166,7 +167,8 @@ export function Board({
     >
       {squares.map((square, index) => {
         const piece = pieceOn.get(square);
-        const states = effectsOn.get(square) ?? [];
+        // Prima gli stati della casa (muro, santuario), poi quelli del pezzo.
+        const states = [...(squareStatesOn.get(square) ?? []), ...(effectsOn.get(square) ?? [])];
         const isTarget = targeting === null ? selection?.targets.includes(square) === true : targeting.squares.has(square);
         const pieceLabel =
           piece === undefined ? square : `${square}, ${t(`board.piece.${piece.kind}`)} ${t(piece.color === 'white' ? 'match.colorWhite' : 'match.colorBlack')}`;

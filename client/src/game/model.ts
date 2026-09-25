@@ -66,7 +66,10 @@ export interface ActiveEffect {
   readonly sourceSpellId: SpellId | null;
 }
 
-/** Effetti attivi sul pezzo che sta in `square` (`effects/tracker.go:242-267`). */
+/**
+ * Stati attivi su una casa: quelli del pezzo che ci sta (`active_effects`, `effects/tracker.go`) oppure quelli della
+ * casa stessa (`square_effects`: muri, santuari, `effects/squares.go`). La forma è la stessa.
+ */
 export interface SquareEffects {
   readonly square: Square;
   readonly effects: readonly ActiveEffect[];
@@ -107,6 +110,10 @@ export interface PublicGameState {
   readonly handSizes: PerColor<number>;
   readonly deckSizes: PerColor<number>;
   readonly activeEffects: readonly SquareEffects[];
+  /** Stati delle case (muri, santuari): restano sulla casa, qualunque pezzo ci sia (ASSUMPTIONS §7 M25–M31). */
+  readonly squareStates: readonly SquareEffects[];
+  /** Pezzi persi da ciascun giocatore, in ordine (cimitero pubblico, ASSUMPTIONS §7 M19). */
+  readonly graveyards: PerColor<readonly PieceKind[]>;
   /** `true` solo nel `game_state` inviato a chi si riconnette (`game/room.go:1136`). */
   readonly reconnected: boolean;
   /** `null` solo se il server non la manda (difesa, ASSUMPTIONS C1): il client non deduce mai il colore. */
@@ -134,6 +141,22 @@ export type AppliedEffect =
   | { readonly kind: 'move_piece'; readonly from: Square; readonly to: Square }
   | { readonly kind: 'draw_card'; readonly count: number }
   | { readonly kind: 'gain_mana'; readonly amount: number; readonly manaAfter: number }
+  | {
+      readonly kind: 'summon_pawn' | 'transform_piece' | 'promote_piece' | 'revive_piece';
+      readonly target: Square;
+      readonly piece: PieceKind | 'unknown';
+    }
+  /** Effetti di massa: uno stato su ogni casa (`freeze_all`, `shield_area`). */
+  | { readonly kind: 'freeze_all' | 'shield_area'; readonly targets: readonly Square[]; readonly remainingTurns: number }
+  | { readonly kind: 'swap_pieces'; readonly targets: readonly Square[] }
+  | { readonly kind: 'restore_castling_rights' }
+  /** Uno stato su una casa: `wall` per `create_wall`, il parametro `effect` per `create_square_effect`. */
+  | {
+      readonly kind: 'create_wall' | 'create_square_effect';
+      readonly target: Square;
+      readonly state: string;
+      readonly remainingTurns: number;
+    }
   /** Effetto sconosciuto o malformato: si mostra neutro, non blocca il resto (§5.1.6). */
   | { readonly kind: 'unknown'; readonly rawKind: string };
 
@@ -156,12 +179,16 @@ export const PROTOCOL_ERROR_CODES = [
   'wrong_phase',
   'illegal_move',
   'piece_frozen',
+  'move_blocked',
   'unknown_spell',
   'card_not_in_hand',
   'insufficient_mana',
   'invalid_target_count',
   'invalid_target',
   'illegal_position',
+  'limit_reached',
+  'no_effect',
+  'invalid_choice',
   'draw_offer_pending',
   'no_draw_offer',
   'own_draw_offer',
@@ -187,4 +214,9 @@ export interface ProtocolErrorInfo {
   readonly received: number | null;
   /** `illegal_position`: il re che resterebbe sotto scacco. */
   readonly king: Color | null;
+  /** `invalid_target`: quale bersaglio (0-based) e perché (`effects/targets.go`, stringa aperta). */
+  readonly index: number | null;
+  readonly reason: string | null;
+  /** `limit_reached`: cast ammessi per turno. */
+  readonly perTurn: number | null;
 }

@@ -2,20 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { cardRefusal, type CastContext } from './playability';
 import type { Spell } from './schema';
+import { targetSpec, testSpell } from '../testing/catalog';
 
 /** Abilitazione delle carte: mana e fase (test obbligatorio da CLAUDE.md), più turno, connessione e ignoto. */
 
-const FROSTBOLT: Spell = {
-  id: 'frostbolt',
-  name: 'Frost Bolt',
-  manaCost: 2,
-  phases: ['main1', 'main2'],
-  targetType: 'enemy_piece',
-  effects: [{ kind: 'freeze_piece', params: { turns: 2 } }],
-};
+const FROST: Spell = testSpell({ id: 'frost', manaCost: 2 });
 
 const ok: CastContext = { playing: true, connected: true, myTurn: true, phase: 'main1', mana: 5, castPending: false };
-const refusal = (context: Partial<CastContext>, spell: Spell | undefined = FROSTBOLT) => cardRefusal(spell, { ...ok, ...context });
+const refusal = (context: Partial<CastContext>, spell: Spell | undefined = FROST) => cardRefusal(spell, { ...ok, ...context });
 
 describe('giocabilità di una carta', () => {
   it('con turno, fase e mana la carta si può lanciare', () => {
@@ -44,7 +38,7 @@ describe('giocabilità di una carta', () => {
 
   it('magia assente dal catalogo o bersaglio non gestito: carta visibile ma bloccata', () => {
     expect(cardRefusal(undefined, ok)).toBe('unknown_spell');
-    expect(refusal({}, { ...FROSTBOLT, targetType: 'constellation' })).toBe('unsupported_target');
+    expect(refusal({}, { ...FROST, targets: [targetSpec('constellation')] })).toBe('unsupported_target');
   });
 
   it('il turno conta prima della fase, come sul server', () => {
