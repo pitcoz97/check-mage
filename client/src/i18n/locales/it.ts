@@ -285,6 +285,17 @@ export const it = {
       illegalPositionOwnKing: 'Il tuo re resterebbe sotto scacco.',
       illegalPositionCheck: 'Una magia non può dare scacco.',
       limit_reached: 'Questa magia si può lanciare solo {{perTurn}} volte per turno.',
+      no_effect: 'La magia non avrebbe effetto.',
+      invalid_choice: 'Scelta non valida.',
+      noEffect: {
+        no_pieces: 'Non ci sono pezzi su cui la magia possa agire.',
+        empty_graveyard: 'Nel tuo cimitero non c’è nessun pezzo da riportare.',
+        no_castling: 'Non ci sono arrocchi da ripristinare: re o torri non sono al loro posto.',
+      },
+      choice: {
+        missing: 'Scegli il pezzo prima di lanciare la magia.',
+        not_allowed: 'Quel pezzo non si può scegliere.',
+      },
       limitReachedOnce: 'Questa magia si può lanciare una sola volta per turno.',
       /** Perché un bersaglio è stato rifiutato (`details.reason`, effects/targets.go). */
       target: {
@@ -300,6 +311,7 @@ export const it = {
         rank: 'Traversa non ammessa per questa magia.',
         max_pawns: 'Hai già il numero massimo di pedoni.',
         promotion: 'Il pedone arriverebbe alla promozione.',
+        pawn_rank: 'Un pedone non può finire in prima o in ultima traversa.',
       },
       draw_offer_pending: 'C’è già un’offerta di patta.',
       no_draw_offer: 'Non c’è nessuna offerta di patta.',
@@ -380,6 +392,18 @@ export const it = {
         forwardMany: 'Il pezzo avanza di {{count}} case, senza catturare.',
       },
       summon_pawn: { label: 'Evocazione', text: 'Crea un tuo pedone sulla casa scelta (massimo {{max}} pedoni).' },
+      freeze_all: { label: 'Gelo di massa', text: 'Congela ogni {{pieces}} nemico nel suo prossimo turno.' },
+      shield_area: {
+        label: 'Protezione',
+        aroundKing: 'Protegge i tuoi pezzi attorno al re nel prossimo turno avversario.',
+        pawnsSideBySide: 'Protegge i tuoi pedoni che ne hanno un altro accanto nel prossimo turno avversario.',
+      },
+      swap_pieces: { label: 'Scambio', text: 'Scambia di posto due tuoi pezzi.' },
+      transform_piece: { label: 'Trasformazione', text: 'Trasforma il pezzo, che resta con i suoi stati.' },
+      promote_piece: { label: 'Promozione', text: 'Promuove il pedone a {{pieces}}, a tua scelta.' },
+      revive_piece: { label: 'Ritorno', text: 'Riporta dal tuo cimitero un {{pieces}} sulla casa scelta.' },
+      restore_castling_rights: { label: 'Arrocco', text: 'Ripristina i tuoi diritti d’arrocco dove re e torre sono al loro posto.' },
+      orList: '{{head}} o {{last}}',
       unknown: { label: 'Effetto ignoto', text: 'Effetto che questo client non conosce ancora.' },
     },
     state: {
@@ -393,6 +417,15 @@ export const it = {
       own_piece: 'Scegli un tuo pezzo.',
       enemy_piece: 'Scegli un pezzo avversario.',
       square: 'Scegli una casella.',
+      choice: 'Scegli il pezzo.',
+    },
+    choice: {
+      title: 'Scegli il pezzo',
+    },
+    graveyard: {
+      label: 'Cimitero: {{list}}',
+      empty: 'Cimitero vuoto',
+      count: '{{piece}} × {{count}}',
     },
     /** Archetipi (`tags` del catalogo): la riga del tipo della carta. */
     tag: {
@@ -414,6 +447,18 @@ export const it = {
       royal_shield: { name: 'Scudo reale', text: 'Protegge la tua regina nel prossimo turno avversario: assorbe una cattura.' },
       forced_march: { name: 'Marcia forzata', text: 'Un tuo pedone avanza di una casa, senza catturare né promuovere.' },
       conscription: { name: 'Leva militare', text: 'Crea un tuo pedone su una casa vuota della tua seconda traversa. Massimo 8 pedoni.' },
+      eternal_winter: { name: 'Inverno eterno', text: 'Congela tutti i pedoni nemici nel loro prossimo turno.' },
+      recall: { name: 'Richiamo', text: 'Riporta dal tuo cimitero un pedone su una casa vuota della tua seconda traversa.' },
+      resurrection: {
+        name: 'Resurrezione',
+        text: 'Riporta dal tuo cimitero un cavallo, un alfiere o una torre, a scelta, su una casa vuota della tua prima traversa.',
+      },
+      swap: { name: 'Scambio', text: 'Scambia di posto due tuoi pezzi, non il re. Nessun pedone in prima o ultima traversa.' },
+      metamorphosis: { name: 'Metamorfosi', text: 'Un tuo cavallo diventa alfiere, o un alfiere cavallo, per sempre.' },
+      royal_guard: { name: 'Guardia reale', text: 'Protegge ogni tuo pezzo attorno al re nel prossimo turno avversario.' },
+      divine_castling: { name: 'Arrocco divino', text: 'Solo prima della mossa: ripristina i tuoi arrocchi dove re e torre sono al loro posto.' },
+      phalanx: { name: 'Falange', text: 'Protegge i tuoi pedoni affiancati a un altro pedone nel prossimo turno avversario.' },
+      early_promotion: { name: 'Promozione anticipata', text: 'Promuovi, a tua scelta, un tuo pedone che ha raggiunto la sesta traversa.' },
     },
     /** Perché una carta non è giocabile ora: il motivo si vede sulla carta, non si indovina. */
     refusal: {

@@ -118,6 +118,7 @@ describe('game_state', () => {
         handSizes: { white: 4, black: 4 },
         deckSizes: { white: 36, black: 36 },
         activeEffects: [{ square: 'e7', effects: [{ kind: 'freeze', remainingTurns: 2, sourceSpellId: 'frostbolt' }] }],
+        graveyards: { white: [], black: [] },
         reconnected: false,
         players: { white: { id: '42', username: 'mario' }, black: { id: '7', username: 'luigi' } },
         timeControl: { baseMs: 600000, incrementMs: 5000 },
@@ -272,6 +273,45 @@ describe('magie ed effetti', () => {
     expect(codes.filter((c) => c === 'effect_unknown')).toHaveLength(2);
   });
 
+  it('effetti dello Step 2: di massa con targets, scambio, trasformazioni e ritorni con il pezzo', () => {
+    const { event, codes } = decodeOk(
+      frame('spell_cast', {
+        player: 'white',
+        spell_id: 'x',
+        targets: [],
+        effects_applied: [
+          { kind: 'freeze_all', targets: ['a7', 'b7'], remaining_turns: 1 },
+          { kind: 'shield_area', targets: ['d2'], remaining_turns: 1 },
+          { kind: 'swap_pieces', targets: ['b1', 'c1'] },
+          { kind: 'transform_piece', target: 'c1', piece: 'bishop' },
+          { kind: 'promote_piece', target: 'e7', piece: 'queen' },
+          { kind: 'revive_piece', target: 'b1', piece: 'rook' },
+          { kind: 'restore_castling_rights' },
+        ],
+      }),
+    );
+    expect(codes).toEqual([]);
+    expect(event.type === 'spell_cast' && event.effects).toEqual([
+      { kind: 'freeze_all', targets: ['a7', 'b7'], remainingTurns: 1 },
+      { kind: 'shield_area', targets: ['d2'], remainingTurns: 1 },
+      { kind: 'swap_pieces', targets: ['b1', 'c1'] },
+      { kind: 'transform_piece', target: 'c1', piece: 'bishop' },
+      { kind: 'promote_piece', target: 'e7', piece: 'queen' },
+      { kind: 'revive_piece', target: 'b1', piece: 'rook' },
+      { kind: 'restore_castling_rights' },
+    ]);
+  });
+
+  it('cimitero: nel game_state (assente = vuoto) e in graveyard_changed; tipi sconosciuti scartati', () => {
+    const withGraves = decodeOk(frame('game_state', publicState({ white_graveyard: ['pawn', 'knight'], black_graveyard: [] }))).event;
+    expect(withGraves.type === 'game_state' && withGraves.state.graveyards).toEqual({ white: ['pawn', 'knight'], black: [] });
+    const legacy = decodeOk(frame('game_state', publicState())).event;
+    expect(legacy.type === 'game_state' && legacy.state.graveyards).toEqual({ white: [], black: [] });
+    const changed = decodeOk(frame('graveyard_changed', { player: 'black', graveyard: ['rook', 'dragon'] }));
+    expect(changed.event).toEqual({ type: 'graveyard_changed', player: 'black', graveyard: ['rook'] });
+    expect(changed.codes.length).toBe(1);
+  });
+
   it('effect_expired: scadenza con piece_id numerico e scudo assorbito', () => {
     expect(decodeOk(frame('effect_expired', { square: 'e7', effect_kind: 'freeze', piece_id: 12 })).event).toEqual({
       type: 'effect_expired',
@@ -374,9 +414,15 @@ describe('encoder', () => {
     expect(JSON.parse(encodeClientIntent({ type: 'pass_phase' }))).toEqual({ type: 'pass_phase', payload: {} });
     expect(
       JSON.parse(
-        encodeClientIntent({ type: 'cast_spell', card: { instanceId: 'local-9', spellId: 'teleport' }, targets: ['b1', 'c3'] }),
+        encodeClientIntent({ type: 'cast_spell', card: { instanceId: 'local-9', spellId: 'blink' }, targets: ['b1', 'c3'], choice: null }),
       ),
-    ).toEqual({ type: 'cast_spell', payload: { spell_id: 'teleport', targets: ['b1', 'c3'] } });
+    ).toEqual({ type: 'cast_spell', payload: { spell_id: 'blink', targets: ['b1', 'c3'] } });
+    // La scelta del pezzo viaggia solo quando c'è.
+    expect(
+      JSON.parse(
+        encodeClientIntent({ type: 'cast_spell', card: { instanceId: 'local-3', spellId: 'resurrection' }, targets: ['b1'], choice: 'rook' }),
+      ),
+    ).toEqual({ type: 'cast_spell', payload: { spell_id: 'resurrection', targets: ['b1'], choice: { piece: 'rook' } } });
   });
 
   it('connection.ts: ticket monouso come query param', () => {
@@ -507,10 +553,10 @@ describe('REST', () => {
 });
 
 describe('catalogo', () => {
-  it('fallback.json: le 9 magie dello step 1 (spells/catalog.go), tutte valide', () => {
+  it('fallback.json: le 18 magie degli step 1 e 2 (spells/catalog.go), tutte valide', () => {
     const { spells, warnings } = normalizeSpellCatalog(fallbackCatalog);
     expect(warnings).toEqual([]);
-    expect(spells).toHaveLength(9);
+    expect(spells).toHaveLength(18);
     expect(spells.find((s) => s.id === 'blink')).toEqual({
       id: 'blink',
       name: 'Blink',

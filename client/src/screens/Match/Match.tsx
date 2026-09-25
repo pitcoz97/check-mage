@@ -110,6 +110,7 @@ function useSpellFlash(): readonly Square[] {
 function effectSquares(effect: AppliedEffect): Square[] {
   if ('target' in effect) return [effect.target];
   if ('from' in effect) return [effect.from, effect.to];
+  if ('targets' in effect) return [...effect.targets];
   return [];
 }
 
@@ -167,7 +168,7 @@ function MatchScreen() {
       nav={<MatchRail />}
       banner={<ConnectionBanner />}
       opponent={<PlayerRow side="opponent" />}
-      board={<MatchBoard onRefused={show} targeting={casting.boardTargeting} flash={flash} />}
+      board={<MatchBoard onRefused={show} targeting={casting.boardTargeting} flash={flash} choice={casting.choice} />}
       self={<PlayerRow side="self" />}
       hand={
         outcome === null ? (

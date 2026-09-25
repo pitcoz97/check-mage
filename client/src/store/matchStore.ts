@@ -173,7 +173,16 @@ export function reconcileHand(previous: readonly HandCard[], incoming: readonly 
 const PERSISTENT_STATE_OF: Partial<Record<AppliedEffect['kind'], string>> = {
   freeze_piece: 'freeze',
   shield_piece: 'shield',
+  freeze_all: 'freeze',
+  shield_area: 'shield',
 };
+
+/** Le case su cui un effetto dichiarato lascia lo stato: una (`target`) o tante (`targets`, effetti di massa). */
+function stateSquares(effect: AppliedEffect): readonly SquareEffects['square'][] {
+  if ('target' in effect) return [effect.target];
+  if ('targets' in effect) return effect.targets;
+  return [];
+}
 
 function upsertEffect(effects: readonly SquareEffects[], square: SquareEffects['square'], effect: ActiveEffect): SquareEffects[] {
   const entry = effects.find((e) => e.square === square);
@@ -288,9 +297,11 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
       let activeEffects = game?.activeEffects ?? [];
       for (const effect of event.effects) {
         const kind = PERSISTENT_STATE_OF[effect.kind];
-        if (kind === undefined || !('target' in effect)) continue;
+        if (kind === undefined) continue;
         const remainingTurns = 'remainingTurns' in effect ? effect.remainingTurns : 1;
-        activeEffects = upsertEffect(activeEffects, effect.target, { kind, remainingTurns, sourceSpellId: event.spellId });
+        for (const square of stateSquares(effect)) {
+          activeEffects = upsertEffect(activeEffects, square, { kind, remainingTurns, sourceSpellId: event.spellId });
+        }
       }
       return {
         ...base,
@@ -309,6 +320,9 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
       return game === null
         ? base
         : { ...base, game: { ...game, activeEffects: removeEffect(game.activeEffects, event.expired.square, event.expired.kind) } };
+
+    case 'graveyard_changed':
+      return game === null ? base : { ...base, game: { ...game, graveyards: { ...game.graveyards, [event.player]: event.graveyard } } };
 
     case 'timer_update':
       return {

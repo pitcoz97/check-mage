@@ -368,7 +368,7 @@ async function verifyCasting(ctx: Ctx, client: E2EClient): Promise<void> {
     if (!manaChecked) {
       const expensive = c.hand.find((card) => (catalog.find((s) => s.id === card.spellId)?.manaCost ?? 0) > c.myMana);
       if (expensive !== undefined) {
-        const from = c.send({ type: 'cast_spell', card: expensive, targets: [] });
+        const from = c.send({ type: 'cast_spell', card: expensive, targets: [], choice: null });
         const error = await c.event(from, isType('error'), 'rifiuto per mana insufficiente');
         ledger.check(
           'G6',
@@ -392,7 +392,7 @@ async function verifyCasting(ctx: Ctx, client: E2EClient): Promise<void> {
       if (spell === undefined) return;
       const targets = spell.targets[0]?.type === 'enemy_piece' ? [pawnOn('h', color === 'white' ? 'black' : 'white')] : [pawnOn('c', color)];
       if (targets.some((t) => t === null)) continue;
-      const from = c.send({ type: 'cast_spell', card, targets: targets as Square[] });
+      const from = c.send({ type: 'cast_spell', card, targets: targets as Square[], choice: null });
       const outcome = await c.event(
         from,
         (e): e is Extract<typeof e, { type: 'spell_cast' | 'error' }> => (e.type === 'spell_cast' && e.player === color) || e.type === 'error',

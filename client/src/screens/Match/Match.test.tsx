@@ -181,6 +181,30 @@ describe('schermata di partita', () => {
     expect(sent()).toHaveLength(1);
   });
 
+  it('Promozione anticipata: dopo il pedone si sceglie il pezzo, e il cast porta la scelta', async () => {
+    const { receive, expectSent, sent } = await setup();
+    receive(gameState({ phase: 'main1', white_mana: 6, white_max_mana: 6, board: { fen: 'k7/4P3/8/8/8/8/8/4K3 w - - 0 1', moves: [], turn: 'white', status: 'active' } }));
+    receive({ type: 'hand', payload: { hand: ['early_promotion'], mana: 6, max_mana: 6, deck_size: 30 } });
+    fireEvent.click(await waitFor(() => document.querySelector('[data-card="early_promotion"]') as HTMLButtonElement));
+    fireEvent.click(square('e7'));
+    const dialog = await waitFor(() => document.querySelector('[data-piece-choice]') as HTMLElement);
+    expect([...dialog.querySelectorAll('[data-choice]')].map((b) => b.getAttribute('data-choice'))).toEqual(['knight', 'bishop', 'rook', 'queen']);
+    expect(sent()).toEqual([]);
+    fireEvent.click(dialog.querySelector('[data-choice="knight"]') as HTMLButtonElement);
+    await expectSent({ type: 'cast_spell', payload: { spell_id: 'early_promotion', targets: ['e7'], choice: { piece: 'knight' } } });
+    expect(document.querySelector('[data-piece-choice]')).toBeNull();
+  });
+
+  it('cimitero nella riga del giocatore, raggruppato per tipo, aggiornato da graveyard_changed', async () => {
+    const { receive } = await setup();
+    receive(gameState({ black_graveyard: ['pawn', 'knight', 'pawn'] }));
+    const strip = await waitFor(() => document.querySelector('[data-graveyard="black"]') as HTMLElement);
+    expect(strip.getAttribute('aria-label')).toBe('Cimitero: cavallo × 1, pedone × 2');
+    expect(document.querySelector('[data-graveyard="white"]')).toBeNull();
+    receive({ type: 'graveyard_changed', payload: { player: 'white', graveyard: ['rook'] } });
+    await waitFor(() => expect(document.querySelector('[data-graveyard="white"]')?.getAttribute('aria-label')).toBe('Cimitero: torre × 1'));
+  });
+
   it('il targeting si annulla con Esc o con un secondo tocco sulla carta, senza disturbare il server', async () => {
     const { receive, sent } = await setup();
     receive(gameState({ phase: 'main1', white_mana: 5, white_max_mana: 5 }));

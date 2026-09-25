@@ -27,6 +27,7 @@ const TARGET_REASONS = [
   'rank',
   'max_pawns',
   'promotion',
+  'pawn_rank',
 ] as const;
 type TargetReason = (typeof TARGET_REASONS)[number];
 
@@ -34,9 +35,19 @@ function isTargetReason(reason: string | null): reason is TargetReason {
   return reason !== null && (TARGET_REASONS as readonly string[]).includes(reason);
 }
 
+/** Motivi di `no_effect` e di `invalid_choice` (`game/room.go`, applySpellEffects). */
+const NO_EFFECT_REASONS = ['no_pieces', 'empty_graveyard', 'no_castling'] as const;
+const CHOICE_REASONS = ['missing', 'not_allowed'] as const;
+
+function isOneOfReasons<T extends string>(list: readonly T[], reason: string | null): reason is T {
+  return reason !== null && (list as readonly string[]).includes(reason);
+}
+
 /** `myColor` distingue lo scacco al proprio re da quello dato all'avversario (`illegal_position`). */
 export function protocolErrorMessage(t: TFunction, info: ProtocolErrorInfo, myColor: Color | null = null): string {
   if (info.code === 'invalid_target' && isTargetReason(info.reason)) return t(`match.error.target.${info.reason}`);
+  if (info.code === 'no_effect' && isOneOfReasons(NO_EFFECT_REASONS, info.reason)) return t(`match.error.noEffect.${info.reason}`);
+  if (info.code === 'invalid_choice' && isOneOfReasons(CHOICE_REASONS, info.reason)) return t(`match.error.choice.${info.reason}`);
   if (info.code === 'illegal_position' && info.king !== null && myColor !== null) {
     return t(info.king === myColor ? 'match.error.illegalPositionOwnKing' : 'match.error.illegalPositionCheck');
   }

@@ -21,6 +21,7 @@ function publicState(overrides: Partial<PublicGameState> = {}): PublicGameState 
     handSizes: { white: 4, black: 4 },
     deckSizes: { white: 36, black: 36 },
     activeEffects: [],
+    graveyards: { white: [], black: [] },
     reconnected: false,
     players: { white: { id: '1', username: 'mario' }, black: { id: '2', username: 'luigi' } },
     timeControl: { baseMs: 600_000, incrementMs: 5_000 },
@@ -99,6 +100,25 @@ describe('applyServerEvent: aggiornamenti puntuali', () => {
       { square: 'd7', effects: [{ kind: 'shield', remainingTurns: 2, sourceSpellId: 'aegis' }] },
     ]);
     expect(state.game?.mana.white).toEqual({ current: 0, max: 1 });
+  });
+
+  it('effetti di massa: lo stato va su ogni casa di targets; graveyard_changed aggiorna il cimitero', () => {
+    const state = run([
+      ...START,
+      {
+        type: 'spell_cast',
+        player: 'black',
+        spellId: 'eternal_winter',
+        targets: [],
+        effects: [{ kind: 'freeze_all', targets: ['a2', 'b2'], remainingTurns: 1 }],
+      },
+      { type: 'graveyard_changed', player: 'white', graveyard: ['pawn'] },
+    ]);
+    expect(state.game?.activeEffects).toEqual([
+      { square: 'a2', effects: [{ kind: 'freeze', remainingTurns: 1, sourceSpellId: 'eternal_winter' }] },
+      { square: 'b2', effects: [{ kind: 'freeze', remainingTurns: 1, sourceSpellId: 'eternal_winter' }] },
+    ]);
+    expect(state.game?.graveyards).toEqual({ white: ['pawn'], black: [] });
   });
 
   it('le magie della sessione finiscono nel registro, con il punto dello storico in cui sono arrivate (D11)', () => {

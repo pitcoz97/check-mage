@@ -107,6 +107,8 @@ export interface PublicGameState {
   readonly handSizes: PerColor<number>;
   readonly deckSizes: PerColor<number>;
   readonly activeEffects: readonly SquareEffects[];
+  /** Pezzi persi da ciascun giocatore, in ordine (cimitero pubblico, ASSUMPTIONS §7 M19). */
+  readonly graveyards: PerColor<readonly PieceKind[]>;
   /** `true` solo nel `game_state` inviato a chi si riconnette (`game/room.go:1136`). */
   readonly reconnected: boolean;
   /** `null` solo se il server non la manda (difesa, ASSUMPTIONS C1): il client non deduce mai il colore. */
@@ -134,7 +136,15 @@ export type AppliedEffect =
   | { readonly kind: 'move_piece'; readonly from: Square; readonly to: Square }
   | { readonly kind: 'draw_card'; readonly count: number }
   | { readonly kind: 'gain_mana'; readonly amount: number; readonly manaAfter: number }
-  | { readonly kind: 'summon_pawn'; readonly target: Square; readonly piece: PieceKind | 'unknown' }
+  | {
+      readonly kind: 'summon_pawn' | 'transform_piece' | 'promote_piece' | 'revive_piece';
+      readonly target: Square;
+      readonly piece: PieceKind | 'unknown';
+    }
+  /** Effetti di massa: uno stato su ogni casa (`freeze_all`, `shield_area`). */
+  | { readonly kind: 'freeze_all' | 'shield_area'; readonly targets: readonly Square[]; readonly remainingTurns: number }
+  | { readonly kind: 'swap_pieces'; readonly targets: readonly Square[] }
+  | { readonly kind: 'restore_castling_rights' }
   /** Effetto sconosciuto o malformato: si mostra neutro, non blocca il resto (§5.1.6). */
   | { readonly kind: 'unknown'; readonly rawKind: string };
 
@@ -164,6 +174,8 @@ export const PROTOCOL_ERROR_CODES = [
   'invalid_target',
   'illegal_position',
   'limit_reached',
+  'no_effect',
+  'invalid_choice',
   'draw_offer_pending',
   'no_draw_offer',
   'own_draw_offer',

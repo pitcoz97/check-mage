@@ -2,6 +2,7 @@ import type { TFunction } from 'i18next';
 
 import type { Color, SquareEffects, Square } from '../game/model';
 import { piecesOf, squaresInOrder, type PlacedPiece } from '../game/position';
+import type { ChoiceContext } from './effects.registry';
 import { isKnownTargetType, type KnownTargetType, type Spell, type TargetSpec } from './schema';
 
 /**
@@ -13,7 +14,7 @@ import { isKnownTargetType, type KnownTargetType, type Spell, type TargetSpec } 
  * il server, e il client mostra il rifiuto.
  */
 
-export interface TargetContext {
+export interface TargetContext extends ChoiceContext {
   readonly fen: string;
   readonly myColor: Color;
   /** Stati attivi per casa (`active_effects`), per `require_effect`. */

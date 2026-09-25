@@ -262,6 +262,8 @@ const APPLIED_EFFECT_SCHEMAS = {
   draw_card: z.object({ count }),
   gain_mana: z.object({ amount: count, mana: count }),
   summon_pawn: z.object({ target: squareSchema, piece: loose }),
+  mass: z.object({ targets: z.array(squareSchema), remaining_turns: count }),
+  swap_pieces: z.object({ targets: z.array(squareSchema) }),
 } as const;
 
 function decodeAppliedEffect(ctx: Ctx, raw: unknown, index: number): AppliedEffect {
@@ -303,7 +305,22 @@ function decodeAppliedEffect(ctx: Ctx, raw: unknown, index: number): AppliedEffe
         ? { kind, amount: p.data.amount, manaAfter: clampNonNegative(ctx, p.data.mana, 'mana') }
         : unknown(p.issues.join('; '));
     }
-    case 'summon_pawn': {
+    case 'freeze_all':
+    case 'shield_area': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.mass, raw);
+      if (!p.ok) return unknown(p.issues.join('; '));
+      return { kind, targets: p.data.targets, remainingTurns: clampNonNegative(ctx, p.data.remaining_turns, 'remaining_turns') };
+    }
+    case 'swap_pieces': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.swap_pieces, raw);
+      return p.ok ? { kind, targets: p.data.targets } : unknown(p.issues.join('; '));
+    }
+    case 'restore_castling_rights':
+      return { kind };
+    case 'summon_pawn':
+    case 'transform_piece':
+    case 'promote_piece':
+    case 'revive_piece': {
       const p = parseWith(APPLIED_EFFECT_SCHEMAS.summon_pawn, raw);
       if (!p.ok) return unknown(p.issues.join('; '));
       const piece = p.data.piece;
@@ -379,6 +396,8 @@ const gameStateSchema = z.object({
   white_deck_size: count,
   black_deck_size: count,
   active_effects: loose,
+  white_graveyard: loose,
+  black_graveyard: loose,
   reconnected: loose,
   white_player: loose,
   black_player: loose,
@@ -407,12 +426,30 @@ const decodeGameState: Decoder<'game_state'> = (payload, ctx) =>
         handSizes: perColor(n(core.white_hand_size, 'white_hand_size'), n(core.black_hand_size, 'black_hand_size')),
         deckSizes: perColor(n(core.white_deck_size, 'white_deck_size'), n(core.black_deck_size, 'black_deck_size')),
         activeEffects: decodeActiveEffects(ctx, core.active_effects),
+        graveyards: perColor(decodeGraveyard(ctx, core.white_graveyard, 'white_graveyard'), decodeGraveyard(ctx, core.black_graveyard, 'black_graveyard')),
         reconnected: core.reconnected === true,
         players: decodePlayers(ctx, core.white_player, core.black_player),
         timeControl: decodeTimeControl(ctx, core.time_control),
       },
     };
   });
+
+/** Cimitero: lista di tipi di pezzo; assente (server precedente) = vuoto, tipi sconosciuti scartati con warning. */
+function decodeGraveyard(ctx: Ctx, raw: unknown, field: string): PieceKind[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    warn(ctx, 'value_invalid', field);
+    return [];
+  }
+  return raw.map((piece, index) => readEnum(ctx, piece, PIECE_NAMES, `${field}[${index}]`)).filter((piece) => piece !== 'unknown');
+}
+
+const decodeGraveyardChanged: Decoder<'graveyard_changed'> = (payload, ctx) =>
+  withCore(z.object({ player: colorSchema, graveyard: loose }), payload, (core) => ({
+    type: 'graveyard_changed',
+    player: core.player,
+    graveyard: decodeGraveyard(ctx, core.graveyard, 'graveyard'),
+  }));
 
 // `game/room.go:1004-1019`
 const decodeHand: Decoder<'hand'> = (payload, ctx) =>
@@ -539,6 +576,7 @@ const DECODERS: { readonly [K in ServerMessageType]: Decoder<K> } = {
   phase_changed: decodePhaseChanged,
   spell_cast: decodeSpellCast,
   effect_expired: decodeEffectExpired,
+  graveyard_changed: decodeGraveyardChanged,
   timer_update: decodeTimerUpdate,
   game_over: decodeGameOver,
   error: decodeError,
@@ -639,7 +677,10 @@ type WireClientMessage =
       readonly type: 'resign' | 'draw_offer' | 'draw_accepted' | 'draw_declined' | 'pass_phase';
       readonly payload: Record<string, never>;
     }
-  | { readonly type: 'cast_spell'; readonly payload: { readonly spell_id: string; readonly targets: readonly string[] } };
+  | {
+      readonly type: 'cast_spell';
+      readonly payload: { readonly spell_id: string; readonly targets: readonly string[]; readonly choice?: { readonly piece: string } };
+    };
 
 export function encodeClientIntent(intent: ClientIntent): string {
   let message: WireClientMessage;
@@ -649,7 +690,13 @@ export function encodeClientIntent(intent: ClientIntent): string {
       break;
     case 'cast_spell':
       // Il server identifica la carta per spell_id (`match/match.go:318`): l'id locale non viaggia.
-      message = { type: 'cast_spell', payload: { spell_id: intent.card.spellId, targets: [...intent.targets] } };
+      message = {
+        type: 'cast_spell',
+        payload:
+          intent.choice === null
+            ? { spell_id: intent.card.spellId, targets: [...intent.targets] }
+            : { spell_id: intent.card.spellId, targets: [...intent.targets], choice: { piece: intent.choice } },
+      };
       break;
     case 'resign':
     case 'draw_offer':

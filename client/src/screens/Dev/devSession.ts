@@ -17,7 +17,7 @@ const MOVES = ['e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4', 'f8e7', 'd2d3', 'g8f6', '
 const FEN = 'r2q1rk1/pp2bppp/2np1n2/2p1p3/2B1P3/2NP1N1P/PPP2PP1/R1BQ1RK1 w - - 0 8';
 
 /** Stati della partita che le tavole non disegnano, per vederli nell'anteprima (`/dev/match?scenario=…`). */
-export const DEV_SCENARIOS = ['over', 'draw', 'reconnecting', 'replaced', 'disconnected', 'promotion'] as const;
+export const DEV_SCENARIOS = ['over', 'draw', 'reconnecting', 'replaced', 'disconnected', 'promotion', 'spells'] as const;
 export type DevScenario = (typeof DEV_SCENARIOS)[number];
 
 export function isDevScenario(value: string | null): value is DevScenario {
@@ -27,7 +27,11 @@ export function isDevScenario(value: string | null): value is DevScenario {
 /** La posizione della tavola con un pedone bianco in b7 pronto a promuovere. */
 const PROMOTION_FEN = 'r2q1rk1/pP2bppp/2np1n2/2p1p3/2B1P3/2NP1N1P/PPP2PP1/R1BQ1RK1 w - - 0 8';
 
-function gameState(moves: readonly string[], activeEffects: readonly object[], overrides: { fen?: string; phase?: string } = {}) {
+function gameState(
+  moves: readonly string[],
+  activeEffects: readonly object[],
+  overrides: { fen?: string; phase?: string; extra?: Record<string, unknown> } = {},
+) {
   return {
     type: 'game_state',
     payload: {
@@ -49,6 +53,7 @@ function gameState(moves: readonly string[], activeEffects: readonly object[], o
       white_deck_size: 18,
       black_deck_size: 19,
       active_effects: activeEffects,
+      ...overrides.extra,
     },
   };
 }
@@ -119,6 +124,20 @@ export async function startDevSession({
   if (scenario === 'draw') socket.receive({ type: 'draw_offer', payload: { from: OPPONENT.username } });
   if (scenario === 'disconnected') socket.receive({ type: 'opponent_disconnected', payload: { message: 'x' } });
   if (scenario === 'promotion') socket.receive(gameState(MOVES, [], { fen: PROMOTION_FEN, phase: 'move' }));
+  // Magie dello Step 2: cimiteri non vuoti nelle righe dei giocatori e carte che chiedono la scelta del pezzo
+  // (Promozione anticipata sul pedone in b7, Resurrezione con due tipi nel cimitero).
+  if (scenario === 'spells') {
+    socket.receive(
+      gameState(MOVES, [], {
+        fen: PROMOTION_FEN,
+        extra: { white_mana: 10, white_max_mana: 10, white_graveyard: ['knight', 'rook', 'pawn'], black_graveyard: ['pawn', 'pawn', 'bishop'] },
+      }),
+    );
+    socket.receive({
+      type: 'hand',
+      payload: { hand: ['early_promotion', 'resurrection', 'eternal_winter', 'swap', 'royal_guard'], mana: 10, max_mana: 10, deck_size: 18 },
+    });
+  }
   // Il socket cade: la sessione riprova (banner con i secondi) o, con 4001, la partita è stata aperta altrove.
   if (scenario === 'reconnecting') socket.drop(1006);
   if (scenario === 'replaced') socket.drop(4001);

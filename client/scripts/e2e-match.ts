@@ -68,7 +68,7 @@ function caster(catalog: readonly Spell[], counter: { casts: number; insufficien
     if (!counter.insufficientChecked) {
       const expensive = c.hand.find((card) => (catalog.find((s) => s.id === card.spellId)?.manaCost ?? 0) > c.myMana);
       if (expensive !== undefined) {
-        const from = c.send({ type: 'cast_spell', card: expensive, targets: [] });
+        const from = c.send({ type: 'cast_spell', card: expensive, targets: [], choice: null });
         const error = await c.event(from, isType('error'), 'rifiuto per mana insufficiente');
         report.expect(error.error.code === 'insufficient_mana', `cast troppo costoso → ${String(error.error.code)}`);
         counter.insufficientChecked = true;
@@ -88,7 +88,7 @@ function caster(catalog: readonly Spell[], counter: { casts: number; insufficien
       // Un solo bersaglio pezzo: un pedone nemico o proprio. Il server può rifiutarlo (filtri dello spec): conta come esito.
       const target = spell.targets[0]?.type === 'enemy_piece' ? [pawnOn('h', color === 'white' ? 'black' : 'white')] : [pawnOn('c', color)];
       if (target.some((t) => t === null)) continue;
-      const from = c.send({ type: 'cast_spell', card, targets: target as Square[] });
+      const from = c.send({ type: 'cast_spell', card, targets: target as Square[], choice: null });
       const outcome = await c.event(
         from,
         (e): e is Extract<typeof e, { type: 'spell_cast' | 'error' }> => (e.type === 'spell_cast' && e.player === color) || e.type === 'error',
@@ -151,7 +151,7 @@ const SCENARIOS: Record<string, Scenario> = {
     await white.refresh();
     report.expect((await white.me()).email === white.email, 'refresh del token e /me con il token nuovo');
     const catalog = await white.catalog();
-    report.expect(catalog.spells.length === 9, `catalogo: ${catalog.spells.length} magie da ${catalog.source}`);
+    report.expect(catalog.spells.length === 18, `catalogo: ${catalog.spells.length} magie da ${catalog.source}`);
     report.expect(catalog.source === 'server', 'catalogo da GET /spells');
 
     await white.connect('pvp');

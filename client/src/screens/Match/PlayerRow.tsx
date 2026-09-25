@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ManaCrystals } from '../../game/mana/ManaCrystals';
-import type { Color } from '../../game/model';
+import type { Color, PieceKind } from '../../game/model';
+import { PieceIcon } from '../../game/pieces/PieceIcon';
 import { EffectIcon } from '../../spells/icons/EffectIcon';
 import { useApi } from '../../store/AuthProvider';
 import { useMatch } from '../../store/MatchProvider';
@@ -23,6 +24,42 @@ function useElo(playerId: string | null): number | null {
     };
   }, [api, playerId]);
   return elo;
+}
+
+const NO_PIECES: readonly PieceKind[] = [];
+
+/** Ordine del cimitero nella riga: prima i pezzi che valgono di più. */
+const GRAVE_ORDER: readonly PieceKind[] = ['queen', 'rook', 'bishop', 'knight', 'pawn', 'king'];
+
+/**
+ * Cimitero del giocatore (ASSUMPTIONS §7, M15): i pezzi che ha perso, raggruppati per tipo col conteggio, come i
+ * pezzi catturati dei siti di scacchi. Pubblico per entrambi; vuoto non occupa spazio.
+ */
+function Graveyard({ color }: { color: Color }) {
+  const { t } = useTranslation();
+  const pieces = useMatch((s) => s.game?.graveyards[color] ?? NO_PIECES);
+  if (pieces.length === 0) return null;
+  const groups = GRAVE_ORDER.map((kind) => ({ kind, count: pieces.filter((piece) => piece === kind).length })).filter(
+    (group) => group.count > 0,
+  );
+  const list = groups.map((group) => t('spells.graveyard.count', { piece: t(`board.piece.${group.kind}`), count: group.count })).join(', ');
+  return (
+    <span
+      data-graveyard={color}
+      role="img"
+      aria-label={t('spells.graveyard.label', { list })}
+      className="flex shrink-0 items-center gap-1 text-12 font-bold text-muted"
+    >
+      {groups.map((group) => (
+        <span key={group.kind} className="flex items-center">
+          <span className="size-4 lg:size-5">
+            <PieceIcon kind={group.kind} color={color} />
+          </span>
+          {group.count > 1 && <span aria-hidden="true">{group.count}</span>}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 /**
@@ -111,6 +148,8 @@ export function PlayerRow({ side }: { side: 'self' | 'opponent' }) {
       </div>
 
       <span className="grow" />
+
+      <Graveyard color={color} />
 
       {/* Desktop: chip dell'avversario. */}
       {side === 'opponent' && (

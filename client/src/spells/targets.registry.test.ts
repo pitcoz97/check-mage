@@ -11,7 +11,7 @@ import { spellTargets, targetsSupported } from './targets.registry';
  */
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-const ctx = { fen: START, myColor: 'white', effects: [] } as const;
+const ctx = { fen: START, myColor: 'white', effects: [], graveyard: [] } as const;
 const oneTarget = (spec: TargetSpec) => testSpell({ targets: [spec] });
 
 describe('registry dei bersagli', () => {
