@@ -3,13 +3,20 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Catalogo magie, Step 3 di 6 (`docs/BRIEFING-MAGIE.md`), in attesa di review e dei test Go sulla VM.** Branch
-`feat/spell-catalog` qui e nel server (da `fix/backend-requests`). Decisioni M1–M14 e verifiche del brief in
-`docs/ASSUMPTIONS.md` §7 (M1–M33). Il redesign (R1–R6) è unito in `main`.
+**Catalogo magie, Step 4 di 6 (`docs/BRIEFING-MAGIE.md`), in attesa di review e dei test Go sulla VM.** Fatto in una
+sessione cloud sul branch `claude/vibrant-tesla-ckfrp4`, partito da `feat/spell-catalog`. Decisioni e verifiche del
+brief in `docs/ASSUMPTIONS.md` §7 (M1–M44, S1–S11). Il redesign (R1–R6) è unito in `main`.
 Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
 eseguibile).
 
 ## Completo
+- **Catalogo magie, Step 4:** rune. Server: stato `rune` sulle case (una per giocatore per casa, permanente, `hidden`),
+  Rivelazione, Runa di stasi, di respinta, esplosiva, Detonazione, Campo minato (26 magie, ricetta nei limiti di copie);
+  la runa scatta dopo una mossa (`triggerRune`, M34–M36, M40, M44), `rune_triggered`; `game_state` e
+  `square_effects_changed` per destinatario e `spell_cast` nascosto all'avversario (M42). Mock allineato, col nuovo
+  scenario `runes`. Client: rune sulla scacchiera (tratteggiata se nascosta, piena se rivelata, icona da `on_enter`),
+  magia nascosta nel registro e negli avvisi, avviso della runa scattata. `/dev/match?scenario=spells|rune`. 560 test,
+  e2e 11/11 (nuovo: nessuna carta né runa nascosta dell'avversario nei frame).
 - **Catalogo magie, Step 3:** stati delle case (`square_effects`, `square_effects_changed`), Muro di ghiaccio e
   Santuario, filtro delle mosse (`move_blocked`) anche per matto e stallo. Client: muro e santuario disegnati sulla casa,
   mosse bloccate non evidenziate, bersagli coerenti. `/dev/match?scenario=spells` li mostra. 532 test, e2e 10/10.
@@ -41,10 +48,11 @@ eseguibile).
   iniziale 554 kB (172 kB gzip), partita 82 kB a richiesta.
 
 ## Prossima azione concreta
-Tu: `go build ./... && go vet ./... && go test ./...` sul server (branch `feat/spell-catalog`) e review dello Step 3. Poi il deploy
-sulla VM: finché la VM ha il server vecchio, il client scarta tutte le voci del suo catalogo (`target_type`) e
-non ha magie (la riserva scatta solo se la richiesta fallisce).
-Dopo: piano dello Step 4 (rune: `place_rune`, `reveal_runes`, `detonate_runes`, stato nascosto all'avversario).
+Tu: review dello Step 4 e della decisione M44 (il gelo di una runa non conta il turno in cui scatta), poi
+`go build ./... && go vet ./... && go test ./...` sulla VM. Nella sessione cloud sono già passati, anche con Stockfish
+16 (i test delle rune che passano da una mossa lo usano e senza Stockfish si saltano). Poi il merge in
+`feat/spell-catalog` e il deploy sulla VM.
+Dopo: piano dello Step 5 (eventi, trigger e aure: `add_trigger`, `add_aura`, Anima inquieta, Riflesso, Stendardo).
 
 ## Decisioni prese
 - Redesign: `REDESIGN_PLAN.md` §10 (D1–D22). Il design vince su colori, tipografia, spaziature e layout; testi e
@@ -62,7 +70,9 @@ Dopo: piano dello Step 4 (rune: `place_rune`, `reveal_runes`, `detonate_runes`, 
 - APK mai costruito qui: se Gradle si lamenta, guardare `android/app/src/main/res/`.
 - Rilanciare `verify:server` a ogni cambiamento del server.
 - Il client e la VM vanno aggiornati insieme: il catalogo nuovo non è retrocompatibile col client vecchio e viceversa.
-- `docs/catalog.go` è il catalogo di riferimento del brief: resta fuori da git e confluisce nel server step per step.
+- `docs/catalog.go` è il catalogo di riferimento del brief e confluisce nel server step per step.
+- `mock-server/spells.json` e `src/spells/fallback.json` si rigenerano dal catalogo Go (`spells.List()`), una voce per
+  riga: allo Step 4 le 20 voci esistenti sono rimaste identiche.
 
 ## Note d'ambiente
 - La shell dello strumento non vede Node nel PATH: prima dei comandi npm va ricaricato il PATH di Machine e User.

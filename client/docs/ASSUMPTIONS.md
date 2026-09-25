@@ -291,3 +291,25 @@ I riferimenti sono al server di quel branch.
 | M31 | Gli stati delle case durano come quelli dei pezzi (M9); rilanciarli li rinnova. | brief + derivata |
 | M32 | `move_blocked {square, reason: wall | no_capture}`, controllato dopo il gelo e prima dello scudo: una mossa bloccata non consuma lo scudo. | derivata |
 | M33 | Ricetta a 20 magie; Muro di ghiaccio e Santuario sono comuni. | derivata |
+
+### Step 4 (rune): decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| M34 | Una runa scatta solo quando un pezzo nemico ci entra **con una mossa**: normale, cattura, en passant, promozione, arrocco (la torre). Un pezzo arrivato per magia la lascia intatta. | tu |
+| M35 | Se l'effetto della runa lascerebbe sotto scacco il re di chi ha mosso, la runa **non scatta** e resta nascosta. | tu |
+| M36 | Il re non fa scattare le rune: può entrare nella casa, e la runa resta. | tu |
+| M37 | Rivelazione rende visibili a entrambi, **per sempre**, le rune nemiche che esistono in quel momento. Le rune piazzate dopo sono di nuovo nascoste. | tu |
+| M38 | La runa vive finché non scatta o viene detonata. `duration` nei parametri è la durata del **gelo** che produce, contata come M9 con `Caster` = proprietario della runa. | brief |
+| M39 | Una casa con una runa resta **vuota** per i bersagli, anche per chi la vede: altrimenti un rifiuto rivelerebbe una runa nascosta. Muro, Leva militare e Blink ci si possono fare sopra. Una seconda runa dello stesso proprietario sulla stessa casa sostituisce la prima; ogni giocatore ha al massimo una runa per casa. | derivata |
+| M40 | Respinta: il pezzo torna sulla casa di partenza **com'era prima della mossa** (un pedone promosso torna pedone), con id ed effetti. Una cattura fatta entrando resta; i diritti d'arrocco persi con la mossa non tornano. Esplosiva: decide il tipo del pezzo all'arrivo; su un santuario congela invece di distruggere (M26). Lo scudo non protegge dalla distruzione magica, come prima. | derivata |
+| M41 | Detonazione: il raggio è 1 (Chebyshev) attorno a ogni propria runa; il re è escluso. Senza rune proprie la magia è rifiutata con `no_effect {reason: no_runes}`. Con le rune ma senza nemici vicini le consuma comunque. Il suo `spell_cast` è pubblico, con le case delle rune consumate (`runes`). | brief + M18 |
+| M42 | Il cast di una runa arriva all'avversario **senza** `spell_id` né bersagli: `spell_cast {player, hidden: true, effects_applied: [{kind: "hidden_effect"}]}` (M12). Mana e dimensione della mano si vedono come per ogni magia. | M12 + brief |
+| M43 | Ricetta: con 26 magie i limiti di copie valgono già (2 per le comuni, 1 per le leggendarie). 4 leggendarie a 1 copia; delle 22 comuni, 14 a 2 copie e 8 a 1 copia (Catena di ghiaccio, Richiamo, Scambio, Metamorfosi, Guardia reale, Arrocco divino, Falange, Rivelazione). | derivata, da rivedere in bilanciamento |
+| M44 | Il gelo di una runa scatta nel turno di chi è entrato, che per M9 conterebbe già: il pezzo sarebbe libero nel suo turno successivo (e il gelo da 1 della Runa esplosiva non avrebbe effetto). Quel turno non conta: il gelo copre i `duration` turni **successivi** del pezzo (sul filo `remaining_turns` = `duration` + 1 finché il turno non finisce). | derivata, da confermare |
+
+### Step 4: assunzioni del client
+| # | Assunzione | Motivo | Dove |
+|---|---|---|---|
+| S9 | `remaining_turns: -1` (permanente, oggi solo le rune) resta -1 nel modello e non ha numero sul badge; gli altri valori negativi si portano a 0 come prima. | Una runa non scade. | `adapter.ts` §1, `BoardSquare.tsx` |
+| S10 | Una runa nella propria lista con `hidden: true` è la propria, ancora nascosta all'avversario; senza `hidden` è visibile a entrambi. Le rune nascoste dell'avversario non arrivano mai: il client non ha nulla da filtrare. | `SquareEffectsFor` del server. | `effects.registry.tsx` |
+| S11 | Il nome di una runa scattata viene da `on_enter` (gelo = Runa di stasi, ritorno = Runa di respinta, distruzione = Runa esplosiva): `rune_triggered` non porta la magia, e Campo minato piazza Rune di stasi. | `rune_triggered` non ha `spell_id`. | `i18n`, `useNotice.ts` |
