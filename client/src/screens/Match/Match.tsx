@@ -12,6 +12,7 @@ import { cardRefusalMessage } from '../../spells/playability';
 import { useMatch, useMatchSession, useSessionStatus } from '../../store/MatchProvider';
 import type { GameOutcome } from '../../store/matchStore';
 import { MatchRail } from '../../app/Navigation';
+import { StatePage } from '../../app/StatePage';
 import { PassButton, SecondaryActions } from './Actions';
 import { ConnectionBanner } from './ConnectionBanner';
 import { HintBox } from './HintBox';
@@ -222,11 +223,13 @@ export function Match() {
   if (lifecycle === 'playing' || lifecycle === 'over') return <MatchScreen />;
   if (lifecycle === 'queued' || resume === 'none') return <Navigate to="/lobby" replace />;
   return (
-    <div className="safe-area flex min-h-full flex-col">
-      <ConnectionBanner />
-      <div className="flex flex-1 items-center justify-center">
-        <Spinner label={t('match.joining')} />
+    <>
+      <div className="fixed inset-x-0 top-[env(safe-area-inset-top,0px)] z-50 flex justify-center">
+        <ConnectionBanner />
       </div>
-    </div>
+      <StatePage>
+        <Spinner label={t('match.joining')} />
+      </StatePage>
+    </>
   );
 }
