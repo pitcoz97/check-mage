@@ -62,7 +62,7 @@ una mossa valida la fase avanza da sola (il client non manda `pass_phase`).
 |--------|-----------|------|
 | `move` | `{ "move": "e2e4" }` | solo in fase `move` |
 | `pass_phase` | _(nessuno)_ | solo in `main1`/`main2` |
-| `cast_spell` | `{ "spell_id": "...", "targets": ["e7"] }` | `main1`/`main2`; `targets` = una casella per ogni elemento di `targets` della magia, nello stesso ordine |
+| `cast_spell` | `{ "spell_id": "...", "targets": ["e7"], "choice": { "piece": "knight" } }` | `main1`/`main2`; `targets` = una casella per ogni elemento di `targets` della magia, nello stesso ordine; `choice` solo per `promote_piece` e per `revive_piece` con più tipi possibili |
 | `resign` | _(nessuno)_ | |
 | `draw_offer` | _(nessuno)_ | una sola offerta pendente per volta |
 | `draw_accepted` | _(nessuno)_ | in risposta a `draw_offer` |
@@ -82,6 +82,7 @@ Dopo `game_over` ogni azione riceve `error` con `code: "game_over"`.
 | `hand_size_changed` | `{ player, size }` | entrambi |
 | `mana_changed` | `{ player, current, max }` | entrambi |
 | `spell_cast` | `{ player, spell_id, targets, effects_applied:[...] }` | entrambi |
+| `graveyard_changed` | `{ player, graveyard: ["pawn", …] }`: il cimitero di un giocatore, in ordine | entrambi |
 | `effect_expired` | scadenza: `{ square, effect_kind, piece_id }`; scudo consumato: `{ square, effect_kind: "shield", reason: "shield_absorbed" }` | entrambi |
 | `game_over` | `{ result, reason, winner? }` | entrambi |
 | `draw_offer` | `{ from }` | avversario |
@@ -112,6 +113,7 @@ scacchiera, alla riconnessione (con `reconnected: true`) e subito **prima** di
   "white_hand_size": 4, "black_hand_size": 4,
   "white_deck_size": 36, "black_deck_size": 36,
   "active_effects": [ { "square": "e7", "effects": [ { "kind": "freeze", "remaining_turns": 1, "source_spell_id": "frost", "caster": "white" } ] } ],
+  "white_graveyard": ["pawn"], "black_graveyard": [],
   "reconnected": true
 }
 ```
@@ -148,7 +150,11 @@ Lista di oggetti `{ kind, ... }` con campi specifici per effetto:
 `destroy_piece` → `target`, `piece_destroyed`; `freeze_piece`/`shield_piece` →
 `target`, `remaining_turns`; `move_piece` → `from`, `to` (anche per il movimento
 relativo, dove il client manda solo il pezzo); `summon_pawn` → `target`, `piece`;
-`draw_card` → `count` (carte davvero pescate); `gain_mana` → `amount`, `mana`.
+`draw_card` → `count` (carte davvero pescate); `gain_mana` → `amount`, `mana`;
+`freeze_all`/`shield_area` → `targets` (case colpite), `remaining_turns`;
+`swap_pieces` → `targets` (le due case); `transform_piece`/`promote_piece`/
+`revive_piece` → `target`, `piece` (il tipo risultante); `restore_castling_rights`
+→ nessun campo (arriva il `game_state` con la FEN nuova).
 
 ### `error`
 
@@ -174,6 +180,8 @@ relativo, dove il client manda solo il pezzo); `summon_pawn` → `target`, `piec
 | `invalid_target` | un bersaglio non rispetta il suo `TargetSpec` o l'effetto | `index`, `reason`, `square` |
 | `illegal_position` | la magia darebbe scacco o lascerebbe sotto scacco il re di chi lancia | `king` |
 | `limit_reached` | la magia ha già raggiunto i cast ammessi in questo turno | `spell_id`, `per_turn` |
+| `no_effect` | la magia non avrebbe effetto | `reason` |
+| `invalid_choice` | `choice` mancante o non ammessa | `reason` |
 | `draw_offer_pending` | c'è già un'offerta di patta | — |
 | `no_draw_offer` | risposta senza offerta pendente | — |
 | `own_draw_offer` | risposta alla propria offerta | — |
@@ -183,8 +191,12 @@ Un `code` sconosciuto va trattato come errore generico.
 
 Valori di `reason` per `invalid_target`: `off_board`, `duplicate`, `not_empty`,
 `no_piece`, `wrong_owner`, `king`, `piece_kind`, `missing_effect`, `too_far`,
-`rank`, `max_pawns`, `promotion`. Un valore sconosciuto va trattato come
-bersaglio non valido generico.
+`rank`, `max_pawns`, `promotion`, `pawn_rank`. Un valore sconosciuto va trattato
+come bersaglio non valido generico.
+
+`no_effect` (la magia non avrebbe effetto, cast rifiutato a costo zero) ha
+`reason` ∈ `no_pieces`, `empty_graveyard`, `no_castling`; `invalid_choice` ha
+`reason` ∈ `missing`, `not_allowed`.
 
 ## Anti-cheat
 
@@ -237,8 +249,8 @@ bersaglio non valido generico.
 
 ## Catalogo magie
 
-Il catalogo segue `docs/BRIEFING-MAGIE.md` e cresce per step: oggi contiene le 9
-magie dello Step 1. Disponibile via `GET /spells`:
+Il catalogo segue `docs/BRIEFING-MAGIE.md` e cresce per step: oggi contiene le 18
+magie degli Step 1 e 2. Disponibile via `GET /spells`:
 
 ```json
 { "id": "blink", "name": "Blink", "mana_cost": 4, "phases": ["main1", "main2"],
@@ -266,6 +278,23 @@ magie dello Step 1. Disponibile via `GET /spells`:
 | `royal_shield` | Scudo reale | 4 | propria regina | `shield_piece` 1 |
 | `forced_march` | Marcia forzata | 1 | proprio pedone | `move_piece` avanti di 1, senza cattura né promozione |
 | `conscription` | Leva militare | 4 | casa vuota della propria 2ª traversa | `summon_pawn` (massimo 8 pedoni) |
+| `eternal_winter` | Inverno eterno (leggendaria) | 7 | — | `freeze_all` sui pedoni nemici, 1 |
+| `recall` | Richiamo | 3 | casa vuota della propria 2ª traversa | `revive_piece` di un pedone |
+| `resurrection` | Resurrezione (leggendaria) | 8 | casa vuota della propria 1ª traversa | `revive_piece` di cavallo, alfiere o torre (`choice`) |
+| `swap` | Scambio | 3 | due propri pezzi, non il re | `swap_pieces` |
+| `metamorphosis` | Metamorfosi | 5 | proprio cavallo o alfiere | `transform_piece` cavallo ↔ alfiere |
+| `royal_guard` | Guardia reale | 3 | — | `shield_area` ai propri pezzi attorno al re, 1 |
+| `divine_castling` | Arrocco divino | 4, solo main1 | — | `restore_castling_rights` |
+| `phalanx` | Falange | 3 | — | `shield_area` ai propri pedoni con un pedone accanto sulla traversa, 1 |
+| `early_promotion` | Promozione anticipata (leggendaria) | 6 | proprio pedone dalla 6ª traversa | `promote_piece` (`choice`) |
+
+**Cimitero.** Ogni pezzo tolto dalla scacchiera (cattura, anche en passant, o
+magia) va nel cimitero del proprietario con il tipo che aveva; la cattura
+assorbita da uno scudo no. Richiamo e Resurrezione ne tolgono la prima
+occorrenza del tipo riportato, che torna con un id nuovo e senza effetti.
+**Scambio** non può portare un pedone sulla 1ª o sull'8ª traversa (`pawn_rank`).
+**Arrocco divino** ripristina il diritto solo dove re e torre sono sulle case
+iniziali; arroccare attraverso case attaccate resta vietato.
 
 Mazzo: 40 carte, identico per i due giocatori. Finché il catalogo non è
 completo la ricetta supera i limiti di copie della rarità (2 comuni, 1

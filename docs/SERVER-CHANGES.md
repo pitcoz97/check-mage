@@ -190,3 +190,18 @@ Supera le voci di §4 e §7 su Disintegrate, Teleport, segnaposto `noop` e pezzi
 | 9 | Nuovo effect kind `summon_pawn` (`effects_applied`: `target`, `piece`); `move_piece` anche relativo (`relative: "forward"`, un solo bersaglio) | Registry degli effetti |
 
 Verifica: `go vet ./...` e `go test ./...` sulla VM (qui Go non è installato).
+
+---
+
+## 10. Catalogo magie — Step 2 (cimitero e gruppo A)
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | 9 magie nuove: `eternal_winter`, `recall`, `resurrection`, `swap`, `metamorphosis`, `royal_guard`, `divine_castling` (solo main1), `phalanx`, `early_promotion`. Mazzo di 40 su 18 magie, leggendarie a 1 copia | Nomi e testi i18n per id |
+| 2 | **Cimitero**: `game_state.white_graveyard` / `black_graveyard` (tipi, in ordine); evento `graveyard_changed {player, graveyard}` a entrambi dopo catture e magie che lo cambiano | Mostrarlo nella riga del giocatore |
+| 3 | `cast_spell.choice = {piece}` per `promote_piece` e per `revive_piece` con più tipi disponibili; errori `invalid_choice {reason: missing \| not_allowed}` | Passo di scelta dopo i bersagli |
+| 4 | Magie senza effetto rifiutate a costo zero: `no_effect {reason: no_pieces \| empty_graveyard \| no_castling}` | Messaggio per `reason` |
+| 5 | `effects_applied`: `freeze_all`/`shield_area` con `targets` (lista) e `remaining_turns`; `swap_pieces` con `targets`; `transform_piece`/`promote_piece`/`revive_piece` con `target` e `piece` | Applicare gli stati di massa da `targets` |
+| 6 | `invalid_target` ha il nuovo `reason: pawn_rank` (Scambio che porterebbe un pedone in 1ª o 8ª) | Messaggio |
+
+Verifica: `go build ./... && go vet ./... && go test ./...` sulla VM.
