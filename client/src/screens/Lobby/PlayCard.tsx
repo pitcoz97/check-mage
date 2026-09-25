@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { AppIcon } from '../../design/components/AppIcon';
 import { Button } from '../../design/components/Button';
+import { InfoBox } from '../../design/components/InfoBox';
 import { Spinner } from '../../design/components/Spinner';
 import { useMatch, useMatchSession, useSessionStatus } from '../../store/MatchProvider';
 
@@ -11,7 +12,7 @@ import { useMatch, useMatchSession, useSessionStatus } from '../../store/MatchPr
  * e Contro il bot si vedono ma sono «Presto» (D12, P2-21). Cadenze e riga del mazzo della tavola non ci sono: il
  * gioco resta a cadenza unica e il mazzo non ha un nome (D9, D10).
  *
- * In coda la CTA lascia il posto allo stato della ricerca con Annulla (resa rifinita in R6).
+ * In coda la CTA lascia il posto allo stato della ricerca con Annulla: il box incassato con l'anello viola (D20).
  */
 
 const MODES = ['ranked', 'casual', 'bot'] as const;
@@ -64,18 +65,20 @@ export function PlayCard({ wide }: { wide: boolean }) {
       <span className="hidden grow lg:block" />
 
       {searching ? (
-        <div className="flex flex-col items-center gap-3 py-2" aria-live="polite">
-          <Spinner label={connection.kind === 'reconnecting' ? t('lobby.searchingReconnect') : t('lobby.searching')} />
+        <InfoBox tone="arcane" data-queue className="flex min-h-15 items-center gap-3 lg:min-h-[68px]" aria-live="polite">
+          <span className="grow font-semibold">
+            <Spinner label={connection.kind === 'reconnecting' ? t('lobby.searchingReconnect') : t('lobby.searching')} />
+          </span>
           <Button variant="secondary" size="sm" onClick={() => session.cancel()}>
             {t('lobby.cancel')}
           </Button>
-        </div>
+        </InfoBox>
       ) : (
         <div className="flex flex-col gap-2">
           {moved && (
-            <p role="status" className="text-14 text-muted">
+            <InfoBox tone="gold" role="status">
               {t('lobby.searchMoved')}
-            </p>
+            </InfoBox>
           )}
           <Button size="hero" fullWidth data-action="play" onClick={() => session.findMatch()} className="gap-3">
             <AppIcon name="play" strokeWidth={2} className="hidden size-[26px] lg:block" />

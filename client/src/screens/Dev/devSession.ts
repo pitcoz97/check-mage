@@ -61,7 +61,7 @@ export async function startDevSession({ withMatch }: { withMatch: boolean }): Pr
   const server = fakeServer({
     'GET /me': () => data(SELF),
     'GET /ws/ticket': () => data({ ticket: 'dev', expires_in: 30 }),
-    'GET /users/7': () => data({ user: SELF, stats: { wins: 0, losses: 0, draws: 0, total: 0 } }),
+    'GET /users/7': () => data({ user: SELF, stats: { wins: 23, losses: 17, draws: 4, total: 44 } }),
     'GET /users/8': () => data({ user: OPPONENT, stats: { wins: 0, losses: 0, draws: 0, total: 0 } }),
     'GET /leaderboard': () => data(LEADERBOARD),
   });
