@@ -24,6 +24,9 @@ var preMove = []phase.Phase{phase.PhaseMain1}
 // minor: i pezzi minori.
 var minor = []PieceKind{Knight, Bishop}
 
+// emptySquare: una casa vuota (una runa non la occupa, un muro sì).
+var emptySquare = TargetSpec{Type: TargetSquare, EmptySquare: true}
+
 var catalogList = []Spell{
 
 	// ───────────────────────── GELO ─────────────────────────
@@ -103,6 +106,36 @@ var catalogList = []Spell{
 		Effects: []Effect{{Kind: EffectCreateSquareEffect, Params: map[string]interface{}{
 			"effect": "no_capture", "duration": 3}}}},
 
+	// ───────────────────────── RUNE ─────────────────────────
+
+	{ID: "revelation", Name: "Rivelazione", ManaCost: 1, Phases: mainPhases, Tags: []string{"rune"}, Rarity: Common,
+		Effects: []Effect{
+			{Kind: EffectRevealRunes, Params: map[string]interface{}{"side": "enemy"}},
+			{Kind: EffectDrawCard, Params: map[string]interface{}{"amount": 1}},
+		}},
+
+	{ID: "stasis_rune", Name: "Runa di stasi", ManaCost: 2, Phases: mainPhases, Tags: []string{"rune", "gelo"}, Rarity: Common,
+		Targets: []TargetSpec{emptySquare},
+		Effects: []Effect{{Kind: EffectPlaceRune, Params: map[string]interface{}{"on_enter": "freeze_piece", "duration": 2}}}},
+
+	{ID: "repel_rune", Name: "Runa di respinta", ManaCost: 2, Phases: mainPhases, Tags: []string{"rune"}, Rarity: Common,
+		Targets: []TargetSpec{emptySquare},
+		Effects: []Effect{{Kind: EffectPlaceRune, Params: map[string]interface{}{"on_enter": "return_to_origin"}}}},
+
+	{ID: "explosive_rune", Name: "Runa esplosiva", ManaCost: 3, Phases: mainPhases, Tags: []string{"rune"}, Rarity: Common,
+		Targets: []TargetSpec{emptySquare},
+		Effects: []Effect{{Kind: EffectPlaceRune, Params: map[string]interface{}{
+			"on_enter": "destroy_piece", "only": []PieceKind{Pawn, Knight, Bishop},
+			"fallback": "freeze_piece", "fallback_duration": 1}}}},
+
+	{ID: "detonation", Name: "Detonazione", ManaCost: 4, Phases: mainPhases, Tags: []string{"rune", "gelo"}, Rarity: Common,
+		Effects: []Effect{{Kind: EffectDetonateRunes, Params: map[string]interface{}{
+			"radius": 1, "do": "freeze_piece", "duration": 1}}}},
+
+	{ID: "minefield", Name: "Campo minato", ManaCost: 7, Phases: mainPhases, Tags: []string{"rune"}, Rarity: Legendary,
+		Targets: []TargetSpec{emptySquare, emptySquare, emptySquare},
+		Effects: []Effect{{Kind: EffectPlaceRune, Params: map[string]interface{}{"on_enter": "freeze_piece", "duration": 2}}}},
+
 	// ──────────────────────── FALANGE ────────────────────────
 
 	{ID: "forced_march", Name: "Marcia forzata", ManaCost: 1, Phases: mainPhases, Tags: []string{"falange"}, Rarity: Common,
@@ -144,34 +177,37 @@ func indexCatalog(list []Spell) map[string]Spell {
 }
 
 // deckRecipe definisce quante copie di ogni carta compongono il mazzo, uguale
-// per entrambi i giocatori. Totale = 40.
-//
-// Finché il catalogo non è completo la ricetta non può rispettare i limiti di
-// copie della rarità (2 per le comuni, 1 per le leggendarie): con 17 comuni e 3
-// leggendarie arrivano al massimo 37 carte. Le leggendarie sono già a 1 copia; il
-// limite delle comuni si impone alla ricetta finale.
+// per entrambi i giocatori. Totale = 40, nei limiti di copie della rarità (2 per
+// le comuni, 1 per le leggendarie): le 4 leggendarie a 1 copia, 14 comuni a 2 e
+// 8 comuni a 1 (M43, da rivedere nel bilanciamento).
 var deckRecipe = []struct {
 	ID    string
 	Count int
 }{
-	{"frost", 3},
+	{"frost", 2},
 	{"ice_wall", 2},
-	{"ice_chain", 2},
-	{"shatter", 3},
+	{"ice_chain", 1},
+	{"shatter", 2},
 	{"eternal_winter", 1},
-	{"blood_pact", 3},
-	{"recall", 2},
+	{"blood_pact", 2},
+	{"recall", 1},
 	{"resurrection", 1},
 	{"blink", 2},
-	{"swap", 2},
-	{"metamorphosis", 2},
+	{"swap", 1},
+	{"metamorphosis", 1},
 	{"shield", 2},
 	{"royal_shield", 2},
-	{"royal_guard", 2},
-	{"divine_castling", 2},
+	{"royal_guard", 1},
+	{"divine_castling", 1},
 	{"sanctuary", 2},
+	{"revelation", 1},
+	{"stasis_rune", 2},
+	{"repel_rune", 2},
+	{"explosive_rune", 2},
+	{"detonation", 2},
+	{"minefield", 1},
 	{"forced_march", 2},
 	{"conscription", 2},
-	{"phalanx", 2},
+	{"phalanx", 1},
 	{"early_promotion", 1},
 }

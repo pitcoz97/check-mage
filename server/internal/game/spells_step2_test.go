@@ -240,8 +240,8 @@ func TestGraveyard_DestroyAndCapture(t *testing.T) {
 func TestGraveyard_StateAndSnapshot(t *testing.T) {
 	r := richRoom(startFEN)
 	r.Match.Black.Graveyard = []spells.GraveEntry{{Piece: spells.Knight, PieceID: 2}}
-	if g, ok := r.publicState()["black_graveyard"].([]spells.PieceKind); !ok || len(g) != 1 || g[0] != spells.Knight {
-		t.Errorf("black_graveyard = %v", r.publicState()["black_graveyard"])
+	if g, ok := r.publicState(match.PlayerWhite)["black_graveyard"].([]spells.PieceKind); !ok || len(g) != 1 || g[0] != spells.Knight {
+		t.Errorf("black_graveyard = %v", r.publicState(match.PlayerWhite)["black_graveyard"])
 	}
 	data, err := json.Marshal(r.buildSnapshot())
 	if err != nil {

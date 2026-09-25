@@ -191,7 +191,7 @@ func TestLeaveThenReconnect_NoAbandonment(t *testing.T) {
 func TestPublicState_PlayersAndTimeControl(t *testing.T) {
 	room, _, _ := newTestRoom(startFEN)
 	room.mu.Lock()
-	data, err := json.Marshal(room.publicState())
+	data, err := json.Marshal(room.publicState(match.PlayerWhite))
 	room.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)

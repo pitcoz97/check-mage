@@ -42,14 +42,14 @@ func TestIceWall(t *testing.T) {
 	}
 
 	// Scadenza: il tick del bianco non conta, due turni del nero sì.
-	newTurn := func(next match.Player) []effects.SquareEffectInfo {
+	newTurn := func(next match.Player) squareViews {
 		_, squares := r.tickEffectsOnNewTurn([]match.AdvanceResult{{NewTurn: true, ActivePlayer: next}})
 		return squares
 	}
 	if newTurn(match.PlayerBlack) != nil || newTurn(match.PlayerWhite) != nil || newTurn(match.PlayerBlack) != nil {
 		t.Fatal("il muro non deve scadere prima del secondo turno del nero")
 	}
-	if squares := newTurn(match.PlayerWhite); squares == nil || len(squares) != 0 {
+	if squares := newTurn(match.PlayerWhite); squares == nil || len(squares[match.PlayerWhite]) != 0 || len(squares[match.PlayerBlack]) != 0 {
 		t.Errorf("alla scadenza parte la lista vuota: %v", squares)
 	}
 }
@@ -117,8 +117,8 @@ func TestSanctuary(t *testing.T) {
 func TestSquareEffects_StateAndSnapshot(t *testing.T) {
 	r := richRoom(startFEN)
 	r.Tracker.AddSquareEffect("d4", effects.KindWall, 2, "ice_wall", effects.White)
-	if got, ok := r.publicState()["square_effects"].([]effects.SquareEffectInfo); !ok || len(got) != 1 || got[0].Square != "d4" {
-		t.Errorf("square_effects = %v", r.publicState()["square_effects"])
+	if got, ok := r.publicState(match.PlayerWhite)["square_effects"].([]effects.SquareEffectInfo); !ok || len(got) != 1 || got[0].Square != "d4" {
+		t.Errorf("square_effects = %v", r.publicState(match.PlayerWhite)["square_effects"])
 	}
 	data, err := json.Marshal(r.buildSnapshot())
 	if err != nil {

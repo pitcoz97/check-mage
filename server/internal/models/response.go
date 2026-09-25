@@ -41,8 +41,10 @@ const (
 	MsgManaChanged     = "mana_changed"      // server→client: cambio mana (broadcast)
 	MsgEffectExpired   = "effect_expired"    // server→client: effetto persistente scaduto (broadcast)
 	MsgGraveyardChanged = "graveyard_changed" // server→client: il cimitero di un giocatore è cambiato (broadcast)
-	// server→client: stati delle case (muri, santuari) creati o scaduti; lista completa (broadcast)
+	// server→client: stati delle case (muri, santuari, rune) creati o tolti; lista completa, a ciascuno la sua (rune nascoste filtrate)
 	MsgSquareEffectsChanged = "square_effects_changed"
+	// server→client: una runa è scattata (broadcast)
+	MsgRuneTriggered = "rune_triggered"
 
 	// Risultati partita
 	ResultWhiteWins = "1-0"

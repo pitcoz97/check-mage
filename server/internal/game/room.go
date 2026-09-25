@@ -13,6 +13,7 @@ import (
 	"chess-server/internal/spells"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -480,6 +481,7 @@ func (r *Room) handleMove(sender *Client, move string) {
 	// posizione sarebbe illegale, quindi lo scudo si rompe e la cattura avviene.
 	captured := effects.CaptureSquare(r.Board.FEN, from, to)
 	var graveyards []graveyardUpdate
+	var trig *runeTrigger
 	shieldAbsorbed := captured != "" && r.Tracker.HasShield(captured)
 	if shieldAbsorbed && effects.IsKingAttacked(effects.PassTurn(r.Board.FEN), effects.Color(senderColor)) {
 		shieldAbsorbed = false
@@ -503,11 +505,13 @@ func (r *Room) handleMove(sender *Client, move string) {
 		r.Board.Moves = append(r.Board.Moves, NullMove)
 	} else {
 		// Il pezzo catturato (anche en passant) va nel cimitero del proprietario.
+		var buried []match.Player
 		if captured != "" {
 			if owner, ok := r.buryCaptured(captured); ok {
-				graveyards = r.graveyardUpdates([]match.Player{owner})
+				buried = append(buried, owner)
 			}
 		}
+		fenBefore := r.Board.FEN
 		r.Board.Moves = append(r.Board.Moves, move)
 		// La FEN è la fonte di verità (le magie possono editarla fuori dalle mosse).
 		r.Board.FEN = engine.SF.ApplyMove(r.Board.FEN, move)
@@ -517,6 +521,14 @@ func (r *Room) handleMove(sender *Client, move string) {
 			promo = move[4]
 		}
 		r.Tracker.MovePiece(from, to, promo)
+		// Una runa dell'avversario sulla casa d'arrivo: l'esito della partita si
+		// calcola sulla posizione dopo la runa.
+		if trig = r.triggerRune(fenBefore, move, match.Player(senderColor)); trig != nil {
+			buried = append(buried, trig.graves...)
+		}
+		if len(buried) > 0 {
+			graveyards = r.graveyardUpdates(buried)
+		}
 	}
 	r.Board.Turn = sideToMove(r.Board.FEN)
 	r.recordPosition()
@@ -545,7 +557,10 @@ func (r *Room) handleMove(sender *Client, move string) {
 	var end *gameEnd
 	var results []match.AdvanceResult
 	var expired []effects.ExpiredEffect
-	var squares []effects.SquareEffectInfo
+	var squares squareViews
+	if trig != nil {
+		squares = r.squareViewsNow() // la runa consumata sparisce dalle liste
+	}
 	switch status {
 	case engine.StatusCheckmate:
 		result := models.ResultWhiteWins
@@ -562,7 +577,11 @@ func (r *Room) handleMove(sender *Client, move string) {
 		// auto-avanza (main2/draw/main1 si saltano da soli se non richiedono
 		// input). Snapshot dei passaggi sotto lock, broadcast dopo.
 		results = append([]match.AdvanceResult{r.Match.Advance()}, r.Match.AutoAdvance()...)
-		expired, squares = r.tickEffectsOnNewTurn(results)
+		var ticked squareViews
+		expired, ticked = r.tickEffectsOnNewTurn(results)
+		if ticked != nil {
+			squares = ticked
+		}
 		r.persist()
 	}
 	r.mu.Unlock()
@@ -584,6 +603,9 @@ func (r *Room) handleMove(sender *Client, move string) {
 	// Lo stato viene inviato anche a fine partita, così i client vedono la
 	// mossa decisiva prima del game_over.
 	r.broadcastState()
+	if trig != nil {
+		r.Broadcast(models.MsgRuneTriggered, trig)
+	}
 	r.broadcastGraveyards(graveyards)
 	for _, res := range results {
 		r.applyAdvanceBroadcasts(res)
@@ -680,9 +702,9 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string,
 	autoResults := r.Match.AutoAdvance()
 	// Gli stati delle case creati dal cast partono prima delle scadenze del
 	// rollover: il client applica le liste nell'ordine in cui arrivano.
-	var castSquares []effects.SquareEffectInfo
+	var castSquares squareViews
 	if outcome.squares {
-		castSquares = r.Tracker.SquareEffects()
+		castSquares = r.squareViewsNow()
 	}
 	expired, squares := r.tickEffectsOnNewTurn(autoResults)
 	// Se il cast chiude il turno, verifica la posizione del nuovo giocatore
@@ -718,12 +740,24 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string,
 	r.mu.Unlock()
 
 	// spell_cast a entrambi: rivela solo la carta giocata e gli effetti applicati.
-	r.Broadcast(models.MsgSpellCast, map[string]interface{}{
+	// Una magia nascosta (una runa) arriva all'avversario senza carta né
+	// bersagli (M42).
+	full := map[string]interface{}{
 		"player":          senderColor,
 		"spell_id":        res.Spell.ID,
 		"targets":         res.Targets,
 		"effects_applied": res.EffectsApplied,
-	})
+	}
+	if res.Spell.HiddenFromOpponent() {
+		if c := r.clientOf(senderColor); c != nil {
+			c.SendMessage(models.MsgSpellCast, full)
+		}
+		if c := r.clientOf(senderColor.Opponent()); c != nil {
+			c.SendMessage(models.MsgSpellCast, hiddenSpellCast(senderColor))
+		}
+	} else {
+		r.Broadcast(models.MsgSpellCast, full)
+	}
 	r.broadcastMana(match.ManaState{Player: senderColor, Current: res.ManaAfter, Max: res.ManaMax})
 	r.Broadcast(models.MsgHandSizeChanged, map[string]interface{}{
 		"player": senderColor,
@@ -1081,6 +1115,63 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 			squaresChanged = true
 			entry["target"], entry["remaining_turns"] = sq, duration
 
+		case spells.EffectPlaceRune:
+			if len(targets) == 0 {
+				return spellOutcome{}, gameerr.Newf(gameerr.InvalidTargetCount, "la magia %s richiede un bersaglio", def.Name).
+					With("expected", 1).With("received", 0)
+			}
+			spec := runeSpecFrom(eff.Params)
+			for _, sq := range targets {
+				if err := tracker.AddRune(sq, casterColor, spec, def.ID); err != nil {
+					return spellOutcome{}, err
+				}
+			}
+			squaresChanged = true
+			entry["targets"], entry["on_enter"] = append([]string{}, targets...), spec.OnEnter
+
+		case spells.EffectRevealRunes:
+			side := casterColor.Opponent()
+			if s, _ := eff.Params["side"].(string); s == "own" {
+				side = casterColor
+			}
+			if n := tracker.RevealRunes(side); n > 0 {
+				squaresChanged = true
+			}
+			entry["side"] = toMatchPlayer(side)
+
+		case spells.EffectDetonateRunes:
+			if do, _ := eff.Params["do"].(string); do != spells.EffectFreezePiece {
+				return spellOutcome{}, gameerr.Newf(gameerr.Internal, "detonate_runes: effetto non supportato %q (%s)", do, def.ID)
+			}
+			runes := tracker.RunesOf(casterColor)
+			if len(runes) == 0 {
+				return spellOutcome{}, noEffect(effects.ReasonNoRunes)
+			}
+			radius := paramInt(eff.Params, "radius", 1)
+			duration := paramInt(eff.Params, "duration", 1)
+			// Congela i nemici attorno a ogni runa (il re escluso), poi consuma le rune.
+			frozen := []string{}
+			seen := map[string]bool{}
+			for _, rsq := range runes {
+				for _, sq := range effects.AroundSquares(rsq, radius) {
+					p, _ := effects.PieceAt(fen, sq)
+					if p == 0 || seen[sq] || effects.ColorOf(p) == casterColor || effects.PieceKindName(p) == string(spells.King) {
+						continue
+					}
+					if err := effects.FreezePiece(tracker, sq, casterColor, duration, def.ID); err != nil {
+						return spellOutcome{}, err
+					}
+					seen[sq] = true
+					frozen = append(frozen, sq)
+				}
+			}
+			for _, rsq := range runes {
+				tracker.RemoveRune(rsq, casterColor)
+			}
+			sort.Strings(frozen)
+			squaresChanged = true
+			entry["runes"], entry["targets"], entry["remaining_turns"] = runes, frozen, duration
+
 		case spells.EffectSummonPawn:
 			sq, err := target()
 			if err != nil {
@@ -1129,6 +1220,19 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 	}
 	return spellOutcome{applied: applied, changed: changed, drawn: drawn, graves: gravesOut, squares: squaresChanged}, nil
 }
+
+// hiddenSpellCast è lo spell_cast di una magia nascosta visto dall'avversario di
+// chi la lancia: né carta né bersagli (M42).
+func hiddenSpellCast(caster match.Player) map[string]interface{} {
+	return map[string]interface{}{
+		"player":          caster,
+		"hidden":          true,
+		"effects_applied": []interface{}{map[string]interface{}{"kind": hiddenEffect}},
+	}
+}
+
+// hiddenEffect è il kind dell'unico effetto di uno spell_cast nascosto.
+const hiddenEffect = "hidden_effect"
 
 // playerState restituisce le risorse del giocatore dato.
 func (r *Room) playerState(p match.Player) *spells.PlayerState {
@@ -1186,21 +1290,163 @@ func (r *Room) broadcastGraveyards(updates []graveyardUpdate) {
 	}
 }
 
-// broadcastSquareEffects manda a entrambi la lista completa degli stati delle
-// case, se è cambiata (nil = nessun cambiamento). Va invocata senza r.mu.
-func (r *Room) broadcastSquareEffects(squares []effects.SquareEffectInfo) {
-	if squares == nil {
-		return
+// squareViews è la lista degli stati delle case vista da ciascun giocatore: le
+// rune nascoste dell'avversario non ci sono. nil = nessun cambiamento.
+type squareViews map[match.Player][]effects.SquareEffectInfo
+
+// squareViewsNow fotografa le liste dei due giocatori. Va invocata con r.mu tenuto.
+func (r *Room) squareViewsNow() squareViews {
+	return squareViews{
+		match.PlayerWhite: r.squareEffects(match.PlayerWhite),
+		match.PlayerBlack: r.squareEffects(match.PlayerBlack),
 	}
-	r.Broadcast(models.MsgSquareEffectsChanged, map[string]interface{}{"square_effects": squares})
 }
 
-// squareEffects restituisce gli stati attivi sulle case (nil-safe).
-func (r *Room) squareEffects() []effects.SquareEffectInfo {
+// broadcastSquareEffects manda a ciascun giocatore la sua lista completa degli
+// stati delle case, se è cambiata (nil = nessun cambiamento). Va invocata senza r.mu.
+func (r *Room) broadcastSquareEffects(views squareViews) {
+	if views == nil {
+		return
+	}
+	for _, p := range []match.Player{match.PlayerWhite, match.PlayerBlack} {
+		if c := r.clientOf(p); c != nil {
+			c.SendMessage(models.MsgSquareEffectsChanged, map[string]interface{}{"square_effects": views[p]})
+		}
+	}
+}
+
+// squareEffects restituisce gli stati attivi sulle case visti dal giocatore dato
+// (nil-safe).
+func (r *Room) squareEffects(viewer match.Player) []effects.SquareEffectInfo {
 	if r.Tracker == nil {
 		return []effects.SquareEffectInfo{}
 	}
-	return r.Tracker.SquareEffects()
+	return r.Tracker.SquareEffectsFor(toEffectsColor(viewer))
+}
+
+// runeSpecFrom legge i params di place_rune.
+func runeSpecFrom(params map[string]interface{}) effects.RuneSpec {
+	onEnter, _ := params["on_enter"].(string)
+	fallback, _ := params["fallback"].(string)
+	return effects.RuneSpec{
+		OnEnter:          onEnter,
+		Duration:         paramInt(params, "duration", 0),
+		Only:             paramStrings(params, "only"),
+		Fallback:         fallback,
+		FallbackDuration: paramInt(params, "fallback_duration", 0),
+	}
+}
+
+// runeTrigger è il payload di rune_triggered, più i cimiteri cambiati.
+type runeTrigger struct {
+	Square  string                 `json:"square"`
+	Owner   match.Player           `json:"owner"`
+	OnEnter string                 `json:"on_enter"`
+	Result  map[string]interface{} `json:"result"`
+	graves  []match.Player
+}
+
+// triggerRune controlla, dopo una mossa già applicata a FEN e Tracker, se il
+// pezzo che è entrato in una casa fa scattare una runa dell'avversario di chi ha
+// mosso (docs/BRIEFING-MAGIE.md, Step 4). fenBefore è la FEN prima della mossa.
+//
+//   - Entra la casa d'arrivo della mossa; nell'arrocco quella della torre, perché
+//     il re non fa scattare le rune (M36). Un pezzo arrivato per magia non passa
+//     da qui (M34).
+//   - Gelo: il pezzo è congelato per `duration` turni suoi, come M9 con Caster =
+//     proprietario della runa; il turno in corso non conta (M44). Ritorno: il
+//     pezzo torna com'era sulla casa di partenza, la cattura fatta entrando resta
+//     (M40). Distruzione: solo i tipi in `only`, gli altri subiscono il fallback;
+//     su un santuario il pezzo è congelato invece (M26, M40).
+//   - Se l'effetto lascerebbe sotto scacco il re di chi ha mosso, la runa non
+//     scatta e resta nascosta (M35).
+//
+// Gli effetti si applicano su copie di FEN, Tracker e cimitero, che sostituiscono
+// lo stato solo se la runa scatta; allora la runa si consuma. Va invocata con r.mu
+// tenuto; nil se non scatta nulla.
+func (r *Room) triggerRune(fenBefore, move string, mover match.Player) *runeTrigger {
+	square, origin, before, ok := effects.RuneEntry(fenBefore, move)
+	if !ok {
+		return nil
+	}
+	moverColor := toEffectsColor(mover)
+	owner := moverColor.Opponent()
+	rn, ok := r.Tracker.RuneAt(square, owner)
+	if !ok || rn.Rune == nil {
+		return nil
+	}
+
+	fen := r.Board.FEN
+	tracker := r.Tracker.Clone()
+	id, now, known := tracker.Info(square)
+	if !known {
+		now, _ = effects.PieceAt(fen, square)
+	}
+	if now == 0 {
+		return nil
+	}
+	kind, duration := rn.Rune.Strike(now)
+	if kind == effects.RuneDestroy && tracker.HasSquareEffect(square, effects.KindNoCapture) {
+		kind, duration = effects.RuneFreeze, rn.Rune.FallbackDuration
+		if duration <= 0 {
+			duration = 1
+		}
+	}
+
+	result := map[string]interface{}{"kind": kind}
+	var grave *spells.GraveEntry
+	switch kind {
+	case effects.RuneFreeze:
+		// +1: il gelo scatta nel turno di chi è entrato, che non conta (M44).
+		turns := duration + 1
+		if err := effects.FreezePiece(tracker, square, owner, turns, rn.SourceSpellID); err != nil {
+			return nil
+		}
+		result["target"], result["remaining_turns"] = square, turns
+	case effects.RuneReturn:
+		newFEN, err := effects.ReturnPiece(fen, square, origin, before)
+		if err != nil {
+			logger.L.Warn("Runa di ritorno non applicabile", zap.String("room", r.ID), zap.Error(err))
+			return nil
+		}
+		fen = newFEN
+		tracker.Relocate(square, origin)
+		tracker.SetType(origin, before) // un pedone promosso torna pedone
+		result["from"], result["to"] = square, origin
+	case effects.RuneDestroy:
+		newFEN, destroyed, err := effects.DestroyPiece(fen, square)
+		if err != nil {
+			return nil
+		}
+		fen = effects.ClearStaleEnPassant(newFEN)
+		tracker.RemoveAt(square)
+		grave = &spells.GraveEntry{Piece: spells.PieceKind(effects.PieceKindName(now)), PieceID: id}
+		result["target"], result["piece_destroyed"] = square, destroyed
+	default:
+		return nil
+	}
+
+	if effects.IsKingAttacked(fen, moverColor) {
+		logger.L.Info("Runa non scattata: lascerebbe il re sotto scacco",
+			zap.String("room", r.ID), zap.String("square", square))
+		return nil
+	}
+	tracker.RemoveRune(square, owner)
+	r.Board.FEN = fen
+	r.Tracker = tracker
+	trig := &runeTrigger{Square: square, Owner: toMatchPlayer(owner), OnEnter: rn.Rune.OnEnter, Result: result}
+	if grave != nil {
+		ps := r.playerState(mover)
+		ps.Graveyard = append(ps.Graveyard, *grave)
+		trig.graves = []match.Player{mover}
+	}
+	logger.L.Info("Runa scattata",
+		zap.String("room", r.ID),
+		zap.String("square", square),
+		zap.String("owner", string(owner)),
+		zap.Any("result", result),
+	)
+	return trig
 }
 
 // graveHas indica se nel cimitero c'è un pezzo del tipo dato.
@@ -1314,15 +1560,15 @@ func moveEndpoints(fen string, params map[string]interface{}, targets []string, 
 
 // tickEffectsOnNewTurn, se nei risultati c'è un nuovo turno, aggiorna le durate
 // degli effetti alla fine del turno di chi ha appena chiuso. Restituisce gli
-// effetti scaduti sui pezzi e, se uno stato di una casa è scaduto, la nuova
-// lista degli stati delle case (nil altrimenti). Va invocata con r.mu tenuto.
-func (r *Room) tickEffectsOnNewTurn(results []match.AdvanceResult) ([]effects.ExpiredEffect, []effects.SquareEffectInfo) {
+// effetti scaduti sui pezzi e, se uno stato di una casa è scaduto, le nuove
+// liste degli stati delle case per ciascun giocatore (nil altrimenti). Va invocata con r.mu tenuto.
+func (r *Room) tickEffectsOnNewTurn(results []match.AdvanceResult) ([]effects.ExpiredEffect, squareViews) {
 	for _, res := range results {
 		if res.NewTurn {
 			finishing := toEffectsColor(res.ActivePlayer.Opponent()) // chi ha appena chiuso il turno
 			expired := r.Tracker.TickTurnEnd(finishing)
 			if r.Tracker.TickSquares(finishing) {
-				return expired, r.Tracker.SquareEffects()
+				return expired, r.squareViewsNow()
 			}
 			return expired, nil
 		}
@@ -1626,7 +1872,7 @@ func (r *Room) Reconnect(client *Client) {
 	)
 
 	// Manda lo stato pubblico completo al giocatore riconnesso
-	state := r.publicState()
+	state := r.publicState(match.Player(r.getColor(client)))
 	state["reconnected"] = true
 	client.SendMessage(models.MsgGameState, state)
 
@@ -1833,12 +2079,18 @@ func (r *Room) broadcastTimers() {
 	})
 }
 
-// broadcastState manda lo stato completo inclusi i tempi. Va invocata SENZA r.mu.
+// broadcastState manda a ciascun giocatore lo stato completo inclusi i tempi,
+// visto da lui (le rune nascoste dell'avversario non ci sono). Va invocata SENZA r.mu.
 func (r *Room) broadcastState() {
 	r.mu.Lock()
-	state := r.publicState()
+	white, black := r.publicState(match.PlayerWhite), r.publicState(match.PlayerBlack)
 	r.mu.Unlock()
-	r.Broadcast(models.MsgGameState, state)
+	if r.White != nil {
+		r.White.SendMessage(models.MsgGameState, white)
+	}
+	if r.Black != nil {
+		r.Black.SendMessage(models.MsgGameState, black)
+	}
 }
 
 // playerInfo è l'identità pubblica di un giocatore in game_state.
@@ -1847,11 +2099,11 @@ type playerInfo struct {
 	Username string `json:"username"`
 }
 
-// publicState costruisce lo stato condiviso (nessuna identità di carta in mano:
-// solo dimensioni, mana e fase — anti-cheat). Copia i dati mutabili, così il
-// risultato può essere serializzato dopo aver rilasciato il lock. Va invocata
-// con r.mu tenuto.
-func (r *Room) publicState() map[string]interface{} {
+// publicState costruisce lo stato mandato a viewer (nessuna identità di carta in
+// mano: solo dimensioni, mana e fase; nessuna runa nascosta dell'avversario —
+// anti-cheat). Copia i dati mutabili, così il risultato può essere serializzato
+// dopo aver rilasciato il lock. Va invocata con r.mu tenuto.
+func (r *Room) publicState(viewer match.Player) map[string]interface{} {
 	board := *r.Board
 	board.Moves = append([]string{}, r.Board.Moves...)
 	return map[string]interface{}{
@@ -1878,7 +2130,7 @@ func (r *Room) publicState() map[string]interface{} {
 		"active_effects":  r.activeEffects(),
 		"white_graveyard": r.Match.White.GraveyardKinds(),
 		"black_graveyard": r.Match.Black.GraveyardKinds(),
-		"square_effects":  r.squareEffects(),
+		"square_effects":  r.squareEffects(viewer),
 	}
 }
 

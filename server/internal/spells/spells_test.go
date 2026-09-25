@@ -97,6 +97,7 @@ func TestCatalog_WellFormed(t *testing.T) {
 		EffectFreezeAll: true, EffectShieldArea: true, EffectSwapPieces: true, EffectTransformPiece: true,
 		EffectPromotePiece: true, EffectRevivePiece: true, EffectRestoreCastling: true,
 		EffectCreateWall: true, EffectCreateSquareEffect: true,
+		EffectPlaceRune: true, EffectRevealRunes: true, EffectDetonateRunes: true,
 	}
 	targetTypes := map[TargetType]bool{TargetSquare: true, TargetOwnPiece: true, TargetEnemyPiece: true}
 	pieces := map[PieceKind]bool{Pawn: true, Knight: true, Bishop: true, Rook: true, Queen: true}
@@ -139,18 +140,23 @@ func TestCatalog_WellFormed(t *testing.T) {
 	}
 }
 
-// Il mazzo è di 40 carte, contiene solo magie del catalogo e le leggendarie
-// sono già a una copia.
+// Il mazzo è di 40 carte, contiene solo magie del catalogo, ognuna al massimo
+// una volta, e rispetta i limiti di copie della rarità.
 func TestDeckRecipe(t *testing.T) {
 	total := 0
+	seen := map[string]bool{}
 	for _, entry := range deckRecipe {
 		sp, ok := Catalog[entry.ID]
 		if !ok {
 			t.Errorf("ricetta: %s non è nel catalogo", entry.ID)
 		}
-		if sp.Rarity == Legendary && entry.Count > Legendary.MaxCopies() {
-			t.Errorf("ricetta: %s è leggendaria ma ha %d copie", entry.ID, entry.Count)
+		if entry.Count > sp.Rarity.MaxCopies() {
+			t.Errorf("ricetta: %s (%s) ha %d copie, massimo %d", entry.ID, sp.Rarity, entry.Count, sp.Rarity.MaxCopies())
 		}
+		if seen[entry.ID] {
+			t.Errorf("ricetta: %s compare due volte", entry.ID)
+		}
+		seen[entry.ID] = true
 		if entry.Count <= 0 {
 			t.Errorf("ricetta: %s ha %d copie", entry.ID, entry.Count)
 		}

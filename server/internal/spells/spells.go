@@ -102,7 +102,23 @@ const (
 
 	EffectCreateWall         = "create_wall"          // muro su una casa vuota
 	EffectCreateSquareEffect = "create_square_effect" // stato generico su una casa (es. no_capture)
+
+	EffectPlaceRune     = "place_rune"     // runa nascosta su ogni casa bersaglio
+	EffectRevealRunes   = "reveal_runes"   // rende visibili le rune di un lato
+	EffectDetonateRunes = "detonate_runes" // consuma le proprie rune con un effetto attorno a ciascuna
 )
+
+// HiddenFromOpponent indica se il cast va nascosto all'avversario (M42): chi lo
+// riceve non vede né la carta né i bersagli. Oggi vale per le magie che
+// piazzano rune.
+func (s Spell) HiddenFromOpponent() bool {
+	for _, e := range s.Effects {
+		if e.Kind == EffectPlaceRune {
+			return true
+		}
+	}
+	return false
+}
 
 // Choice è la scelta del giocatore che alcune magie richiedono (cast_spell.choice):
 // il pezzo da riportare dal cimitero o quello in cui promuovere.
