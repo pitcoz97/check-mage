@@ -106,6 +106,7 @@
   --shadow-ring-clock-low: var(--ring-clock-low);
   --shadow-ring-hint-casting: var(--ring-hint-casting);
   --shadow-ring-self: var(--ring-self);
+  --shadow-ring-danger: var(--ring-danger);
   --shadow-ring-elevated: var(--ring-elevated);
   --shadow-card: var(--drop-card);
   --shadow-board: var(--drop-board);

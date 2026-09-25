@@ -158,6 +158,7 @@
   --ring-clock-low: 0 0 0 2px var(--clock-low-ring);
   --ring-hint-casting: inset 0 0 0 1.5px var(--hint-casting-edge);
   --ring-self: inset 0 0 0 1.5px var(--play);
+  --ring-danger: inset 0 0 0 1.5px var(--danger);
   --ring-elevated: inset 0 0 0 1px var(--bg-elevated);
   --drop-card: 0 10px 24px rgba(0, 0, 0, 0.45);
   --drop-board: 0 12px 32px rgba(0, 0, 0, 0.45);

@@ -50,7 +50,7 @@ function usePasswordPolicy(): CredentialPolicy {
 
 function RequirementIcon({ met }: { met: boolean }) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" className={`size-4 shrink-0 ${met ? 'text-accent' : 'text-muted'}`}>
+    <svg aria-hidden="true" viewBox="0 0 16 16" className={`size-4 shrink-0 ${met ? 'text-play-bright' : 'text-faint'}`}>
       {met ? (
         <path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       ) : (
@@ -98,7 +98,7 @@ export function Register() {
   return (
     <form className="flex flex-col gap-4" onSubmit={(e) => void onSubmit(e)} noValidate>
       <div className="flex flex-col gap-1">
-        <h1 className="text-20 font-bold">{t('auth.registerTitle')}</h1>
+        <h1 className="font-display text-22 font-bold tracking-[0.02em]">{t('auth.registerTitle')}</h1>
         <p className="text-14 text-muted">{t('auth.registerLead')}</p>
       </div>
 
@@ -135,8 +135,8 @@ export function Register() {
         onChange={(e) => setPassword(e.target.value)}
       />
 
-      <section aria-labelledby="requirements-title" className="flex flex-col gap-1">
-        <h2 id="requirements-title" className="text-14 font-semibold">
+      <section aria-labelledby="requirements-title" className="flex flex-col gap-2 rounded-10 bg-sunken px-3.5 py-3 shadow-ring-quiet">
+        <h2 id="requirements-title" className="text-12 font-extrabold tracking-label text-muted uppercase">
           {t('auth.requirements')}
         </h2>
         <ul className="flex flex-col gap-1">
@@ -156,7 +156,7 @@ export function Register() {
         </p>
       )}
 
-      <Button type="submit" fullWidth disabled={submitting || !ready}>
+      <Button type="submit" size="lg" fullWidth disabled={submitting || !ready}>
         {submitting ? t('auth.submitting') : t('auth.submitRegister')}
       </Button>
 

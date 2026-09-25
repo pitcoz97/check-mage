@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router';
 
 import type { HttpErrorInfo } from '../../api/types';
 import { Button } from '../../design/components/Button';
+import { InfoBox } from '../../design/components/InfoBox';
 import { TextField } from '../../design/components/TextField';
 import { useAuth } from '../../store/AuthProvider';
 import { readLoginState } from '../../app/guards';
@@ -38,19 +39,19 @@ export function Login() {
   return (
     <form className="flex flex-col gap-4" onSubmit={(e) => void onSubmit(e)} noValidate>
       <div className="flex flex-col gap-1">
-        <h1 className="text-20 font-bold">{t('auth.loginTitle')}</h1>
+        <h1 className="font-display text-22 font-bold tracking-[0.02em]">{t('auth.loginTitle')}</h1>
         <p className="text-14 text-muted">{t('auth.loginLead')}</p>
       </div>
 
       {notice === 'session_expired' && error === null && (
-        <p role="status" className="rounded-10 border border-subtle bg-elevated px-3 py-2 text-14">
+        <InfoBox role="status">
           {t('session.expired')}
-        </p>
+        </InfoBox>
       )}
       {state.accountCreated === true && error === null && (
-        <p role="status" className="rounded-10 border border-subtle bg-elevated px-3 py-2 text-14">
+        <InfoBox role="status">
           {t('auth.accountCreatedLoginFailed')}
-        </p>
+        </InfoBox>
       )}
 
       <TextField
@@ -79,7 +80,7 @@ export function Login() {
         </p>
       )}
 
-      <Button type="submit" fullWidth disabled={submitting || email.trim() === '' || password === ''}>
+      <Button type="submit" size="lg" fullWidth disabled={submitting || email.trim() === '' || password === ''}>
         {submitting ? t('auth.submitting') : t('auth.submitLogin')}
       </Button>
 
