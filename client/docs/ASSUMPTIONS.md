@@ -260,3 +260,19 @@ I riferimenti sono al server di quel branch.
 | S2 | Un `reason` sconosciuto di `invalid_target` mostra il messaggio generico. | Il server può aggiungere motivi. | `src/screens/Match/errorMessage.ts` |
 | S3 | Una rarità sconosciuta si legge come comune; un tag sconosciuto viene ignorato. | Cambiano solo cornice e riga del tipo. | `adapter.ts` §7, `src/spells/texts.ts` |
 | S4 | Il limite per turno non lo conta il client: la carta resta lanciabile e il rifiuto `limit_reached` arriva dal server. | Contare i cast sarebbe logica di gioco. | `src/spells/playability.ts` |
+| S5 | La scelta del pezzo la chiede il client solo se le opzioni sono più di una: per `revive_piece` sono i tipi di `params.pieces` presenti nel **proprio** cimitero (stato pubblico). Con un'opzione sola il server la deduce. | Il cimitero è pubblico; il server resta l'autorità (`invalid_choice`). | `src/spells/effects.registry.tsx`, `src/game/targeting.ts` |
+| S6 | Un `game_state` senza `*_graveyard` (server precedente allo Step 2) vale come cimiteri vuoti. | Compatibilità col server sulla VM finché non viene aggiornato. | `adapter.ts` §2 |
+
+### Step 2 (cimitero e gruppo A): decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| M15 | Il cimitero si vede nella riga del giocatore, glifi raggruppati per tipo col conteggio. | tu |
+| M16 | Falange: pedoni **di lato** (stessa traversa, colonna accanto). | tu |
+| M17 | Guardia reale: ogni proprio pezzo attorno al re, regina compresa. | tu |
+| M18 | Magia senza effetto → rifiutata a costo zero con `no_effect` (`no_pieces`, `empty_graveyard`, `no_castling`). | tu |
+| M19 | Nel cimitero va ogni pezzo tolto dalla scacchiera (cattura, en passant, magia), col tipo che aveva; non la cattura assorbita da uno scudo. | brief + derivata |
+| M20 | `revive_piece` toglie la prima occorrenza del tipo scelto; il pezzo torna con id nuovo e senza effetti. | brief + derivata |
+| M21 | Scambio non porta mai un pedone in 1ª o 8ª traversa (`invalid_target`, `pawn_rank`). | derivata |
+| M22 | Arrocco divino ripristina solo i lati con re e torre sulle case iniziali; Stockfish vieta ancora l'arrocco attraverso case attaccate. | derivata |
+| M23 | Effetti di massa in `effects_applied` con `targets` e `remaining_turns`. | derivata |
+| M24 | Ricetta a 18 magie con le leggendarie già a 1 copia. | derivata |

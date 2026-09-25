@@ -3,12 +3,16 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Catalogo magie, Step 1 di 6 (`docs/BRIEFING-MAGIE.md`), in attesa di review e dei test Go sulla VM.** Branch
+**Catalogo magie, Step 2 di 6 (`docs/BRIEFING-MAGIE.md`), in attesa di review e dei test Go sulla VM.** Branch
 `feat/spell-catalog` qui e nel server (da `fix/backend-requests`). Decisioni M1–M14 e verifiche del brief in
-`docs/ASSUMPTIONS.md` §7. Il redesign (R1–R6) è unito in `main`.
+`docs/ASSUMPTIONS.md` §7 (M1–M24). Il redesign (R1–R6) è unito in `main`.
 Server: `C:\Projects\chess-server`, modificabile sul branch della feature; qui non eseguibile.
 
 ## Completo
+- **Catalogo magie, Step 2:** cimitero per giocatore (catture, en passant, magie), `choice` nel `cast_spell`,
+  7 handler del gruppo A e 9 magie (Inverno eterno, Guardia reale, Falange, Scambio, Metamorfosi, Promozione
+  anticipata, Richiamo, Resurrezione, Arrocco divino); `no_effect` e `invalid_choice`. Client: cimitero nella riga
+  del giocatore, passo di scelta del pezzo, effetti di massa. `/dev/match?scenario=spells` per vederli. 512 test.
 - **Catalogo magie, Step 1:** server, mock e client. Le 9 magie dello step (Brina, Catena di ghiaccio, Frantumare,
   Patto di sangue, Blink, Scudo, Scudo reale, Marcia forzata, Leva militare) al posto delle 11 vecchie; bersagli
   `TargetSpec` con filtri, tag, rarità, limite per turno; durate relative a chi lancia; niente scacco da magia;
@@ -33,10 +37,10 @@ Server: `C:\Projects\chess-server`, modificabile sul branch della feature; qui n
   iniziale 554 kB (172 kB gzip), partita 82 kB a richiesta.
 
 ## Prossima azione concreta
-Tu: `go vet ./... && go test ./...` sul server (branch `feat/spell-catalog`) e review dello Step 1. Poi il deploy
+Tu: `go build ./... && go vet ./... && go test ./...` sul server (branch `feat/spell-catalog`) e review dello Step 2. Poi il deploy
 sulla VM: finché la VM ha il server vecchio, il client scarta tutte le voci del suo catalogo (`target_type`) e
 non ha magie (la riserva scatta solo se la richiesta fallisce).
-Dopo: piano dello Step 2 (cimitero e handler del gruppo A).
+Dopo: piano dello Step 3 (SquareState, muri e santuari).
 
 ## Decisioni prese
 - Redesign: `REDESIGN_PLAN.md` §10 (D1–D22). Il design vince su colori, tipografia, spaziature e layout; testi e
