@@ -62,6 +62,19 @@ export const it = {
       queen: 'donna',
       king: 're',
     },
+    theme: {
+      label: 'Tema della scacchiera',
+      arcano: 'Arcano',
+      salvia: 'Salvia',
+      noce: 'Noce',
+    },
+    dev: {
+      title: 'Scacchiera',
+      states: 'Stati e bersagli di magia',
+      moves: 'Mosse legali, selezione e scacco',
+      mini: 'Miniatura',
+      miniLabel: 'Miniatura della posizione',
+    },
   },
   lobby: {
     title: 'Pronto a giocare?',

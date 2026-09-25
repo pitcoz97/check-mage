@@ -60,6 +60,19 @@ export const en: Translation = {
       queen: 'queen',
       king: 'king',
     },
+    theme: {
+      label: 'Board theme',
+      arcano: 'Arcane',
+      salvia: 'Sage',
+      noce: 'Walnut',
+    },
+    dev: {
+      title: 'Board',
+      states: 'Spell states and targets',
+      moves: 'Legal moves, selection and check',
+      mini: 'Mini board',
+      miniLabel: 'Mini board of the position',
+    },
   },
   lobby: {
     title: 'Ready to play?',
