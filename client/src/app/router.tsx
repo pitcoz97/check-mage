@@ -15,13 +15,14 @@ import { GuestOnly, RequireAuth, RootRedirect, SessionGate } from './guards';
 const Match = lazy(() => import('../screens/Match/Match').then((module) => ({ default: module.Match })));
 
 /**
- * Gallerie delle carte (briefing §5.1.9) e della scacchiera: solo in sviluppo. L'import dinamico sta **dentro** il ramo `DEV`, così la
+ * Gallerie delle carte (briefing §5.1.9) e della scacchiera, anteprima della partita: solo in sviluppo. L'import dinamico sta **dentro** il ramo `DEV`, così la
  * build di produzione lo elimina del tutto invece di produrne un chunk irraggiungibile.
  */
 const devRoutes: RouteObject[] = import.meta.env.DEV
   ? (() => {
       const CardGallery = lazy(() => import('../screens/Dev/CardGallery').then((module) => ({ default: module.CardGallery })));
       const BoardGallery = lazy(() => import('../screens/Dev/BoardGallery').then((module) => ({ default: module.BoardGallery })));
+      const MatchPreview = lazy(() => import('../screens/Dev/MatchPreview').then((module) => ({ default: module.MatchPreview })));
       return [
         {
           path: 'dev/cards',
@@ -36,6 +37,14 @@ const devRoutes: RouteObject[] = import.meta.env.DEV
           element: (
             <Suspense fallback={<MatchFallback />}>
               <BoardGallery />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'dev/match',
+          element: (
+            <Suspense fallback={<MatchFallback />}>
+              <MatchPreview />
             </Suspense>
           ),
         },
