@@ -262,6 +262,8 @@ I riferimenti sono al server di quel branch.
 | S4 | Il limite per turno non lo conta il client: la carta resta lanciabile e il rifiuto `limit_reached` arriva dal server. | Contare i cast sarebbe logica di gioco. | `src/spells/playability.ts` |
 | S5 | La scelta del pezzo la chiede il client solo se le opzioni sono più di una: per `revive_piece` sono i tipi di `params.pieces` presenti nel **proprio** cimitero (stato pubblico). Con un'opzione sola il server la deduce. | Il cimitero è pubblico; il server resta l'autorità (`invalid_choice`). | `src/spells/effects.registry.tsx`, `src/game/targeting.ts` |
 | S6 | Un `game_state` senza `*_graveyard` (server precedente allo Step 2) vale come cimiteri vuoti. | Compatibilità col server sulla VM finché non viene aggiornato. | `adapter.ts` §2 |
+| S7 | Un `game_state` senza `square_effects` (server precedente allo Step 3) vale come case senza stati; `square_effects_changed` sostituisce l'intera lista. | Come S6. | `adapter.ts` §2, `matchStore.ts` |
+| S8 | Il client non evidenzia le mosse che muri e santuari vietano (`squareRules.ts`, stesse regole di `effects.MoveBlock`) né, per le magie che tolgono un pezzo, i pezzi nemici su un santuario. Il server resta l'autorità: un errore del client finisce in `move_blocked` e rollback. | Scelta tua (M27), come il filtro dei pezzi congelati. | `src/game/board/squareRules.ts`, `targets.registry.ts` |
 
 ### Step 2 (cimitero e gruppo A): decisioni
 | # | Decisione | Fonte |
@@ -276,3 +278,16 @@ I riferimenti sono al server di quel branch.
 | M22 | Arrocco divino ripristina solo i lati con re e torre sulle case iniziali; Stockfish vieta ancora l'arrocco attraverso case attaccate. | derivata |
 | M23 | Effetti di massa in `effects_applied` con `targets` e `remaining_turns`. | derivata |
 | M24 | Ricetta a 18 magie con le leggendarie già a 1 copia. | derivata |
+
+### Step 3 (stati delle case): decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| M25 | Il muro blocca solo il movimento: scacco e matto restano quelli degli scacchi (Stockfish). I muri tolgono mosse, non ne aggiungono. | tu |
+| M26 | Il santuario vieta le catture con le mosse e la distruzione di un pezzo nemico con una magia (Frantumare); il sacrificio di un proprio pezzo è ammesso. | tu |
+| M27 | Il client nasconde dagli evidenziati le mosse bloccate da muri e santuari. | tu |
+| M28 | Attraversare un muro: le case fra partenza e arrivo per torre, alfiere e donna; la casa di mezzo della spinta doppia; tutte le case fra re e torre nell'arrocco. Il cavallo e le mosse di una casa guardano solo l'arrivo. | derivata |
+| M29 | La cattura avviene sulla casa del pezzo catturato: per l'en passant quella del pedone preso. | derivata |
+| M30 | Una casa col muro non è vuota per `empty_square` (`reason: wall`); Marcia forzata non entra in un muro. Il santuario si lancia su qualsiasi casa. | derivata |
+| M31 | Gli stati delle case durano come quelli dei pezzi (M9); rilanciarli li rinnova. | brief + derivata |
+| M32 | `move_blocked {square, reason: wall | no_capture}`, controllato dopo il gelo e prima dello scudo: una mossa bloccata non consuma lo scudo. | derivata |
+| M33 | Ricetta a 20 magie; Muro di ghiaccio e Santuario sono comuni. | derivata |
