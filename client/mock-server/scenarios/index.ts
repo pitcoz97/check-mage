@@ -50,6 +50,16 @@ export function setupScenario(name: ScenarioName, config: MockConfig): ScenarioS
           manaFloor: { white: 10 },
         },
       };
+    case 'runes':
+      return {
+        bot: { castSpells: true },
+        overrides: {
+          // Il client ha una runa sua, per vederla tratteggiata sulla propria scacchiera.
+          hand: { white: ['stasis_rune', 'shatter', 'shatter', 'shatter'], black: ['stasis_rune', 'explosive_rune', 'repel_rune', 'minefield'] },
+          deckTop: { black: ['stasis_rune', 'repel_rune', 'explosive_rune'] },
+          manaFloor: { white: 2, black: 10 },
+        },
+      };
     case 'hostile':
       return { bot: {}, hostile: true };
   }
