@@ -22,6 +22,11 @@ type ActiveEffect struct {
 	RemainingTurns int    `json:"remaining_turns"`
 	SourceSpellID  string `json:"source_spell_id,omitempty"`
 	Caster         Color  `json:"caster,omitempty"`
+	// Solo per le rune (runes.go): la runa è nascosta all'avversario di Caster, e
+	// cosa fa quando scatta. La RuneSpec è copiata dai params al lancio, così una
+	// partita salvata non dipende dal catalogo.
+	Hidden bool      `json:"hidden,omitempty"`
+	Rune   *RuneSpec `json:"rune,omitempty"`
 }
 
 // Permanent è la durata di un effetto che non scade.

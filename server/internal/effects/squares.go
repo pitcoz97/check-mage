@@ -11,6 +11,7 @@ import "sort"
 const (
 	KindWall      = "wall"       // nessun pezzo ci entra né la attraversa
 	KindNoCapture = "no_capture" // nessuna cattura sul pezzo che ci sta sopra
+	KindRune      = "rune"       // scatta quando un pezzo nemico ci entra (runes.go)
 )
 
 // Motivi di rifiuto legati agli stati delle case: details.reason di
@@ -28,17 +29,24 @@ type SquareEffectInfo struct {
 
 // AddSquareEffect mette (o rinnova) uno stato sulla casa.
 func (t *Tracker) AddSquareEffect(square, kind string, turns int, source string, caster Color) {
+	t.putSquareEffect(square, ActiveEffect{Kind: kind, RemainingTurns: turns, SourceSpellID: source, Caster: caster})
+}
+
+// putSquareEffect mette lo stato sulla casa, sostituendo quello dello stesso
+// tipo. Le rune sono una per proprietario: quella di un giocatore sostituisce
+// solo la sua.
+func (t *Tracker) putSquareEffect(square string, e ActiveEffect) {
 	if t.squares == nil {
 		t.squares = map[string][]ActiveEffect{}
 	}
 	effs := t.squares[square]
 	for i := range effs {
-		if effs[i].Kind == kind {
-			effs[i] = ActiveEffect{Kind: kind, RemainingTurns: turns, SourceSpellID: source, Caster: caster}
+		if effs[i].Kind == e.Kind && (e.Kind != KindRune || effs[i].Caster == e.Caster) {
+			effs[i] = e
 			return
 		}
 	}
-	t.squares[square] = append(effs, ActiveEffect{Kind: kind, RemainingTurns: turns, SourceSpellID: source, Caster: caster})
+	t.squares[square] = append(effs, e)
 }
 
 // HasSquareEffect indica se la casa ha lo stato dato (nil-safe).
@@ -102,7 +110,10 @@ func (t *Tracker) RestoreSquareEffects(square string, effs []ActiveEffect) {
 		return
 	}
 	for _, e := range effs {
-		t.AddSquareEffect(square, e.Kind, e.RemainingTurns, e.SourceSpellID, e.Caster)
+		if e.Kind == KindRune && e.Rune == nil {
+			continue // una runa senza spec non saprebbe cosa fare
+		}
+		t.putSquareEffect(square, e)
 	}
 }
 
