@@ -3,12 +3,17 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Redesign completo (R1–R6), in attesa di review.** Branch `feat/redesign`, locale, non ancora unito in `main`.
-Analisi, decisioni D1–D22 ed esito in `REDESIGN_PLAN.md` (§10–11); il design sta in `design-reference/` (fuori da git).
-Prima del redesign: Step 0–7 completi, Step 6 in attesa dell'APK (`docs/ANDROID.md`).
-Server: `C:\Projects\chess-server` (sola lettura, qui non eseguibile), branch `fix/backend-requests` (`62475c9`).
+**Catalogo magie, Step 1 di 6 (`docs/BRIEFING-MAGIE.md`), in attesa di review e dei test Go sulla VM.** Branch
+`feat/spell-catalog` qui e nel server (da `fix/backend-requests`). Decisioni M1–M14 e verifiche del brief in
+`docs/ASSUMPTIONS.md` §7. Il redesign (R1–R6) è unito in `main`.
+Server: `C:\Projects\chess-server`, modificabile sul branch della feature; qui non eseguibile.
 
 ## Completo
+- **Catalogo magie, Step 1:** server, mock e client. Le 9 magie dello step (Brina, Catena di ghiaccio, Frantumare,
+  Patto di sangue, Blink, Scudo, Scudo reale, Marcia forzata, Leva militare) al posto delle 11 vecchie; bersagli
+  `TargetSpec` con filtri, tag, rarità, limite per turno; durate relative a chi lancia; niente scacco da magia;
+  matto e stallo con i pezzi congelati. Client: schema e adapter nuovi, bersagli evidenziati dallo spec, nomi e
+  testi i18n per id, cornice per rarità e riga dell'archetipo, messaggi per ogni `reason`. 490 test, e2e verdi.
 - **Step 0–7:** contratto sul codice Go e mock che lo porta; REST, sessione, WebSocket con ticket e
   `applyServerEvent`; scacchiera, partita, layer magie; Capacitor 8 (`android/` versionato); `npm run verify:server`
   (47/0 contro il server reale).
@@ -28,8 +33,10 @@ Server: `C:\Projects\chess-server` (sola lettura, qui non eseguibile), branch `f
   iniziale 554 kB (172 kB gzip), partita 82 kB a richiesta.
 
 ## Prossima azione concreta
-Review del redesign: le anteprime in sviluppo, poi il giro vero col mock e il login (coda → partita → home →
-Riprendi → fine partita). Poi merge di `feat/redesign` in `main` e l'APK di `docs/ANDROID.md`.
+Tu: `go vet ./... && go test ./...` sul server (branch `feat/spell-catalog`) e review dello Step 1. Poi il deploy
+sulla VM: finché la VM ha il server vecchio, il client scarta tutte le voci del suo catalogo (`target_type`) e
+non ha magie (la riserva scatta solo se la richiesta fallisce).
+Dopo: piano dello Step 2 (cimitero e handler del gruppo A).
 
 ## Decisioni prese
 - Redesign: `REDESIGN_PLAN.md` §10 (D1–D22). Il design vince su colori, tipografia, spaziature e layout; testi e
@@ -46,7 +53,8 @@ Riprendi → fine partita). Poi merge di `feat/redesign` in `main` e l'APK di `d
 ## Da ricordare
 - APK mai costruito qui: se Gradle si lamenta, guardare `android/app/src/main/res/`.
 - Rilanciare `verify:server` a ogni cambiamento del server.
-- Quando il server manderà rarità e tipo (P2-15), la carta li ha già in token (`--rarity-*`): va solo letto il campo.
+- Il client e la VM vanno aggiornati insieme: il catalogo nuovo non è retrocompatibile col client vecchio e viceversa.
+- `docs/catalog.go` è il catalogo di riferimento del brief: resta fuori da git e confluisce nel server step per step.
 
 ## Note d'ambiente
 - La shell dello strumento non vede Node nel PATH: prima dei comandi npm va ricaricato il PATH di Machine e User.
