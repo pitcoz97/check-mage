@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
+
+import { AppIcon } from '../../design/components/AppIcon';
 
 import { SecondaryActions } from './Actions';
 import { SideTabs, type SideTab } from './SideTabs';
@@ -88,6 +91,11 @@ function MatchSheet({ tab, onClose }: { tab: SideTab; onClose(): void }) {
           </button>
         </div>
         <SecondaryActions />
+        {/* Su Android è l'unica uscita dalla partita: che resta in corso in background (D13). */}
+        <Link to="/lobby" className="flex min-h-11 items-center gap-2.5 rounded-10 bg-panel px-3.5 text-14 font-bold text-primary">
+          <AppIcon name="home" className="size-5 text-gold" />
+          {t('nav.home')}
+        </Link>
         <SideTabs key={tab} initialTab={tab} className="min-h-64" />
       </div>
     </div>

@@ -103,6 +103,10 @@
   --row-stripe: rgba(255, 255, 255, 0.025);
   --row-current: rgba(217, 168, 69, 0.1);
   --spell-chip: rgba(155, 123, 224, 0.12);
+  /* Classifica: podio e riga propria (tavola "Home · desktop"). */
+  --rank-silver: #d6cfc2;
+  --rank-bronze: #e0a07e;
+  --row-self: rgba(58, 130, 48, 0.18);
   /* Box del suggerimento con una carta selezionata. */
   --hint-casting: rgba(155, 123, 224, 0.14);
   --hint-casting-edge: rgba(155, 123, 224, 0.6);
@@ -153,6 +157,8 @@
   --ring-mana-locked: inset 0 0 0 1.5px var(--mana-locked-edge);
   --ring-clock-low: 0 0 0 2px var(--clock-low-ring);
   --ring-hint-casting: inset 0 0 0 1.5px var(--hint-casting-edge);
+  --ring-self: inset 0 0 0 1.5px var(--play);
+  --ring-elevated: inset 0 0 0 1px var(--bg-elevated);
   --drop-card: 0 10px 24px rgba(0, 0, 0, 0.45);
   --drop-board: 0 12px 32px rgba(0, 0, 0, 0.45);
   --ring-frozen: inset 0 0 0 2px var(--board-frozen-edge);

@@ -1,6 +1,8 @@
 import type { CSSProperties, ReactNode } from 'react';
 
 export interface MatchLayoutSlots {
+  /** Desktop: la barra verticale da 72px della tavola. */
+  readonly nav: ReactNode;
   /** Avvisi di connessione, sopra tutto. */
   readonly banner?: ReactNode;
   readonly opponent: ReactNode;
@@ -23,7 +25,7 @@ export interface MatchLayoutSlots {
  * Disposizione della partita (REDESIGN_PLAN.md §3.4), dalle tavole:
  *
  * - **Desktop (≥ 1024px), "Partita · desktop":** schermo intero senza scorrimento. Colonna della scacchiera (riga
- *   avversario, scacchiera fino a 560px, riga propria, 8px fra loro), centrata nello spazio a sinistra della
+ *   avversario, scacchiera fino a 560px, riga propria, 8px fra loro), centrata fra la barra da 72px e la
  *   colonna laterale di 380px (12px fra i blocchi, 20px dal bordo destro). La mano sta sotto la scacchiera,
  *   centrata su di essa, e sborda di 20px dal bordo inferiore.
  * - **Android, "Partita · Android":** riga avversario, scacchiera a tutta larghezza, riga propria, fasi con la CTA,
@@ -35,14 +37,14 @@ export interface MatchLayoutSlots {
  */
 const BOARD_SIZE = {
   '--board-mobile': 'max(240px, min(100vw, calc(100dvh - 454px)))',
-  '--board-desktop': 'min(560px, calc(100dvh - 340px), calc(100vw - 460px))',
+  '--board-desktop': 'min(560px, calc(100dvh - 340px), calc(100vw - 540px))',
 } as CSSProperties;
 
 export function MatchLayout(slots: MatchLayoutSlots) {
   return (
     <div
       style={BOARD_SIZE}
-      className="relative flex h-dvh flex-col overflow-hidden px-[env(safe-area-inset-right,0px)] pt-[env(safe-area-inset-top,0px)] pl-[env(safe-area-inset-left,0px)] [--board:var(--board-mobile)] lg:flex-row lg:gap-5 lg:overflow-hidden lg:pr-5 lg:pl-0 lg:[--board:var(--board-desktop)]"
+      className="relative flex h-dvh flex-col overflow-hidden px-[env(safe-area-inset-right,0px)] pt-[env(safe-area-inset-top,0px)] pl-[env(safe-area-inset-left,0px)] [--board:var(--board-mobile)] lg:flex-row lg:overflow-hidden lg:pr-5 lg:pl-0 lg:[--board:var(--board-desktop)]"
     >
       {slots.banner !== undefined && (
         <div
@@ -52,6 +54,10 @@ export function MatchLayout(slots: MatchLayoutSlots) {
           {slots.banner}
         </div>
       )}
+
+      <div data-region="nav" className="hidden lg:block">
+        {slots.nav}
+      </div>
 
       {/* Su desktop la colonna della scacchiera sta al centro dello spazio lasciato dalla colonna laterale. */}
       <div className="flex grow flex-col lg:h-full lg:flex-row lg:justify-center">
@@ -86,7 +92,7 @@ export function MatchLayout(slots: MatchLayoutSlots) {
 
       <aside
         data-region="side"
-        className="hidden lg:flex lg:h-full lg:w-[380px] lg:shrink-0 lg:flex-col lg:gap-3 lg:py-5"
+        className="hidden lg:ml-5 lg:flex lg:h-full lg:w-[380px] lg:shrink-0 lg:flex-col lg:gap-3 lg:py-5"
       >
         {slots.turn}
         {slots.mana}

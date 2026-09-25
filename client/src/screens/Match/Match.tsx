@@ -11,6 +11,7 @@ import { useCatalog } from '../../spells/CatalogProvider';
 import { cardRefusalMessage } from '../../spells/playability';
 import { useMatch, useMatchSession, useSessionStatus } from '../../store/MatchProvider';
 import type { GameOutcome } from '../../store/matchStore';
+import { MatchRail } from '../../app/Navigation';
 import { PassButton, SecondaryActions } from './Actions';
 import { ConnectionBanner } from './ConnectionBanner';
 import { HintBox } from './HintBox';
@@ -143,6 +144,7 @@ function MatchScreen() {
   const flash = useSpellFlash();
   return (
     <MatchLayout
+      nav={<MatchRail />}
       banner={<ConnectionBanner />}
       opponent={<PlayerRow side="opponent" />}
       board={<MatchBoard onRefused={show} targeting={casting.boardTargeting} flash={flash} />}

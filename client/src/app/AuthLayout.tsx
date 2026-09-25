@@ -16,7 +16,9 @@ export function AuthLayout() {
       <Panel className="w-full max-w-sm p-6">
         <Outlet />
       </Panel>
-      <LanguageSwitch />
+      <div className="w-full max-w-sm">
+        <LanguageSwitch showLabel={false} />
+      </div>
     </div>
   );
 }

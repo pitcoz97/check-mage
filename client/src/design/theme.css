@@ -57,6 +57,9 @@
   --color-piece-edge: var(--piece-edge);
 
   --color-clock-low: var(--clock-low-ring);
+  --color-rank-silver: var(--rank-silver);
+  --color-rank-bronze: var(--rank-bronze);
+  --color-row-self: var(--row-self);
   --color-row-stripe: var(--row-stripe);
   --color-row-current: var(--row-current);
   --color-spell-chip: var(--spell-chip);
@@ -102,6 +105,8 @@
   --shadow-ring-mana-locked: var(--ring-mana-locked);
   --shadow-ring-clock-low: var(--ring-clock-low);
   --shadow-ring-hint-casting: var(--ring-hint-casting);
+  --shadow-ring-self: var(--ring-self);
+  --shadow-ring-elevated: var(--ring-elevated);
   --shadow-card: var(--drop-card);
   --shadow-board: var(--drop-board);
   --shadow-ring-frozen: var(--ring-frozen);

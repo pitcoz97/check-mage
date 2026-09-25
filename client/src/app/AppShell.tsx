@@ -1,44 +1,42 @@
-import { useTranslation } from 'react-i18next';
-import { Link, NavLink, Outlet } from 'react-router';
+import { useEffect, useRef } from 'react';
+import { Outlet, useNavigate } from 'react-router';
 
-import { Button } from '../design/components/Button';
-import { LanguageSwitch } from '../i18n/LanguageSwitch';
-import { useAuth } from '../store/AuthProvider';
+import { useMatch } from '../store/MatchProvider';
+import { MobileHeader, MobileTabBar, SideNav } from './Navigation';
 
-const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-  [
-    'inline-flex min-h-[var(--hit-target)] items-center rounded-10 px-3 text-14 font-semibold',
-    isActive ? 'bg-elevated text-primary' : 'text-muted hover:text-primary',
-  ].join(' ');
-
-/** Shell delle schermate fuori partita: barra in alto silenziosa, contenuto al centro. */
+/**
+ * Shell delle schermate fuori partita (tavole "Home"): barra laterale da 220px su desktop, intestazione e barra
+ * inferiore su Android.
+ *
+ * Una partita in corso resta in background mentre si naviga (D13): la sessione vive a livello d'app. Si entra in
+ * partita da soli solo quando la coda trova un avversario, ovunque ci si trovi nella shell.
+ */
 export function AppShell() {
-  const { t } = useTranslation();
-  const logout = useAuth((s) => s.logout);
+  const navigate = useNavigate();
+  const lifecycle = useMatch((s) => s.lifecycle);
+  const previous = useRef(lifecycle);
+
+  useEffect(() => {
+    if (previous.current === 'queued' && lifecycle === 'playing') void navigate('/match');
+    previous.current = lifecycle;
+  }, [lifecycle, navigate]);
+
   return (
-    <div className="safe-area flex min-h-full flex-col">
-      <header className="border-b border-nav-border bg-nav">
-        <div className="mx-auto flex min-h-[var(--header-height)] max-w-5xl flex-wrap items-center gap-2 px-4">
-          <Link to="/lobby" className="mr-auto text-20 font-bold text-primary">
-            {t('app.name')}
-          </Link>
-          <nav aria-label={t('nav.main')} className="flex items-center gap-1">
-            <NavLink to="/lobby" className={navLinkClass}>
-              {t('nav.lobby')}
-            </NavLink>
-            <NavLink to="/profile" className={navLinkClass}>
-              {t('nav.profile')}
-            </NavLink>
-          </nav>
-          <LanguageSwitch />
-          <Button variant="secondary" onClick={() => void logout()}>
-            {t('nav.logout')}
-          </Button>
+    <div className="flex min-h-dvh">
+      <div className="hidden lg:block">
+        <SideNav />
+      </div>
+      <div className="flex min-w-0 grow flex-col px-4 pt-[calc(1rem+env(safe-area-inset-top,0px))] pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))] lg:px-10 lg:pt-8 lg:pb-8">
+        <div className="lg:hidden">
+          <MobileHeader />
         </div>
-      </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">
-        <Outlet />
-      </main>
+        <main className="flex grow flex-col pt-4 lg:pt-0">
+          <Outlet />
+        </main>
+      </div>
+      <div className="lg:hidden">
+        <MobileTabBar />
+      </div>
     </div>
   );
 }

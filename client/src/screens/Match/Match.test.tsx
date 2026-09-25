@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 
@@ -272,6 +272,8 @@ describe('schermata di partita', () => {
     expect(sheet.getAttribute('data-sheet')).toBe('grimoire');
     expect(sheet.querySelector('[data-grimoire]')?.textContent).toContain('Frost Bolt');
     expect(sheet.textContent).toContain('½ Offri patta');
+    // Su Android è l'unica uscita dalla partita, che resta in background (D13).
+    expect(within(sheet).getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('/lobby');
     // La scheda Chat non si seleziona.
     fireEvent.click(sheet.querySelector('[data-tab="chat"]') as HTMLElement);
     expect(sheet.querySelector('[data-tab="grimoire"]')?.getAttribute('aria-selected')).toBe('true');
