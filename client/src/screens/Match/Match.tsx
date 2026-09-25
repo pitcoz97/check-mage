@@ -44,18 +44,37 @@ function outcomeHeadline(outcome: GameOutcome, myColor: Color | null): 'win' | '
   return winner === myColor ? 'win' : 'loss';
 }
 
-/** Riepilogo di fine partita: esito, motivo, ritorno alla lobby. */
+type Headline = ReturnType<typeof outcomeHeadline>;
+
+/** Banda dell'esito: verde vittoria, rosso sconfitta, oro patta, spenta se l'esito non si conosce. */
+const OUTCOME_BAND: Record<Headline, string> = {
+  win: 'bg-play',
+  loss: 'bg-danger',
+  draw: 'bg-gold',
+  whiteWins: 'bg-gold',
+  blackWins: 'bg-gold',
+  unknownResult: 'bg-quiet',
+};
+
+/**
+ * Riepilogo di fine partita: esito, motivo, ritorno alla home. Non è nelle tavole (D20): card Pietra con la banda del
+ * colore dell'esito e il titolo in Cinzel. Sta al posto delle azioni, così la posizione finale resta visibile.
+ */
 function OutcomePanel({ outcome }: { outcome: GameOutcome }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const session = useMatchSession();
   const myColor = useMatch((s) => s.myColor);
+  const headline = outcomeHeadline(outcome, myColor);
   return (
-    <Panel role="status" className="flex flex-col gap-3 p-4">
-      <h2 className="text-20 font-bold">{t('match.over.title')}</h2>
-      <p className="font-semibold">{t(`match.over.${outcomeHeadline(outcome, myColor)}`)}</p>
-      <p className="text-14 text-muted">{t(`match.over.reason.${outcome.reason}`)}</p>
+    <Panel role="status" data-outcome={headline} className="flex flex-col gap-3 overflow-hidden rounded-16 p-5 pt-0">
+      <span aria-hidden="true" className={`-mx-5 mb-2 block h-1.5 ${OUTCOME_BAND[headline]}`} />
+      <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('match.over.title')}</h2>
+      <p className="font-display text-28 leading-tight font-bold tracking-[0.02em]">{t(`match.over.${headline}`)}</p>
+      <p className="text-14 text-tertiary">{t(`match.over.reason.${outcome.reason}`)}</p>
       <Button
+        size="lg"
+        fullWidth
         onClick={() => {
           session.leave();
           void navigate('/lobby');

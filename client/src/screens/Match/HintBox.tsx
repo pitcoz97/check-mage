@@ -8,7 +8,7 @@ import type { Notice } from './useNotice';
 
 /**
  * Il box del suggerimento (tavole della partita, D16): l'unico posto per i messaggi della partita. In ordine di
- * priorità: un avviso recente, la carta che si sta lanciando, altrimenti cosa si può fare nella fase corrente (con i
+ * priorità: un avviso recente, un'offerta di patta da accettare o rifiutare, la carta che si sta lanciando, altrimenti cosa si può fare nella fase corrente (con i
  * propri pezzi congelati). Su desktop è il riquadro nel pannello del turno, su Android la riga sotto le fasi.
  */
 
@@ -27,9 +27,16 @@ function useHintContent(casting: Casting, notice: Notice | null): HintContent {
   const effects = useMatch((s) => s.game?.activeEffects ?? []);
   const myColor = useMatch((s) => s.myColor);
   const activePlayer = useMatch((s) => s.game?.activePlayer ?? null);
+  const drawOffered = useMatch((s) => s.drawOffer.incoming);
 
   if (notice !== null) {
     return { mode: 'notice', title: t(`match.hint.notice.${notice.kind}`), text: notice.text, line: notice.text };
+  }
+
+  // Un'offerta di patta aspetta una risposta: su Android i pulsanti stanno nel foglio del Menu, quindi lo si dice qui.
+  if (drawOffered) {
+    const text = t('match.action.drawIncoming');
+    return { mode: 'notice', title: t('match.hint.notice.draw'), text: `${text}. ${t('match.hint.drawBelow')}`, line: `${text} · ${t('match.hint.drawInMenu')}` };
   }
 
   if (casting.spellName !== null) {

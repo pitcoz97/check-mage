@@ -284,7 +284,9 @@ describe('schermata di partita', () => {
   it('offerta di patta ricevuta: accetta o rifiuta', async () => {
     const { receive, expectSent } = await setup();
     receive({ type: 'draw_offer', payload: { from: 'luigi' } });
-    expect(screen.getAllByText('L’avversario offre patta').length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-draw-offer]')?.textContent).toContain('L’avversario offre patta');
+    // Su Android i pulsanti stanno nel foglio del Menu: la riga del suggerimento lo dice.
+    expect(document.querySelector('[data-hint-box="line"]')?.textContent).toContain('rispondi dal Menu');
     fireEvent.click(first('button', 'Rifiuta'));
     await expectSent({ type: 'draw_declined', payload: {} });
   });
@@ -295,9 +297,37 @@ describe('schermata di partita', () => {
     receive(gameState({ board: { fen: START, moves: [], turn: 'white', status: 'resigned' } }));
     receive({ type: 'game_over', payload: { result: '0-1', reason: 'resign', winner: 'luigi' } });
     expect(screen.getAllByText('Hai perso').length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-outcome]')?.getAttribute('data-outcome')).toBe('loss');
     expect(screen.getAllByText('Abbandono.').length).toBeGreaterThan(0);
     fireEvent.click(first('button', 'Torna alla lobby'));
     expect(await screen.findByRole('heading', { name: 'Lobby' })).toBeTruthy();
     expect(await storage.get('active-match')).toBeNull();
+  });
+
+  it('promozione: quattro pezzi sulle case del tema, la scelta parte col pezzo, un tocco fuori annulla', async () => {
+    const { receive, expectSent, sent } = await setup();
+    receive(gameState({ board: { fen: '4k3/P7/8/8/8/8/8/4K3 w - - 0 1', moves: [], turn: 'white', status: 'active' } }));
+    fireEvent.click(square('a7'));
+    fireEvent.click(square('a8'));
+    const dialog = screen.getByRole('dialog', { name: 'Scegli il pezzo' });
+    expect(within(dialog).getAllByRole('button')).toHaveLength(4);
+    fireEvent.click(dialog);
+    expect(screen.queryByRole('dialog', { name: 'Scegli il pezzo' })).toBeNull();
+    expect(sent()).toEqual([]);
+
+    fireEvent.click(square('a7'));
+    fireEvent.click(square('a8'));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Scegli il pezzo' })).getByRole('button', { name: 'donna' }));
+    await expectSent({ type: 'move', payload: { move: 'a7a8q' } });
+  });
+
+  it('banner di connessione: riconnessione coi secondi, partita aperta altrove con "Riprendi qui"', async () => {
+    const { sockets } = await setup();
+    act(() => sockets.last().drop(1006));
+    expect(document.querySelector('[data-banner="reconnecting"]')?.textContent).toMatch(/\d+ s/);
+    act(() => sockets.last().open());
+    act(() => sockets.last().drop(4001));
+    const replaced = document.querySelector('[data-banner="replaced"]') as HTMLElement;
+    expect(within(replaced).getByRole('button', { name: 'Riprendi qui' })).toBeTruthy();
   });
 });

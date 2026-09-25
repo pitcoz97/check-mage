@@ -201,6 +201,8 @@ export const en: Translation = {
       frozenOne: 'Your {{piece}} on {{square}} is frozen: 1 more turn.',
       frozenMany: 'Your {{piece}} on {{square}} is frozen: {{count}} more turns.',
       casting: '{{name}} · {{cost}} mana',
+      drawBelow: 'Answer with the buttons below.',
+      drawInMenu: 'answer from the Menu',
       notice: {
         cast: 'Spell',
         refused: 'Not allowed',

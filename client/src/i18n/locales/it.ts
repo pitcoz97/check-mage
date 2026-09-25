@@ -203,6 +203,8 @@ export const it = {
       frozenOne: 'Il tuo {{piece}} in {{square}} è congelato: ancora 1 turno.',
       frozenMany: 'Il tuo {{piece}} in {{square}} è congelato: ancora {{count}} turni.',
       casting: '{{name}} · {{cost}} mana',
+      drawBelow: 'Rispondi con i pulsanti qui sotto.',
+      drawInMenu: 'rispondi dal Menu',
       notice: {
         cast: 'Magia',
         refused: 'Non consentito',

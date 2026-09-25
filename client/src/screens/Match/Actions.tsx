@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '../../design/components/Button';
+import { InfoBox } from '../../design/components/InfoBox';
 import type { Phase } from '../../game/model';
 import { useMatch, useMatchSession, useSessionStatus } from '../../store/MatchProvider';
 
@@ -81,8 +82,8 @@ export function PassButton({ compact = false }: { compact?: boolean }) {
 }
 
 /**
- * Patta e resa, affiancate (44px). L'offerta ricevuta e la conferma della resa mantengono la logica di oggi e si
- * ridisegnano in R6.
+ * Patta e resa, affiancate (44px). L'offerta ricevuta e la conferma della resa non sono nelle tavole: stanno nel
+ * box incassato, con l'anello viola (una scelta da fare) o del pericolo (D20).
  */
 export function SecondaryActions() {
   const { t } = useTranslation();
@@ -95,8 +96,13 @@ export function SecondaryActions() {
 
   if (drawOffer.incoming) {
     return (
-      <div role="group" aria-label={t('match.actions')} className="flex flex-col gap-2.5">
-        <p className="text-14 font-semibold">{t('match.action.drawIncoming')}</p>
+      <InfoBox tone="arcane" role="group" aria-label={t('match.actions')} data-draw-offer className="flex flex-col gap-2.5">
+        <p className="flex items-center gap-2.5 font-bold">
+          <span aria-hidden="true" className="flex size-7 items-center justify-center rounded-8 bg-arcane-deep font-display text-15 text-arcane-pale">
+            ½
+          </span>
+          {t('match.action.drawIncoming')}
+        </p>
         <div className="flex gap-2.5">
           <Button fullWidth disabled={!canAct} onClick={() => session.send({ type: 'draw_accepted' })} size="sm">
             {t('match.action.accept')}
@@ -105,14 +111,14 @@ export function SecondaryActions() {
             {t('match.action.decline')}
           </Button>
         </div>
-      </div>
+      </InfoBox>
     );
   }
 
   if (confirmResign) {
     return (
-      <div role="group" aria-label={t('match.actions')} className="flex flex-col gap-2.5">
-        <p className="text-14 font-semibold">{t('match.action.resignConfirm')}</p>
+      <InfoBox tone="danger" role="group" aria-label={t('match.actions')} data-resign-confirm className="flex flex-col gap-2.5">
+        <p className="font-bold">{t('match.action.resignConfirm')}</p>
         <div className="flex gap-2.5">
           <Button
             variant="danger"
@@ -129,7 +135,7 @@ export function SecondaryActions() {
             {t('match.action.cancel')}
           </Button>
         </div>
-      </div>
+      </InfoBox>
     );
   }
 

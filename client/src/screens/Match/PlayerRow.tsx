@@ -58,7 +58,7 @@ export function PlayerRow({ side }: { side: 'self' | 'opponent' }) {
         aria-hidden="true"
         className={`flex size-9 shrink-0 items-center justify-center rounded-8 text-15 font-extrabold lg:size-10 lg:text-16 ${
           side === 'self' ? 'bg-play text-on-play' : 'bg-arcane-deep text-arcane-pale'
-        }`}
+        } ${disconnected ? 'opacity-40 grayscale' : ''}`}
       >
         {name.slice(0, 1).toUpperCase()}
       </span>

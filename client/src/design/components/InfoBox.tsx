@@ -1,8 +1,8 @@
 import type { HTMLAttributes } from 'react';
 
 /**
- * Riquadro incassato delle tavole (il box del suggerimento, i campi): superficie `#1F1D24`, raggio 10. Il tono
- * aggiunge l'anello di stato del design: viola per ciò che chiede una scelta, oro per l'attesa, pericolo per le
+ * Riquadro incassato delle tavole (il box del suggerimento, i campi): `--bg-sunken`, raggio 10. Il tono aggiunge
+ * l'anello di stato del design: viola per ciò che chiede una scelta, oro per l'attesa, pericolo per le
  * conferme distruttive. Usato per avvisi e scelte che le tavole non disegnano (REDESIGN_PLAN.md D20).
  */
 type Tone = 'neutral' | 'arcane' | 'gold' | 'danger';
