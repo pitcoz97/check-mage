@@ -1,6 +1,12 @@
 package engine
 
-import "testing"
+import (
+	"os/exec"
+	"testing"
+
+	"chess-server/internal/effects"
+	"chess-server/internal/logger"
+)
 
 func TestIsDrawByRule_StartingAndOpenings(t *testing.T) {
 	// Posizioni normali: NON devono essere patta (era il bug).
@@ -84,5 +90,34 @@ func TestClassify_PlayableMoves(t *testing.T) {
 	}
 	if got := classify(fen, nil, nil, notInCheck); got != StatusStalemate {
 		t.Errorf("nessuna mossa legale: %v, atteso stallo", got)
+	}
+}
+
+// Arrocco divino (docs/BRIEFING-MAGIE.md, Step 2): i diritti ripristinati non
+// permettono di arroccare attraverso case attaccate. Lo decide Stockfish: il
+// test gira solo dove Stockfish è installato.
+func TestRestoredCastling_ThroughAttackedSquares(t *testing.T) {
+	if _, err := exec.LookPath("stockfish"); err != nil {
+		t.Skip("Stockfish non installato")
+	}
+	if logger.L == nil {
+		_ = logger.Init("test")
+	}
+	e := &Engine{}
+	if err := initEngine(e); err != nil {
+		t.Skipf("Stockfish non avviabile: %v", err)
+	}
+	defer e.Shutdown()
+
+	// La torre nera in f8 attacca f1: l'arrocco corto passerebbe da una casa attaccata.
+	fen, ok := effects.RestoreCastling("5r1k/8/8/8/8/8/8/R3K2R w - - 0 1", effects.White)
+	if !ok {
+		t.Fatal("i diritti del bianco dovevano tornare")
+	}
+	if e.IsMoveLegal(fen, "e1g1") {
+		t.Error("arrocco corto attraverso f1 attaccata: dovrebbe essere illegale")
+	}
+	if !e.IsMoveLegal(fen, "e1c1") {
+		t.Error("arrocco lungo con case libere e non attaccate: dovrebbe essere legale")
 	}
 }
