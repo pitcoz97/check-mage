@@ -5,6 +5,7 @@ import (
 	"chess-server/internal/models"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -32,32 +33,52 @@ func Auth(next http.Handler) http.Handler {
 			// sulla connessione WS, quindi accettiamo il token come query param ?token=
 			tokenStr = t
 		} else {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(models.APIResponse{
-				Success: false,
-				Error:   "Token mancante",
-			})
+			unauthorized(w, "Token mancante")
 			return
 		}
 
-		// Valida e decodifica il token
-		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-			return []byte(config.C.JWTSecret), nil
-		})
-
-		if err != nil || !token.Valid {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(models.APIResponse{
-				Success: false,
-				Error:   "Token non valido o scaduto",
-			})
+		claims, err := ParseAccessToken(tokenStr)
+		if err != nil {
+			unauthorized(w, "Token non valido o scaduto")
 			return
 		}
 
 		// Metti i dati dell'utente nel context della richiesta
 		// Gli handler successivi possono leggerli con r.Context().Value(UserKey)
-		claims := token.Claims.(jwt.MapClaims)
 		ctx := context.WithValue(r.Context(), UserKey, claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// ParseAccessToken valida un access token: firma HS256, scadenza, claim
+// type == "access" (un refresh token non apre le rotte protette) e presenza dei
+// claim utente usati dagli handler.
+func ParseAccessToken(tokenStr string) (jwt.MapClaims, error) {
+	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		return []byte(config.C.JWTSecret), nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+	if err != nil || !token.Valid {
+		return nil, errors.New("token non valido")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims["type"] != "access" {
+		return nil, errors.New("non è un access token")
+	}
+	if _, ok := claims["user_id"].(float64); !ok {
+		return nil, errors.New("claim user_id mancante")
+	}
+	if _, ok := claims["username"].(string); !ok {
+		return nil, errors.New("claim username mancante")
+	}
+	return claims, nil
+}
+
+func unauthorized(w http.ResponseWriter, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(models.APIResponse{
+		Success: false,
+		Error:   msg,
 	})
 }

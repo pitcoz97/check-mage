@@ -31,7 +31,7 @@ func TestPieceAt(t *testing.T) {
 
 func TestDestroyPiece_EnemyKnight(t *testing.T) {
 	// Il nero distrugge il cavallo bianco in e4.
-	newFEN, destroyed, err := DestroyPiece(knightE4, "e4", Black)
+	newFEN, destroyed, err := DestroyPiece(knightE4, "e4")
 	if err != nil {
 		t.Fatalf("errore inatteso: %v", err)
 	}
@@ -50,19 +50,17 @@ func TestDestroyPiece_EnemyKnight(t *testing.T) {
 
 func TestDestroyPiece_Rejections(t *testing.T) {
 	// Casella vuota.
-	if _, _, err := DestroyPiece(startFEN, "e4", White); err == nil {
+	if _, _, err := DestroyPiece(startFEN, "e4"); err == nil {
 		t.Error("distruggere una casella vuota dovrebbe fallire")
 	}
-	// Pezzo proprio (il bianco prova a distruggere un pedone bianco).
-	if _, _, err := DestroyPiece(startFEN, "e2", White); err == nil {
-		t.Error("distruggere un proprio pezzo dovrebbe fallire")
-	}
-	// Re (il bianco prova a distruggere il re nero).
-	if _, _, err := DestroyPiece(startFEN, "e8", White); err == nil {
-		t.Error("distruggere il re dovrebbe fallire")
+	// Il re, di qualunque colore.
+	for _, sq := range []string{"e8", "e1"} {
+		if _, _, err := DestroyPiece(startFEN, sq); err == nil {
+			t.Errorf("distruggere il re in %s dovrebbe fallire", sq)
+		}
 	}
 	// Casella malformata.
-	if _, _, err := DestroyPiece(startFEN, "z9", White); err == nil {
+	if _, _, err := DestroyPiece(startFEN, "z9"); err == nil {
 		t.Error("una casella non valida dovrebbe fallire")
 	}
 }
@@ -70,7 +68,7 @@ func TestDestroyPiece_Rejections(t *testing.T) {
 func TestDestroyPiece_ClearsCastling(t *testing.T) {
 	// Torre nera in h8, il bianco la distrugge → cade il diritto "k".
 	fen := "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-	newFEN, _, err := DestroyPiece(fen, "h8", White)
+	newFEN, _, err := DestroyPiece(fen, "h8")
 	if err != nil {
 		t.Fatalf("errore inatteso: %v", err)
 	}
@@ -80,7 +78,7 @@ func TestDestroyPiece_ClearsCastling(t *testing.T) {
 	}
 
 	// Torre bianca in a1 → cade "Q".
-	newFEN, _, _ = DestroyPiece(fen, "a1", Black)
+	newFEN, _, _ = DestroyPiece(fen, "a1")
 	if c := castlingField(newFEN); c != "Kkq" {
 		t.Errorf("arrocco = %s, atteso Kkq (caduto 'Q')", c)
 	}

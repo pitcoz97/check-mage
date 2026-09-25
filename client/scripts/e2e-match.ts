@@ -42,7 +42,10 @@ interface Ctx {
   report: Report;
 }
 
-/** Casta le carte abbordabili con bersagli semplici (pedoni sulle colonne a/h). Restituisce i cast riusciti. */
+/**
+ * Casta le carte abbordabili con un solo bersaglio pezzo: un pedone nemico della colonna h o uno proprio della c (fuori dalle
+ * mosse dello scenario). Restituisce i cast riusciti.
+ */
 function caster(catalog: readonly Spell[], counter: { casts: number; insufficientChecked: boolean }, report: Report) {
   return async (c: E2EClient): Promise<void> => {
     const color = c.color as Color;
@@ -65,7 +68,7 @@ function caster(catalog: readonly Spell[], counter: { casts: number; insufficien
     if (!counter.insufficientChecked) {
       const expensive = c.hand.find((card) => (catalog.find((s) => s.id === card.spellId)?.manaCost ?? 0) > c.myMana);
       if (expensive !== undefined) {
-        const from = c.send({ type: 'cast_spell', card: expensive, targets: [] });
+        const from = c.send({ type: 'cast_spell', card: expensive, targets: [], choice: null });
         const error = await c.event(from, isType('error'), 'rifiuto per mana insufficiente');
         report.expect(error.error.code === 'insufficient_mana', `cast troppo costoso → ${String(error.error.code)}`);
         counter.insufficientChecked = true;
@@ -77,19 +80,15 @@ function caster(catalog: readonly Spell[], counter: { casts: number; insufficien
       if (c.gameOver !== null || !c.isMyTurn || !isMain(c)) return;
       const card = c.hand.find((h) => {
         const spell = catalog.find((s) => s.id === h.spellId);
-        return spell !== undefined && !tried.has(h.spellId) && spell.manaCost <= c.myMana && spell.targetType !== 'piece_move';
+        return spell !== undefined && !tried.has(h.spellId) && spell.manaCost <= c.myMana && spell.targets.length === 1 && spell.targets[0]?.type !== 'square';
       });
       if (card === undefined) return;
       tried.add(card.spellId);
       const spell = catalog.find((s) => s.id === card.spellId) as Spell;
-      const target =
-        spell.targetType === 'none'
-          ? []
-          : spell.targetType === 'enemy_piece'
-            ? [pawnOn('h', color === 'white' ? 'black' : 'white')]
-            : [pawnOn('a', color)];
+      // Un solo bersaglio pezzo: un pedone nemico o proprio. Il server può rifiutarlo (filtri dello spec): conta come esito.
+      const target = spell.targets[0]?.type === 'enemy_piece' ? [pawnOn('h', color === 'white' ? 'black' : 'white')] : [pawnOn('c', color)];
       if (target.some((t) => t === null)) continue;
-      const from = c.send({ type: 'cast_spell', card, targets: target as Square[] });
+      const from = c.send({ type: 'cast_spell', card, targets: target as Square[], choice: null });
       const outcome = await c.event(
         from,
         (e): e is Extract<typeof e, { type: 'spell_cast' | 'error' }> => (e.type === 'spell_cast' && e.player === color) || e.type === 'error',
@@ -152,7 +151,7 @@ const SCENARIOS: Record<string, Scenario> = {
     await white.refresh();
     report.expect((await white.me()).email === white.email, 'refresh del token e /me con il token nuovo');
     const catalog = await white.catalog();
-    report.expect(catalog.spells.length === 11, `catalogo: ${catalog.spells.length} magie da ${catalog.source}`);
+    report.expect(catalog.spells.length === 26, `catalogo: ${catalog.spells.length} magie da ${catalog.source}`);
     report.expect(catalog.source === 'server', 'catalogo da GET /spells');
 
     await white.connect('pvp');
@@ -274,12 +273,12 @@ const SCENARIOS: Record<string, Scenario> = {
     return [c];
   },
 
-  /** Il bot casta tutti e sette i kind di effetto. */
+  /** Il bot casta tutti i kind di effetto del catalogo. */
   async spells(ctx) {
     const c = await newPlayer(ctx.server, ctx.pacer, `dario`);
     await c.connect('spells');
     await ensureColor(ctx, c, 'white');
-    const wanted = ['noop', 'destroy_piece', 'freeze_piece', 'shield_piece', 'draw_card', 'gain_mana', 'move_piece'];
+    const wanted = ['destroy_piece', 'freeze_piece', 'shield_piece', 'gain_mana', 'move_piece', 'summon_pawn'];
     const seen = () => new Set<string>(c.events.filter(isType('spell_cast')).flatMap((e) => e.effects.map((x) => x.kind)));
     for (let turn = 0; turn < 6 && c.gameOver === null && !wanted.every((k) => seen().has(k)); turn++) await playTurn(c);
     await c.until(() => wanted.every((k) => seen().has(k)) || c.gameOver !== null, 'tutti gli effetti', 10_000).catch(() => undefined);
@@ -289,9 +288,46 @@ const SCENARIOS: Record<string, Scenario> = {
       await expectSnapshot(ctx, c, 'spells, dopo tutti gli effetti');
     }
     ctx.report.expect(
-      c.events.some((e) => e.type === 'game_state' && e.state.activeEffects.some((s) => s.effects.some((x) => x.sourceSpellId === 'frostbolt'))),
+      c.events.some((e) => e.type === 'game_state' && e.state.activeEffects.some((s) => s.effects.some((x) => x.sourceSpellId === 'frost'))),
       'active_effects con source_spell_id',
     );
+    await resignAndWait(c);
+    ctx.report.expect(unexpectedWarnings([c]).length === 0 && c.failures.length === 0, 'nessun warning inatteso né decode failure');
+    await c.disconnect();
+    return [c];
+  },
+
+  /**
+   * Anti-cheat delle rune (docs/BRIEFING-MAGIE.md, Step 4): il bot lancia solo rune. Sui frame grezzi, prima
+   * dell'adapter: nessuno `spell_cast` del bot porta la carta o i bersagli, e nessuna lista degli stati delle case
+   * contiene una runa del bot (non ci sono Rivelazioni, quindi sono tutte nascoste).
+   */
+  async runes(ctx) {
+    const c = await newPlayer(ctx.server, ctx.pacer, `franca`);
+    await c.connect('runes');
+    await ensureColor(ctx, c, 'white');
+    const hidden = () => c.events.filter((e) => e.type === 'spell_cast' && e.player === 'black' && e.spellId === null).length;
+    for (let turn = 0; turn < 4 && c.gameOver === null && hidden() < 2; turn++) await playTurn(c);
+    await c.until(() => hidden() >= 2 || c.gameOver !== null, 'due rune del bot', 10_000).catch(() => undefined);
+    ctx.report.expect(hidden() >= 2, `magie nascoste del bot: ${hidden()}`);
+    if (c.gameOver === null) {
+      await waitMyTurn(c);
+      await expectSnapshot(ctx, c, 'runes');
+    }
+
+    const leaks: string[] = [];
+    for (const raw of c.frames) {
+      const frame = JSON.parse(raw) as { type?: string; payload?: Record<string, unknown> };
+      const payload = frame.payload ?? {};
+      if (frame.type === 'spell_cast' && payload['player'] === 'black') {
+        if ('spell_id' in payload || 'targets' in payload || payload['hidden'] !== true) leaks.push(`spell_cast ${raw}`);
+      }
+      if (frame.type === 'game_state' || frame.type === 'square_effects_changed') {
+        const list = Array.isArray(payload['square_effects']) ? (payload['square_effects'] as { effects?: { kind?: string; caster?: string }[] }[]) : [];
+        if (list.some((s) => (s.effects ?? []).some((e) => e.kind === 'rune' && e.caster === 'black'))) leaks.push(`${frame.type} con una runa del bot`);
+      }
+    }
+    ctx.report.expect(leaks.length === 0, `nessuna runa nascosta né carta del bot nei frame: ${leaks.slice(0, 2).join(' | ')}`);
     await resignAndWait(c);
     ctx.report.expect(unexpectedWarnings([c]).length === 0 && c.failures.length === 0, 'nessun warning inatteso né decode failure');
     await c.disconnect();

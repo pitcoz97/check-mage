@@ -2,7 +2,7 @@
 
 Registro di ciò che il client assume sul server Go.
 
-**Fonte:** il codice in `C:\Projects\chess-server`, consultabile in sola lettura, branch `fix/backend-requests`
+**Fonte:** il codice in `server/` (allora il repo separato `chess-server`), consultabile in sola lettura, branch `fix/backend-requests`
 (commit `62475c9`, costruito su `7f817e5`, non ancora unito in `main`). I riferimenti sono `file.go:riga`, relativi a
 `internal/`; dove è indicato `7f817e5` si riferiscono al codice precedente.
 
@@ -66,7 +66,7 @@ Gli errori REST sono **ancora solo testo** (P1-3 applicata solo al WebSocket).
 | `GET /leaderboard` | — | `[{rank, id, username, elo}]`, `[]` se vuota | 500 | `handlers/stats.go:37` |
 | `GET /users/{id}` | — | `{user:{id, username, elo, created_at}, stats:{wins, losses, draws, total}}` | 400, 404 | `handlers/stats.go` |
 | `GET /users/{id}/games` | Bearer | `[{id, white, black, result, time_control, pgn, played_at}]`, `[]` se vuota | 400, 401, 500 | `handlers/stats.go:97` |
-| `GET /spells` | — | `[{id, name, mana_cost, phases, target_type, effects:[{kind, params?}]}]`, ordinato per costo e id | — | `handlers/catalog.go:13` |
+| `GET /spells` | — | `[{id, name, mana_cost, phases, targets:[TargetSpec], effects:[{kind, params?}], tags, rarity, limits?}]`, ordinato per costo e id (dal branch `feat/spell-catalog`, §7) | — | `handlers/catalog.go:13`, `spells/spells.go` |
 | `GET /ws/ticket` | Bearer | `{ticket, expires_in: 30}` | 401, 500 | `handlers/ws.go:23`, `api/router.go:58` |
 | `GET /ws` | `?ticket=` (monouso, 30s) oppure Bearer / `?token=` | upgrade | 401 `"Ticket non valido o scaduto"` o `"Token non valido o scaduto"` | `middleware/wsticket.go:78-94`, `api/router.go:62` |
 | rotta inesistente / metodo errato | — | 404 `"Risorsa non trovata"` / 405 `"Metodo non consentito"` in JSON | — | `api/router.go:33-34` |
@@ -145,9 +145,9 @@ insieme a `fix/backend-requests`; le righe seguenti riguardano `SERVER_API.md` e
 | Persistenza / shutdown | partite perse, chiuse come patta | persistite in Postgres e ripristinate dormienti; `server_shutdown` non viene più emesso (`game/manager.go:134-190`) |
 | `phase_changed` con `draw` | il client non vede mai `draw` | `draw` **viene emessa** al rollover di turno; `end_turn` no (`match/match.go:154-178`, `game/room.go:951`) |
 | Fase dopo un cast | resta la stessa | `AutoAdvance`: se non resta nulla di castabile, la fase avanza (`game/room.go:655`) |
-| Param di `draw_card` | `amount` | `count` (`spells/spells.go`) |
+| Param di `draw_card` | `amount` | `amount` dal branch `feat/spell-catalog` (prima `count`); in `effects_applied` resta `count` |
 | `effects_applied` | `{kind, target?, piece_destroyed?, remaining_turns?}` | anche `from`/`to`, `count`, `amount`/`mana` (vedi G8) |
-| Magia che dà scacco all'avversario | non specificato | in `main1` rifiutata con `illegal_position` (Teleport e Disintegrate); in `main2` consentita, e se è matto la partita finisce al cambio di turno (`game/room.go:725-733,659`) |
+| Magia che dà scacco all'avversario | non specificato | dal branch `feat/spell-catalog` rifiutata con `illegal_position` in `main1` e in `main2` (§7, M5) |
 | Offerta di patta | "sempre" | nessun controllo di turno, una sola offerta pendente (`game/room.go:1423`); decade quando chi l'ha ricevuta muove (`game/room.go:503-508`) |
 | "Sei già in coda" | errore alla seconda connessione | la connessione nuova sostituisce la vecchia (4001) (`game/manager.go:50-64`) |
 
@@ -210,3 +210,106 @@ corretto in `src/ws/connection.ts` (`nativeSocketFactory`).
 
 **Non verificabile in automatico:** scudo sull'en passant e posizioni costruite (servono mazzi pilotati, coperti da
 `mock-server/game/room.test.ts`), C11 e C12 (scelte del client, non comportamenti del server).
+
+---
+
+## 7. Catalogo magie (`feat/spell-catalog`, Step 1 di `docs/BRIEFING-MAGIE.md`)
+
+Da qui in poi il server si modifica (branch `feat/spell-catalog` in entrambi i repo, server da `fix/backend-requests`).
+I riferimenti sono al server di quel branch.
+
+### Verifica delle assunzioni del brief
+| Punto del brief | Esito | Rif. |
+|---|---|---|
+| Decremento di `RemainingTurns` | **smentita**: `TickColor` scalava gli effetti dei pezzi del colore che chiudeva il turno, e uno scudo `1` sarebbe sparito prima del turno avversario. Ora la durata conta i turni dell'avversario di chi lancia (`ActiveEffect.Caster`, `TickTurnEnd`) | `effects/tracker.go` |
+| `no_check` senza Stockfish | **verificata**: `effects.IsKingAttacked` in Go puro | `effects/attack.go` |
+| Id d'istanza delle carte | **non servono**: la mano è una lista di `spell_id`, le copie sono identiche e il server toglie la prima (G2) | `match/match.go` |
+| `piece_id` nel protocollo | gli effetti restano per casa (G1); al ripristino dal DB gli id si riassegnano | `game/room.go`, `roomFromSnapshot` |
+| Shield esistente | era `aegis` (costo 3, `turns: 2`); ora `shield` costa 2 e dura `duration: 1` con la nuova semantica | `spells/catalog.go` |
+| Promozione nella Move | **verificata**: il Tracker conserva id ed effetti | `effects/tracker.go`, `MovePiece` |
+| Cap del mana | **verificata**: 10 assoluto, non il massimo del turno | `match/match.go`, `GainMana` |
+| Handler esistenti | `summon_pawn` non esisteva: è nuovo. Le 6 magie "esistenti" del brief (Fireball…) erano una proposta mai implementata | — |
+| Migrazione DB | non serve: lo stato è un blob JSONB e i campi nuovi sono retrocompatibili; le carte scomparse si tolgono al ripristino | `db/livematch.go` |
+
+### Decisioni (tue, 25 settembre 2026)
+| # | Decisione |
+|---|---|
+| M1 | Catalogo finale = le 32 magie del brief; le 11 precedenti spariscono. |
+| M2 | Lo scudo assorbe una cattura, come prima. |
+| M3 | Mazzo = ricetta fissa server; i limiti di copie (2 comuni, 1 leggendaria) valgono per la ricetta finale. |
+| M4 | Nomi e testi nel client, i18n per id (`spells.catalog.<id>`), con fallback al nome del server e al testo generato. |
+| M5 | Nessuna magia dà scacco né lascia sotto scacco il re di chi lancia, in main1 e main2. Uno scacco già dato da una mossa non blocca le magie. |
+| M6 | Senza mosse giocabili (pezzi congelati) valgono le regole degli scacchi: matto o stallo. |
+| M7 | I test Go li esegue l'utente sulla VM. |
+| M8 | Ogni step chiude server, mock e client. |
+
+### Decisioni derivate (dal brief e dal codice)
+| # | Decisione |
+|---|---|
+| M9 | `duration` = turni dell'avversario di chi lancia; 0 = fino a fine turno di chi lancia; -1 = permanente. |
+| M10 | Nomi degli stati invariati sul filo (`freeze`, `shield`); `require_effect` li usa. |
+| M11 | `cast_spell` tiene `spell_id`; `choice` arriva allo Step 2. |
+| M12 | Le magie nascoste (Step 4–5) arrivano all'avversario senza `spell_id` né bersagli. |
+| M13 | Codici d'errore esistenti più `limit_reached`; `invalid_target` ha `details.index`, `reason`, `square`. |
+| M14 | Leggendaria = cornice "mitica" del design; riga del tipo = "Magia · archetipo" dal primo tag. |
+
+### Assunzioni del client
+| # | Assunzione | Motivo | Dove |
+|---|---|---|---|
+| S1 | Il client evidenzia i bersagli con le stesse regole di `effects.ValidateTargets` (tipo, pezzi, stato richiesto, casa vuota, distanza, traverse, caselle distinte, re escluso). È solo evidenziazione: il rifiuto resta al server. | Il catalogo porta i filtri come dati. | `src/spells/targets.registry.ts` |
+| S2 | Un `reason` sconosciuto di `invalid_target` mostra il messaggio generico. | Il server può aggiungere motivi. | `src/screens/Match/errorMessage.ts` |
+| S3 | Una rarità sconosciuta si legge come comune; un tag sconosciuto viene ignorato. | Cambiano solo cornice e riga del tipo. | `adapter.ts` §7, `src/spells/texts.ts` |
+| S4 | Il limite per turno non lo conta il client: la carta resta lanciabile e il rifiuto `limit_reached` arriva dal server. | Contare i cast sarebbe logica di gioco. | `src/spells/playability.ts` |
+| S5 | La scelta del pezzo la chiede il client solo se le opzioni sono più di una: per `revive_piece` sono i tipi di `params.pieces` presenti nel **proprio** cimitero (stato pubblico). Con un'opzione sola il server la deduce. | Il cimitero è pubblico; il server resta l'autorità (`invalid_choice`). | `src/spells/effects.registry.tsx`, `src/game/targeting.ts` |
+| S6 | Un `game_state` senza `*_graveyard` (server precedente allo Step 2) vale come cimiteri vuoti. | Compatibilità col server sulla VM finché non viene aggiornato. | `adapter.ts` §2 |
+| S7 | Un `game_state` senza `square_effects` (server precedente allo Step 3) vale come case senza stati; `square_effects_changed` sostituisce l'intera lista. | Come S6. | `adapter.ts` §2, `matchStore.ts` |
+| S8 | Il client non evidenzia le mosse che muri e santuari vietano (`squareRules.ts`, stesse regole di `effects.MoveBlock`) né, per le magie che tolgono un pezzo, i pezzi nemici su un santuario. Il server resta l'autorità: un errore del client finisce in `move_blocked` e rollback. | Scelta tua (M27), come il filtro dei pezzi congelati. | `src/game/board/squareRules.ts`, `targets.registry.ts` |
+
+### Step 2 (cimitero e gruppo A): decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| M15 | Il cimitero si vede nella riga del giocatore, glifi raggruppati per tipo col conteggio. | tu |
+| M16 | Falange: pedoni **di lato** (stessa traversa, colonna accanto). | tu |
+| M17 | Guardia reale: ogni proprio pezzo attorno al re, regina compresa. | tu |
+| M18 | Magia senza effetto → rifiutata a costo zero con `no_effect` (`no_pieces`, `empty_graveyard`, `no_castling`). | tu |
+| M19 | Nel cimitero va ogni pezzo tolto dalla scacchiera (cattura, en passant, magia), col tipo che aveva; non la cattura assorbita da uno scudo. | brief + derivata |
+| M20 | `revive_piece` toglie la prima occorrenza del tipo scelto; il pezzo torna con id nuovo e senza effetti. | brief + derivata |
+| M21 | Scambio non porta mai un pedone in 1ª o 8ª traversa (`invalid_target`, `pawn_rank`). | derivata |
+| M22 | Arrocco divino ripristina solo i lati con re e torre sulle case iniziali; Stockfish vieta ancora l'arrocco attraverso case attaccate. | derivata |
+| M23 | Effetti di massa in `effects_applied` con `targets` e `remaining_turns`. | derivata |
+| M24 | Ricetta a 18 magie con le leggendarie già a 1 copia. | derivata |
+
+### Step 3 (stati delle case): decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| M25 | Il muro blocca solo il movimento: scacco e matto restano quelli degli scacchi (Stockfish). I muri tolgono mosse, non ne aggiungono. | tu |
+| M26 | Il santuario vieta le catture con le mosse e la distruzione di un pezzo nemico con una magia (Frantumare); il sacrificio di un proprio pezzo è ammesso. | tu |
+| M27 | Il client nasconde dagli evidenziati le mosse bloccate da muri e santuari. | tu |
+| M28 | Attraversare un muro: le case fra partenza e arrivo per torre, alfiere e donna; la casa di mezzo della spinta doppia; tutte le case fra re e torre nell'arrocco. Il cavallo e le mosse di una casa guardano solo l'arrivo. | derivata |
+| M29 | La cattura avviene sulla casa del pezzo catturato: per l'en passant quella del pedone preso. | derivata |
+| M30 | Una casa col muro non è vuota per `empty_square` (`reason: wall`); Marcia forzata non entra in un muro. Il santuario si lancia su qualsiasi casa. | derivata |
+| M31 | Gli stati delle case durano come quelli dei pezzi (M9); rilanciarli li rinnova. | brief + derivata |
+| M32 | `move_blocked {square, reason: wall | no_capture}`, controllato dopo il gelo e prima dello scudo: una mossa bloccata non consuma lo scudo. | derivata |
+| M33 | Ricetta a 20 magie; Muro di ghiaccio e Santuario sono comuni. | derivata |
+
+### Step 4 (rune): decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| M34 | Una runa scatta solo quando un pezzo nemico ci entra **con una mossa**: normale, cattura, en passant, promozione, arrocco (la torre). Un pezzo arrivato per magia la lascia intatta. | tu |
+| M35 | Se l'effetto della runa lascerebbe sotto scacco il re di chi ha mosso, la runa **non scatta** e resta nascosta. | tu |
+| M36 | Il re non fa scattare le rune: può entrare nella casa, e la runa resta. | tu |
+| M37 | Rivelazione rende visibili a entrambi, **per sempre**, le rune nemiche che esistono in quel momento. Le rune piazzate dopo sono di nuovo nascoste. | tu |
+| M38 | La runa vive finché non scatta o viene detonata. `duration` nei parametri è la durata del **gelo** che produce, contata come M9 con `Caster` = proprietario della runa. | brief |
+| M39 | Una casa con una runa resta **vuota** per i bersagli, anche per chi la vede: altrimenti un rifiuto rivelerebbe una runa nascosta. Muro, Leva militare e Blink ci si possono fare sopra. Una seconda runa dello stesso proprietario sulla stessa casa sostituisce la prima; ogni giocatore ha al massimo una runa per casa. | derivata |
+| M40 | Respinta: il pezzo torna sulla casa di partenza **com'era prima della mossa** (un pedone promosso torna pedone), con id ed effetti. Una cattura fatta entrando resta; i diritti d'arrocco persi con la mossa non tornano. Esplosiva: decide il tipo del pezzo all'arrivo; su un santuario congela invece di distruggere (M26). Lo scudo non protegge dalla distruzione magica, come prima. | derivata |
+| M41 | Detonazione: il raggio è 1 (Chebyshev) attorno a ogni propria runa; il re è escluso. Senza rune proprie la magia è rifiutata con `no_effect {reason: no_runes}`. Con le rune ma senza nemici vicini le consuma comunque. Il suo `spell_cast` è pubblico, con le case delle rune consumate (`runes`). | brief + M18 |
+| M42 | Il cast di una runa arriva all'avversario **senza** `spell_id` né bersagli: `spell_cast {player, hidden: true, effects_applied: [{kind: "hidden_effect"}]}` (M12). Mana e dimensione della mano si vedono come per ogni magia. | M12 + brief |
+| M43 | Ricetta: con 26 magie i limiti di copie valgono già (2 per le comuni, 1 per le leggendarie). 4 leggendarie a 1 copia; delle 22 comuni, 14 a 2 copie e 8 a 1 copia (Catena di ghiaccio, Richiamo, Scambio, Metamorfosi, Guardia reale, Arrocco divino, Falange, Rivelazione). | derivata, da rivedere in bilanciamento |
+| M44 | Il gelo di una runa scatta nel turno di chi è entrato, che per M9 conterebbe già: il pezzo sarebbe libero nel suo turno successivo (e il gelo da 1 della Runa esplosiva non avrebbe effetto). Quel turno non conta: il gelo copre i `duration` turni **successivi** del pezzo (sul filo `remaining_turns` = `duration` + 1 finché il turno non finisce). | derivata, da confermare |
+
+### Step 4: assunzioni del client
+| # | Assunzione | Motivo | Dove |
+|---|---|---|---|
+| S9 | `remaining_turns: -1` (permanente, oggi solo le rune) resta -1 nel modello e non ha numero sul badge; gli altri valori negativi si portano a 0 come prima. | Una runa non scade. | `adapter.ts` §1, `BoardSquare.tsx` |
+| S10 | Una runa nella propria lista con `hidden: true` è la propria, ancora nascosta all'avversario; senza `hidden` è visibile a entrambi. Le rune nascoste dell'avversario non arrivano mai: il client non ha nulla da filtrare. | `SquareEffectsFor` del server. | `effects.registry.tsx` |
+| S11 | Il nome di una runa scattata viene da `on_enter` (gelo = Runa di stasi, ritorno = Runa di respinta, distruzione = Runa esplosiva): `rune_triggered` non porta la magia, e Campo minato piazza Rune di stasi. | `rune_triggered` non ha `spell_id`. | `i18n`, `useNotice.ts` |

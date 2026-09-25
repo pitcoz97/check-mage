@@ -4,7 +4,9 @@ import (
 	"chess-server/internal/config"
 	"chess-server/internal/models"
 	"encoding/json"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -91,17 +93,56 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// getIP estrae l'IP reale dalla richiesta
-// considera anche il caso in cui c'è un reverse proxy (Nginx)
+// getIP estrae l'IP del client usato come chiave del rate limit. Usa l'host di
+// RemoteAddr senza porta (altrimenti ogni connessione TCP avrebbe un limiter
+// nuovo). Gli header X-Forwarded-For / X-Real-IP sono considerati solo se la
+// richiesta arriva da un proxy fidato (TRUSTED_PROXIES): da chiunque altro
+// sarebbero falsificabili.
 func getIP(r *http.Request) string {
-	// X-Forwarded-For è impostato da Nginx/proxy
-	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if !isTrustedProxy(host) {
+		return host
+	}
+
+	// X-Forwarded-For è impostato da Nginx/proxy: "client, proxy1, proxy2".
+	// Il client reale è l'ultimo indirizzo che non appartiene a un proxy fidato.
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		for i := len(parts) - 1; i >= 0; i-- {
+			ip := strings.TrimSpace(parts[i])
+			if ip != "" && !isTrustedProxy(ip) {
+				return ip
+			}
+		}
+	}
+	if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
 		return ip
 	}
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return ip
+	return host
+}
+
+// isTrustedProxy indica se l'indirizzo è tra i proxy fidati (IP o CIDR).
+func isTrustedProxy(addr string) bool {
+	if config.C == nil {
+		return false
 	}
-	return r.RemoteAddr
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return false
+	}
+	for _, p := range config.C.TrustedProxies {
+		if strings.Contains(p, "/") {
+			if _, cidr, err := net.ParseCIDR(p); err == nil && cidr.Contains(ip) {
+				return true
+			}
+		} else if trusted := net.ParseIP(p); trusted != nil && trusted.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // Limiter predefiniti pronti all'uso

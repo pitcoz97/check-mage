@@ -1,9 +1,9 @@
 package handlers
 
 import (
+	"bytes"
 	"chess-server/internal/config"
 	"chess-server/internal/models"
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"

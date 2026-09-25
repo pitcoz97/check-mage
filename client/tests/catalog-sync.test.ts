@@ -8,7 +8,8 @@ import { initI18n } from '../src/i18n';
 import { createWebStorage } from '../src/lib/storage';
 import { effectPresentation, isKnownEffectKind } from '../src/spells/effects.registry';
 import fallbackCatalog from '../src/spells/fallback.json';
-import { targetResolver } from '../src/spells/targets.registry';
+import { targetsSupported } from '../src/spells/targets.registry';
+import { spellName, spellText, spellTypeLine } from '../src/spells/texts';
 
 let server: MockServerHandle;
 beforeAll(async () => {
@@ -45,7 +46,7 @@ describe('catalogo magie', () => {
     await initI18n(createWebStorage(() => undefined));
     const { spells } = normalizeSpellCatalog(mockCatalog);
     for (const spell of spells) {
-      expect(targetResolver(spell.targetType), `${spell.id}: target_type ${spell.targetType}`).not.toBeNull();
+      expect(targetsSupported(spell), `${spell.id}: bersagli ${spell.targets.map((t) => t.type).join(', ')}`).toBe(true);
       for (const effect of spell.effects) {
         expect(isKnownEffectKind(effect.kind), `${spell.id}: effect ${effect.kind}`).toBe(true);
         const text = effectPresentation(effect.kind).describe(i18next.t, effect.params);
@@ -53,8 +54,26 @@ describe('catalogo magie', () => {
         expect(text.length > 0 && !text.includes('spells.effect'), `${spell.id}: "${text}"`).toBe(true);
       }
     }
-    // I parametri del catalogo finiscono davvero nel testo: `turns: 2` di frostbolt.
-    const frostbolt = spells.find((s) => s.id === 'frostbolt');
-    expect(effectPresentation('freeze_piece').describe(i18next.t, frostbolt?.effects[0]?.params ?? {})).toContain('2');
+    // I parametri finiscono davvero nel testo generato: `duration: 2`.
+    expect(effectPresentation('freeze_piece').describe(i18next.t, { duration: 2 })).toContain('2');
+  });
+
+  /** Nomi e testi per id (ASSUMPTIONS §7, M4): ogni magia del catalogo ne ha uno in italiano e in inglese. */
+  it('ogni magia ha nome, testo e archetipo nell’i18n, in entrambe le lingue', async () => {
+    await initI18n(createWebStorage(() => undefined));
+    const { spells } = normalizeSpellCatalog(mockCatalog);
+    for (const lang of ['it', 'en']) {
+      await i18next.changeLanguage(lang);
+      for (const spell of spells) {
+        const name = spellName(i18next.t, spell, spell.id);
+        const text = spellText(i18next.t, spell, spell.id).join(' ');
+        const type = spellTypeLine(i18next.t, spell);
+        for (const value of [name, text, type]) expect(value.includes('spells.'), `${lang} ${spell.id}: "${value}"`).toBe(false);
+        expect(text.length, `${lang} ${spell.id}: testo vuoto`).toBeGreaterThan(0);
+      }
+    }
+    await i18next.changeLanguage('it');
+    const frost = spells.find((s) => s.id === 'frost');
+    expect([spellName(i18next.t, frost, 'frost'), spellTypeLine(i18next.t, frost)]).toEqual(['Brina', 'Magia · Gelo']);
   });
 });

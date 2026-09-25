@@ -21,6 +21,8 @@ function publicState(overrides: Partial<PublicGameState> = {}): PublicGameState 
     handSizes: { white: 4, black: 4 },
     deckSizes: { white: 36, black: 36 },
     activeEffects: [],
+    graveyards: { white: [], black: [] },
+    squareStates: [],
     reconnected: false,
     players: { white: { id: '1', username: 'mario' }, black: { id: '2', username: 'luigi' } },
     timeControl: { baseMs: 600_000, incrementMs: 5_000 },
@@ -101,6 +103,80 @@ describe('applyServerEvent: aggiornamenti puntuali', () => {
     expect(state.game?.mana.white).toEqual({ current: 0, max: 1 });
   });
 
+  it('effetti di massa: lo stato va su ogni casa di targets; graveyard_changed aggiorna il cimitero', () => {
+    const state = run([
+      ...START,
+      {
+        type: 'spell_cast',
+        player: 'black',
+        spellId: 'eternal_winter',
+        targets: [],
+        effects: [{ kind: 'freeze_all', targets: ['a2', 'b2'], remainingTurns: 1 }],
+      },
+      { type: 'graveyard_changed', player: 'white', graveyard: ['pawn'] },
+    ]);
+    expect(state.game?.activeEffects).toEqual([
+      { square: 'a2', effects: [{ kind: 'freeze', remainingTurns: 1, sourceSpellId: 'eternal_winter' }] },
+      { square: 'b2', effects: [{ kind: 'freeze', remainingTurns: 1, sourceSpellId: 'eternal_winter' }] },
+    ]);
+    expect(state.game?.graveyards).toEqual({ white: ['pawn'], black: [] });
+  });
+
+  it('square_effects_changed sostituisce gli stati delle case; il cast che li crea non li tocca da sé', () => {
+    const wall = { square: 'e5' as const, effects: [{ kind: 'wall', remainingTurns: 2, sourceSpellId: 'ice_wall' }] };
+    const state = run([
+      ...START,
+      {
+        type: 'spell_cast',
+        player: 'white',
+        spellId: 'ice_wall',
+        targets: ['e5'],
+        effects: [{ kind: 'create_wall', target: 'e5', state: 'wall', remainingTurns: 2 }],
+      },
+    ]);
+    expect(state.game?.squareStates).toEqual([]);
+    expect(state.game?.activeEffects).toEqual([]);
+    const after = run([{ type: 'square_effects_changed', squareStates: [wall] }], '1', state);
+    expect(after.game?.squareStates).toEqual([wall]);
+    expect(run([{ type: 'square_effects_changed', squareStates: [] }], '1', after).game?.squareStates).toEqual([]);
+  });
+
+  it('magia nascosta dell’avversario: la mano non cambia, nel registro senza carta', () => {
+    const state = run([...START, { type: 'spell_cast', player: 'black', spellId: null, targets: [], effects: [{ kind: 'hidden_effect' }] }]);
+    expect(state.hand.map((c) => c.spellId)).toEqual(['spark', 'frostbolt', 'aegis', 'nova']);
+    expect(state.lastCast).toMatchObject({ player: 'black', spellId: null, targets: [] });
+    expect(state.spellLog.map(({ player, spellId }) => ({ player, spellId }))).toEqual([{ player: 'black', spellId: null }]);
+  });
+
+  it('Detonazione congela i pezzi dichiarati; le rune spariscono solo con square_effects_changed', () => {
+    const rune = { square: 'e3' as const, effects: [{ kind: 'rune', remainingTurns: -1, sourceSpellId: 'stasis_rune', owner: 'white' as const, hidden: true, onEnter: 'freeze_piece' }] };
+    const withRune = run([...START, { type: 'square_effects_changed', squareStates: [rune] }]);
+    const state = run(
+      [{ type: 'spell_cast', player: 'white', spellId: 'detonation', targets: [], effects: [{ kind: 'detonate_runes', runes: ['e3'], targets: ['d4'], remainingTurns: 1 }] }],
+      '1',
+      withRune,
+    );
+    expect(state.game?.activeEffects).toEqual([{ square: 'd4', effects: [{ kind: 'freeze', remainingTurns: 1, sourceSpellId: 'detonation' }] }]);
+    expect(state.game?.squareStates).toEqual([rune]);
+  });
+
+  it('rune_triggered resta come ultimo avviso, senza toccare lo stato di gioco', () => {
+    const before = run(START);
+    const state = run(
+      [{ type: 'rune_triggered', square: 'e5', owner: 'white', onEnter: 'freeze_piece', result: { kind: 'freeze_piece', target: 'e5', remainingTurns: 3 } }],
+      '1',
+      before,
+    );
+    expect(state.lastRune).toEqual({
+      square: 'e5',
+      owner: 'white',
+      onEnter: 'freeze_piece',
+      result: { kind: 'freeze_piece', target: 'e5', remainingTurns: 3 },
+      seq: state.seq,
+    });
+    expect(state.game).toBe(before.game);
+  });
+
   it('le magie della sessione finiscono nel registro, con il punto dello storico in cui sono arrivate (D11)', () => {
     const state = run([
       ...START,
@@ -140,7 +216,7 @@ describe('applyServerEvent: aggiornamenti puntuali', () => {
     store.getState().beginCast('nova');
     store.getState().dispatch({
       type: 'error',
-      error: { code: 'insufficient_mana', square: null, phase: null, needed: 5, available: 1, expected: null, received: null, king: null },
+      error: { code: 'insufficient_mana', square: null, phase: null, needed: 5, available: 1, expected: null, received: null, king: null, index: null, reason: null, perTurn: null },
     });
     expect(store.getState().pendingCast).toBeNull();
   });
@@ -246,7 +322,7 @@ describe('applyServerEvent: patta, connessione, errori', () => {
   });
 
   it('error: registrato con un seq nuovo anche se identico al precedente', () => {
-    const info = { code: 'not_your_turn' as const, square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null };
+    const info = { code: 'not_your_turn' as const, square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null, index: null, reason: null, perTurn: null };
     const first = applyServerEvent(run(START), { type: 'error', error: info }, 2_000);
     const second = applyServerEvent(first, { type: 'error', error: info }, 2_010);
     expect(second.lastError?.info).toEqual(info);
@@ -271,7 +347,7 @@ describe('applyServerEvent: patta, connessione, errori', () => {
       over,
     );
     expect(late).toBe(over);
-    const info = { code: 'game_over' as const, square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null };
+    const info = { code: 'game_over' as const, square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null, index: null, reason: null, perTurn: null };
     expect(applyServerEvent(over, { type: 'error', error: info }, 9_000).lastError?.info.code).toBe('game_over');
   });
 });
@@ -290,7 +366,7 @@ describe('mossa ottimista', () => {
     const store = createMatchStore('1', () => 100);
     for (const event of START) store.getState().dispatch(event);
     store.getState().previewMove('e2', 'e4');
-    const info = { code: 'illegal_move' as const, square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null };
+    const info = { code: 'illegal_move' as const, square: null, phase: null, needed: null, available: null, expected: null, received: null, king: null, index: null, reason: null, perTurn: null };
     store.getState().dispatch({ type: 'error', error: info });
     expect(store.getState().optimistic).toBeNull();
     expect(store.getState().lastError?.info.code).toBe('illegal_move');

@@ -1,9 +1,28 @@
 import rawCatalog from '../spells.json';
 import type { WirePhase } from '../wire';
 
-/** Porting di `spells/spells.go`. Il catalogo arriva da `spells.json`, identico a `src/spells/fallback.json`. */
+/**
+ * Porting di `spells/spells.go` e `spells/catalog.go`. Il catalogo arriva da `spells.json`, identico all'output di
+ * `GET /spells` e a `src/spells/fallback.json`.
+ */
 
-export type TargetType = 'none' | 'square' | 'piece' | 'own_piece' | 'enemy_piece' | 'piece_move';
+/** `spells/spells.go:27-32`. */
+export type TargetType = 'square' | 'own_piece' | 'enemy_piece';
+
+export type PieceKind = 'pawn' | 'knight' | 'bishop' | 'rook' | 'queen' | 'king';
+
+/** `TargetSpec` (`spells/spells.go:47-64`): i campi opzionali mancano quando sono vuoti (omitempty). */
+export interface TargetSpec {
+  type: TargetType;
+  pieces?: PieceKind[];
+  require_effect?: string;
+  empty_square?: boolean;
+  max_distance?: number;
+  own_ranks?: number[];
+  min_rank?: number;
+}
+
+export type Rarity = 'common' | 'legendary';
 
 export interface SpellEffect {
   kind: string;
@@ -15,18 +34,35 @@ export interface Spell {
   name: string;
   mana_cost: number;
   phases: WirePhase[];
-  target_type: TargetType;
+  targets: TargetSpec[];
   effects: SpellEffect[];
+  tags: string[];
+  rarity: Rarity;
+  limits?: Record<string, number>;
 }
 
-// `spells/spells.go:18-21`
+// `spells/spells.go:17-22`
 export const STARTING_HAND = 4;
 export const DECK_SIZE = 40;
 export const INITIAL_MANA = 1;
 export const MAX_MANA_CAP = 10;
 
-const TARGET_TYPES: readonly string[] = ['none', 'square', 'piece', 'own_piece', 'enemy_piece', 'piece_move'];
+/** `spells/spells.go:84-86`. */
+export const LIMIT_PER_TURN = 'per_turn';
+
+const TARGET_TYPES: readonly string[] = ['square', 'own_piece', 'enemy_piece'];
+const PIECE_KINDS: readonly string[] = ['pawn', 'knight', 'bishop', 'rook', 'queen', 'king'];
 const PHASES: readonly string[] = ['draw', 'main1', 'move', 'main2', 'end_turn'];
+
+function validTarget(spec: unknown): boolean {
+  if (typeof spec !== 'object' || spec === null) return false;
+  const t = spec as Partial<TargetSpec>;
+  return (
+    typeof t.type === 'string' &&
+    TARGET_TYPES.includes(t.type) &&
+    (t.pieces === undefined || (Array.isArray(t.pieces) && t.pieces.every((p) => PIECE_KINDS.includes(p))))
+  );
+}
 
 /** Il mock verifica il proprio file all'avvio, così un errore di editing emerge subito. */
 function loadCatalog(raw: unknown): Map<string, Spell> {
@@ -40,9 +76,11 @@ function loadCatalog(raw: unknown): Map<string, Spell> {
       typeof spell.mana_cost === 'number' &&
       Array.isArray(spell.phases) &&
       spell.phases.every((p) => PHASES.includes(p)) &&
-      typeof spell.target_type === 'string' &&
-      TARGET_TYPES.includes(spell.target_type) &&
-      Array.isArray(spell.effects);
+      Array.isArray(spell.targets) &&
+      spell.targets.every(validTarget) &&
+      Array.isArray(spell.effects) &&
+      Array.isArray(spell.tags) &&
+      (spell.rarity === 'common' || spell.rarity === 'legendary');
     if (!ok) throw new Error(`spells.json: voce ${index} non valida`);
     map.set(spell.id as string, spell as Spell);
   });
@@ -53,26 +91,34 @@ export const CATALOG: ReadonlyMap<string, Spell> = loadCatalog(rawCatalog);
 /** Il catalogo come lo serializza `GET /spells` (stessi oggetti di `spells.json`). */
 export const RAW_CATALOG: readonly Spell[] = [...CATALOG.values()];
 
-/** `spells/spells.go:37-46`. */
-export function targetCount(t: TargetType): number {
-  if (t === 'none') return 0;
-  if (t === 'piece_move') return 2;
-  return 1;
-}
-
-/** `spells/spells.go:101-116`: 40 carte. */
+/** `spells/catalog.go` (`deckRecipe`): 40 carte nei limiti di copie della rarità (M43). */
 export const DECK_RECIPE: readonly (readonly [string, number])[] = [
-  ['spark', 8],
-  ['jolt', 6],
-  ['pulse', 5],
-  ['surge', 4],
-  ['insight', 4],
-  ['channel', 3],
-  ['frostbolt', 3],
-  ['aegis', 3],
-  ['disintegrate', 2],
-  ['teleport', 1],
-  ['nova', 1],
+  ['frost', 2],
+  ['ice_wall', 2],
+  ['ice_chain', 1],
+  ['shatter', 2],
+  ['eternal_winter', 1],
+  ['blood_pact', 2],
+  ['recall', 1],
+  ['resurrection', 1],
+  ['blink', 2],
+  ['swap', 1],
+  ['metamorphosis', 1],
+  ['shield', 2],
+  ['royal_shield', 2],
+  ['royal_guard', 1],
+  ['divine_castling', 1],
+  ['sanctuary', 2],
+  ['revelation', 1],
+  ['stasis_rune', 2],
+  ['repel_rune', 2],
+  ['explosive_rune', 2],
+  ['detonation', 2],
+  ['minefield', 1],
+  ['forced_march', 2],
+  ['conscription', 2],
+  ['phalanx', 1],
+  ['early_promotion', 1],
 ];
 
 export function buildDeck(): string[] {
@@ -82,4 +128,25 @@ export function buildDeck(): string[] {
 export function paramInt(params: Record<string, unknown> | undefined, key: string, fallback: number): number {
   const value = params?.[key];
   return typeof value === 'number' ? Math.trunc(value) : fallback;
+}
+
+/** `paramStrings` (`game/room.go`): lista di stringhe, vuota se assente. */
+export function paramStrings(params: Record<string, unknown> | undefined, key: string): string[] {
+  const value = params?.[key];
+  return Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** `paramStringMap` (`game/room.go`): mappa stringa → stringa, vuota se assente. */
+export function paramStringMap(params: Record<string, unknown> | undefined, key: string): Record<string, string> {
+  const value = params?.[key];
+  const out: Record<string, string> = {};
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    for (const [k, v] of Object.entries(value)) if (typeof v === 'string') out[k] = v;
+  }
+  return out;
+}
+
+/** `paramBool` (`game/room.go`): `false` se assente o di altro tipo. */
+export function paramBool(params: Record<string, unknown> | undefined, key: string): boolean {
+  return params?.[key] === true;
 }

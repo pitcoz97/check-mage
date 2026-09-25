@@ -34,8 +34,8 @@ export function setupScenario(name: ScenarioName, config: MockConfig): ScenarioS
       return {
         bot: { castSpells: true },
         overrides: {
-          hand: { black: ['channel', 'insight', 'frostbolt', 'aegis'] },
-          deckTop: { black: ['disintegrate', 'teleport', 'spark'] },
+          hand: { black: ['blood_pact', 'conscription', 'frost', 'shield'] },
+          deckTop: { black: ['forced_march', 'ice_chain', 'blink'] },
           manaFloor: { black: 10 },
         },
       };
@@ -45,9 +45,19 @@ export function setupScenario(name: ScenarioName, config: MockConfig): ScenarioS
         bot: { script: ['a7a6', 'b7b6', 'h7h6', 'g7g6', 'a6a5'] },
         overrides: {
           // Mano più larga delle 4 carte regolamentari: è uno scenario di prova, serve a coprire tutti gli effetti
-          // in due turni invece che in sei.
-          hand: { white: ['frostbolt', 'aegis', 'disintegrate', 'teleport', 'insight', 'channel', 'spark'] },
+          // in pochi turni.
+          hand: { white: ['frost', 'ice_chain', 'shatter', 'blood_pact', 'blink', 'shield', 'royal_shield', 'forced_march', 'conscription'] },
           manaFloor: { white: 10 },
+        },
+      };
+    case 'runes':
+      return {
+        bot: { castSpells: true },
+        overrides: {
+          // Il client ha una runa sua, per vederla tratteggiata sulla propria scacchiera.
+          hand: { white: ['stasis_rune', 'shatter', 'shatter', 'shatter'], black: ['stasis_rune', 'explosive_rune', 'repel_rune', 'minefield'] },
+          deckTop: { black: ['stasis_rune', 'repel_rune', 'explosive_rune'] },
+          manaFloor: { white: 2, black: 10 },
         },
       };
     case 'hostile':

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"chess-server/internal/gameerr"
 )
 
 // Color è il colore di un pezzo / di chi lancia la magia.
@@ -22,11 +24,11 @@ const (
 // grid[0] è la traversa 8 e grid[7] la traversa 1.
 func parseSquare(square string) (row, col int, err error) {
 	if len(square) != 2 {
-		return 0, 0, fmt.Errorf("casella non valida: %q", square)
+		return 0, 0, gameerr.Newf(gameerr.InvalidTarget, "casella non valida: %q", square)
 	}
 	file, rank := square[0], square[1]
 	if file < 'a' || file > 'h' || rank < '1' || rank > '8' {
-		return 0, 0, fmt.Errorf("casella fuori scacchiera: %q", square)
+		return 0, 0, gameerr.Newf(gameerr.InvalidTarget, "casella fuori scacchiera: %q", square)
 	}
 	col = int(file - 'a')
 	row = int('8' - rank) // traversa 8 -> riga 0
@@ -172,11 +174,12 @@ func PieceAt(fen, square string) (byte, error) {
 	return grid[row][col], nil
 }
 
-// DestroyPiece rimuove il pezzo NEMICO nella casella target e ritorna la nuova
-// FEN più il nome del pezzo distrutto. Il lato al tratto e gli altri campi FEN
-// restano invariati (una magia non passa il turno). Vincoli: la casella deve
-// contenere un pezzo avversario e non può essere il re.
-func DestroyPiece(fen, square string, caster Color) (newFEN, destroyed string, err error) {
+// DestroyPiece rimuove il pezzo nella casella target e ritorna la nuova FEN più
+// il nome del pezzo distrutto. Il lato al tratto e gli altri campi FEN restano
+// invariati (una magia non passa il turno). Di chi sia il pezzo lo decide il
+// TargetSpec della magia (ValidateTargets); qui resta solo il vincolo globale:
+// il re non si distrugge mai.
+func DestroyPiece(fen, square string) (newFEN, destroyed string, err error) {
 	row, col, err := parseSquare(square)
 	if err != nil {
 		return "", "", err
@@ -188,13 +191,11 @@ func DestroyPiece(fen, square string, caster Color) (newFEN, destroyed string, e
 
 	p := grid[row][col]
 	if p == 0 {
-		return "", "", fmt.Errorf("nessun pezzo da distruggere in %s", square)
-	}
-	if pieceColor(p) == caster {
-		return "", "", fmt.Errorf("non puoi distruggere un tuo pezzo (%s)", square)
+		return "", "", gameerr.Newf(gameerr.InvalidTarget, "nessun pezzo da distruggere in %s", square)
 	}
 	if p == 'k' || p == 'K' {
-		return "", "", fmt.Errorf("il re non può essere distrutto")
+		return "", "", gameerr.Newf(gameerr.InvalidTarget, "il re non può essere distrutto").
+			With("reason", ReasonKing).With("square", square)
 	}
 
 	destroyed = pieceName(p)
@@ -226,19 +227,126 @@ func MovePieceFEN(fen, from, to string, caster Color) (string, error) {
 	}
 	p := grid[fRow][fCol]
 	if p == 0 {
-		return "", fmt.Errorf("nessun pezzo da spostare in %s", from)
+		return "", gameerr.Newf(gameerr.InvalidTarget, "nessun pezzo da spostare in %s", from)
 	}
 	if pieceColor(p) != caster {
-		return "", fmt.Errorf("puoi spostare solo i tuoi pezzi (%s)", from)
+		return "", gameerr.Newf(gameerr.InvalidTarget, "puoi spostare solo i tuoi pezzi (%s)", from)
 	}
 	if grid[tRow][tCol] != 0 {
-		return "", fmt.Errorf("la casella %s non è vuota", to)
+		return "", gameerr.Newf(gameerr.InvalidTarget, "la casella %s non è vuota", to)
 	}
 
 	grid[tRow][tCol] = p
 	grid[fRow][fCol] = 0
 	newFEN := replacePlacement(fen, encodePlacement(grid))
 	return clearCastlingForMovedPiece(newFEN, from, p), nil
+}
+
+// RelativeRank restituisce la traversa della casella vista dal colore dato:
+// 1 = la sua prima traversa, 8 = l'ultima. 0 se la casella non è valida.
+func RelativeRank(square string, c Color) int {
+	if len(square) != 2 || square[1] < '1' || square[1] > '8' {
+		return 0
+	}
+	rank := int(square[1] - '0')
+	if c == Black {
+		return 9 - rank
+	}
+	return rank
+}
+
+// ForwardSquare restituisce la casella n passi in avanti dal punto di vista del
+// colore dato (il Bianco avanza verso la traversa 8). Errore se esce dalla
+// scacchiera.
+func ForwardSquare(square string, c Color, n int) (string, error) {
+	row, col, err := parseSquare(square)
+	if err != nil {
+		return "", err
+	}
+	if c == White {
+		row -= n
+	} else {
+		row += n
+	}
+	if row < 0 || row > 7 {
+		return "", gameerr.Newf(gameerr.InvalidTarget, "%s non può avanzare di %d", square, n).
+			With("reason", ReasonOffBoard).With("square", square)
+	}
+	return squareName(row, col), nil
+}
+
+// PlacePiece mette il pezzo dato (carattere FEN) su una casella VUOTA e ritorna
+// la nuova FEN. Non cambia il lato al tratto.
+func PlacePiece(fen, square string, piece byte) (string, error) {
+	row, col, err := parseSquare(square)
+	if err != nil {
+		return "", err
+	}
+	grid, err := parsePlacement(fen)
+	if err != nil {
+		return "", err
+	}
+	if grid[row][col] != 0 {
+		return "", gameerr.Newf(gameerr.InvalidTarget, "la casella %s non è vuota", square).
+			With("reason", ReasonNotEmpty).With("square", square)
+	}
+	grid[row][col] = piece
+	return replacePlacement(fen, encodePlacement(grid)), nil
+}
+
+// CountPieces conta i pezzi uguali al carattere FEN dato.
+func CountPieces(fen string, piece byte) int {
+	grid, err := parsePlacement(fen)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for r := 0; r < 8; r++ {
+		for c := 0; c < 8; c++ {
+			if grid[r][c] == piece {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// ClearStaleEnPassant azzera la casella en passant della FEN se il pedone che
+// l'ha creata non è più al suo posto (una magia l'ha distrutto o spostato), o se
+// la casella di passaggio non è più vuota: altrimenti una cattura en passant
+// toglierebbe un pezzo che non c'è.
+func ClearStaleEnPassant(fen string) string {
+	fields := strings.Fields(fen)
+	if len(fields) < 4 || fields[3] == "-" || len(fields[3]) != 2 {
+		return fen
+	}
+	grid, err := parsePlacement(fen)
+	if err != nil {
+		return fen
+	}
+	ep := fields[3]
+	row, col, err := parseSquare(ep)
+	if err != nil {
+		return fen
+	}
+	// Casella di passaggio in traversa 3: ha spinto il Bianco, il pedone è in
+	// traversa 4 (riga +1 verso il basso nella griglia). In traversa 6 il Nero.
+	var pawnRow int
+	var pawn byte
+	switch ep[1] {
+	case '3':
+		pawnRow, pawn = row-1, 'P'
+	case '6':
+		pawnRow, pawn = row+1, 'p'
+	default:
+		fields[3] = "-"
+		return strings.Join(fields, " ")
+	}
+	if grid[row][col] != 0 || grid[pawnRow][col] != pawn {
+		fields[3] = "-"
+		return strings.Join(fields, " ")
+	}
+	return fen
 }
 
 // WithSideToMove restituisce la FEN col lato al tratto impostato al colore dato

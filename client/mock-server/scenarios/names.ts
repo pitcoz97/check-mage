@@ -17,6 +17,11 @@ export const SCENARIO_NAMES = [
   'spells',
   /** Come sopra, ma è il **client** ad avere le carte e il mana: serve a lanciarle dalla UI. */
   'spellbook',
+  /**
+   * Il bot ha solo rune: il client non deve mai ricevere né la carta né la posizione di una runa nascosta. Il client ha
+   * una Runa di stasi e 2 mana.
+   */
+  'runes',
   /** Partita valida intercalata da frame malformati, type sconosciuti e payload inattesi. */
   'hostile',
 ] as const;

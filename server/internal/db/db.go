@@ -5,6 +5,7 @@ import (
 	"chess-server/internal/logger"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -134,6 +135,9 @@ func QueryRowWithTimeout(query string, args ...interface{}) *sql.Row {
 
 // HealthCheck verifica che il DB sia raggiungibile
 func HealthCheck() error {
+	if DB == nil {
+		return errors.New("database non configurato")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return DB.PingContext(ctx)

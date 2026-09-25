@@ -19,7 +19,7 @@ beforeAll(async () => {
 afterEach(cleanup);
 
 function context(overrides: Partial<BoardContext> = {}): BoardContext {
-  return { fen: START, myColor: 'white', activePlayer: 'white', phase: 'move', frozen: new Set<Square>(), canAct: true, ...overrides };
+  return { fen: START, myColor: 'white', activePlayer: 'white', phase: 'move', frozen: new Set<Square>(), squareStates: [], canAct: true, ...overrides };
 }
 
 interface Setup {
@@ -122,6 +122,23 @@ describe('Board', () => {
     expect(square('e7').getAttribute('aria-label')).toBe('e7, pedone Nero, Congelato, ancora 2 turni');
     expect(square('e7').querySelector('[data-effects]')?.textContent).toBe('2');
     expect(square('e2').querySelector('[data-effects]')).toBeNull();
+  });
+
+  it('rune: la propria nascosta tratteggiata, quella nemica rivelata piena, senza turni; non bloccano le mosse', () => {
+    const rune = (square: Square, owner: 'white' | 'black', hidden: boolean, onEnter: string): SquareEffects => ({
+      square,
+      effects: [{ kind: 'rune', remainingTurns: -1, sourceSpellId: 'x', owner, hidden, onEnter }],
+    });
+    const { square } = setup({ context: { squareStates: [rune('e4', 'white', true, 'freeze_piece'), rune('d5', 'black', false, 'destroy_piece')] } });
+    expect(square('e4').getAttribute('aria-label')).toBe('e4, Runa di stasi tua, visibile solo a te');
+    expect(square('d5').getAttribute('aria-label')).toBe('d5, Runa esplosiva dell’avversario');
+    expect(square('e4').querySelector('.border-dashed')).not.toBeNull();
+    expect(square('d5').querySelector('.border-dashed')).toBeNull();
+    expect(square('d5').querySelector('.border-board-rune-edge')).not.toBeNull();
+    expect(square('e4').querySelector('[data-effects]')?.textContent).toBe('');
+    // Una runa non toglie mosse: il pedone in e2 va ancora in e4.
+    fireEvent.click(square('e2'));
+    expect(square('e4').getAttribute('data-target')).toBe('true');
   });
 
   it('in targeting si scelgono solo i bersagli validi, e un tap fuori annulla', () => {

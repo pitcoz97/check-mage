@@ -5,10 +5,11 @@ import { createLogger } from '../lib/log';
 import { createCatalogStore } from './catalog';
 import fallbackCatalog from './fallback.json';
 import type { Spell } from './schema';
+import { testSpell } from '../testing/catalog';
 
 /** Catalogo: `GET /spells` è la fonte, `fallback.json` la riserva (G10). Le voci malformate le scarta l'adapter. */
 
-const SPELL: Spell = { id: 'nova', name: 'Nova', manaCost: 5, phases: ['main1'], targetType: 'none', effects: [{ kind: 'noop', params: {} }] };
+const SPELL: Spell = testSpell({ id: 'nova', name: 'Nova', manaCost: 5 });
 
 function store(result: ApiResult<readonly Spell[]>, warn = vi.fn()) {
   return createCatalogStore({
@@ -35,7 +36,7 @@ describe('catalogo delle magie', () => {
     const state = catalog.getState();
     expect(state.source).toBe('fallback');
     expect(state.spells).toHaveLength(fallbackCatalog.length);
-    expect(state.byId.get('teleport')?.targetType).toBe('piece_move');
+    expect(state.byId.get('blink')?.targets).toHaveLength(2);
     expect(warn).toHaveBeenCalled();
   });
 

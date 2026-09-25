@@ -11,12 +11,12 @@ A production-ready online chess backend built in **Go**, designed to power a ful
 - **Per-side countdown timers** with configurable increment, managed entirely server-side
 - **Matchmaking queue** — players are automatically paired when two are waiting
 - **ELO rating system** following the standard FIDE algorithm, updated after every game
-- **JWT authentication** — stateless, secure, with 24-hour token expiry
+- **JWT authentication** — access (24h) + refresh (30d) tokens, one-time tickets for the WebSocket
 - **Resign & draw offers** — including draw acceptance/rejection and automatic offer expiry on move
 - **Mid-game reconnection** — disconnected players have a configurable window to reconnect before forfeiting
 - **Game history** saved in PGN format to PostgreSQL
 - **Leaderboard** and per-user game history API endpoints
-- **Rate limiting** — per-IP, with stricter limits on auth endpoints to prevent brute force
+- **Rate limiting** — per client IP (proxy-aware via `TRUSTED_PROXIES`), with stricter limits on auth endpoints to prevent brute force
 - **Structured logging** with [Uber Zap](https://github.com/uber-go/zap) — JSON in production, colored output in development
 - **Live-match persistence** — in-progress games are saved to Postgres (on each action + at graceful shutdown) and restored on startup, so a restart doesn't lose them and players can reconnect
 - **Environment-based configuration** via `.env` — no hardcoded credentials
@@ -27,7 +27,7 @@ A production-ready online chess backend built in **Go**, designed to power a ful
 
 | Component | Technology |
 |---|---|
-| Language | Go 1.23+ |
+| Language | Go 1.25+ |
 | HTTP Router | [Chi v5](https://github.com/go-chi/chi) |
 | WebSocket | [Gorilla WebSocket](https://github.com/gorilla/websocket) |
 | Database | PostgreSQL 16 |
@@ -82,7 +82,7 @@ chess-server/
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.25+
 - PostgreSQL 16
 - Stockfish (`sudo apt install stockfish`)
 
@@ -125,6 +125,12 @@ RECONNECT_TIMEOUT=30s
 RATE_GENERAL=10
 RATE_AUTH=3
 RATE_WS=1
+
+# HTTP
+# Comma-separated CORS origins (go-chi/cors patterns)
+CORS_ALLOWED_ORIGINS=https://*,http://*,capacitor://localhost
+# Comma-separated IPs/CIDRs of reverse proxies trusted for X-Forwarded-For
+TRUSTED_PROXIES=
 ```
 
 ### 3. Set up the database
@@ -200,82 +206,40 @@ INFO  Chess server avviato   {"addr": ":8080", "env": "development"}
 
 ## API Reference
 
+All REST responses use the envelope `{ "success": bool, "data"?: ..., "error"?: string }`.
+Unknown routes and methods also answer in JSON (404 / 405).
+
 ### Public endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/status` | Health check |
+| `GET` | `/status` | Health check (503 if the DB is unreachable) |
 | `POST` | `/auth/register` | Register a new user |
-| `POST` | `/auth/login` | Login, returns JWT token |
-| `GET` | `/leaderboard` | Top 10 players by ELO |
+| `POST` | `/auth/login` | Login, returns access + refresh tokens |
+| `POST` | `/auth/refresh` | Exchange a refresh token for a new token pair |
+| `GET` | `/auth/password-policy` | Username/password validation rules |
+| `GET` | `/leaderboard` | Top 10 players by ELO (`[]` if empty) |
+| `GET` | `/users/{id}` | Public profile + win/loss/draw stats |
+| `GET` | `/spells` | Spell catalog, sorted by mana cost |
 
-### Protected endpoints (require `Authorization: Bearer <token>`)
+### Protected endpoints (require `Authorization: Bearer <access_token>`)
+
+Only access tokens are accepted: a refresh token gets 401.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/me` | Current user profile |
-| `GET` | `/users/{id}/games` | Game history for a user |
-| `GET` | `/ws` | WebSocket — join matchmaking queue |
+| `GET` | `/users/{id}/games` | Game history for a user (`[]` if empty) |
+| `GET` | `/ws/ticket` | One-time ticket (30s) to open the WebSocket |
+| `GET` | `/ws` | WebSocket — join matchmaking queue. Auth: `?ticket=`, Bearer header or `?token=` |
 
 ---
 
 ## WebSocket Protocol
 
-Connect to `/ws` with a valid JWT token in the `Authorization` header. You will be automatically queued for matchmaking. When two players are connected, a game starts immediately.
-
-### Messages: Client → Server
-
-```jsonc
-// Make a move (UCI notation)
-{ "type": "move", "payload": { "move": "e2e4" } }
-
-// Resign
-{ "type": "resign", "payload": {} }
-
-// Offer a draw
-{ "type": "draw_offer", "payload": {} }
-
-// Accept a draw offer
-{ "type": "draw_accepted", "payload": {} }
-
-// Decline a draw offer
-{ "type": "draw_declined", "payload": {} }
-```
-
-### Messages: Server → Client
-
-```jsonc
-// Game started
-{ "type": "game_start", "payload": { "room_id": "room-1-2", "white": "mario", "black": "luigi", "fen": "rnbqkbnr/..." } }
-
-// Game state after each move
-{ "type": "game_state", "payload": { "board": { "fen": "...", "moves": ["e2e4"], "turn": "black", "status": "active" }, "white_time": 598000, "black_time": 600000 } }
-
-// Timer update (every second)
-{ "type": "timer_update", "payload": { "white_time": 597000, "black_time": 600000, "turn": "white" } }
-
-// Game over
-{ "type": "game_over", "payload": { "result": "1-0", "reason": "checkmate", "winner": "mario" } }
-
-// Draw offer received
-{ "type": "draw_offer", "payload": { "from": "mario" } }
-
-// Opponent disconnected
-{ "type": "opponent_disconnected", "payload": { "message": "mario si è disconnesso, aspettando riconnessione..." } }
-```
-
-### Game over reasons
-
-| Reason | Description |
-|--------|-------------|
-| `checkmate` | Checkmate |
-| `stalemate` | Stalemate |
-| `draw` | Draw by insufficient material or 50-move rule |
-| `agreement` | Draw by mutual agreement |
-| `resign` | Player resigned |
-| `timeout` | Player ran out of time |
-| `abandonment` | Player failed to reconnect within the timeout window |
-| `server_shutdown` | Server was shut down gracefully |
+The full real-time protocol (chess + magic: phases, mana, hands, spells, effects,
+error codes) is documented in [PROTOCOL.md](PROTOCOL.md). Changes relevant to
+clients are listed in [docs/SERVER-CHANGES.md](docs/SERVER-CHANGES.md).
 
 ---
 

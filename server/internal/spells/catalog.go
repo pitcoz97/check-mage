@@ -1,0 +1,213 @@
+package spells
+
+import "chess-server/internal/phase"
+
+// Catalogo delle magie (docs/BRIEFING-MAGIE.md §5). Cresce a ogni step della
+// roadmap: entrano solo le magie i cui effect kind sono già implementati, perché
+// un kind sconosciuto farebbe fallire il cast con internal_error.
+//
+// Convenzioni dei parametri:
+//   - "duration" = turni dell'AVVERSARIO del lanciatore in cui l'effetto resta
+//     attivo (0 = solo il turno corrente, -1 = permanente);
+//   - "no_check": true = dopo l'effetto nessun re può essere sotto scacco. Oggi
+//     la regola vale per ogni effetto che tocca la scacchiera: il parametro
+//     resta nei dati per documentare l'intento;
+//   - gli stati richiesti (RequireEffect) usano i nomi del Tracker: "freeze",
+//     "shield".
+
+// mainPhases: la magia è giocabile in main1 e in main2.
+var mainPhases = []phase.Phase{phase.PhaseMain1, phase.PhaseMain2}
+
+// preMove: solo in main1, perché la magia modifica la mossa di questo turno.
+var preMove = []phase.Phase{phase.PhaseMain1}
+
+// minor: i pezzi minori.
+var minor = []PieceKind{Knight, Bishop}
+
+// emptySquare: una casa vuota (una runa non la occupa, un muro sì).
+var emptySquare = TargetSpec{Type: TargetSquare, EmptySquare: true}
+
+var catalogList = []Spell{
+
+	// ───────────────────────── GELO ─────────────────────────
+
+	{ID: "frost", Name: "Brina", ManaCost: 1, Phases: mainPhases, Tags: []string{"gelo"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetEnemyPiece, Pieces: []PieceKind{Pawn}}},
+		Effects: []Effect{{Kind: EffectFreezePiece, Params: map[string]interface{}{"duration": 1}}}},
+
+	{ID: "ice_chain", Name: "Catena di ghiaccio", ManaCost: 3, Phases: mainPhases, Tags: []string{"gelo"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetEnemyPiece, Pieces: minor}},
+		Effects: []Effect{{Kind: EffectFreezePiece, Params: map[string]interface{}{"duration": 1}}}},
+
+	{ID: "shatter", Name: "Frantumare", ManaCost: 4, Phases: mainPhases, Tags: []string{"gelo"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetEnemyPiece, Pieces: []PieceKind{Pawn, Knight, Bishop, Rook}, RequireEffect: "freeze"}},
+		Effects: []Effect{{Kind: EffectDestroyPiece}}},
+
+	{ID: "eternal_winter", Name: "Inverno eterno", ManaCost: 7, Phases: mainPhases, Tags: []string{"gelo"}, Rarity: Legendary,
+		Effects: []Effect{{Kind: EffectFreezeAll, Params: map[string]interface{}{
+			"side": "enemy", "pieces": []PieceKind{Pawn}, "duration": 1}}}},
+
+	{ID: "ice_wall", Name: "Muro di ghiaccio", ManaCost: 2, Phases: mainPhases, Tags: []string{"gelo"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetSquare, EmptySquare: true}},
+		Effects: []Effect{{Kind: EffectCreateWall, Params: map[string]interface{}{"duration": 2}}}},
+
+	// ────────────────────── NECROMANZIA ──────────────────────
+
+	{ID: "blood_pact", Name: "Patto di sangue", ManaCost: 0, Phases: mainPhases, Tags: []string{"necro"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: []PieceKind{Pawn}}},
+		Effects: []Effect{
+			{Kind: EffectDestroyPiece},
+			{Kind: EffectGainMana, Params: map[string]interface{}{"amount": 2, "can_exceed_cap": false}},
+		},
+		Limits: map[string]int{LimitPerTurn: 1}},
+
+	{ID: "recall", Name: "Richiamo", ManaCost: 3, Phases: mainPhases, Tags: []string{"necro", "falange"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetSquare, EmptySquare: true, OwnRanks: []int{2}}},
+		Effects: []Effect{{Kind: EffectRevivePiece, Params: map[string]interface{}{"pieces": []PieceKind{Pawn}, "no_check": true}}}},
+
+	{ID: "resurrection", Name: "Resurrezione", ManaCost: 8, Phases: mainPhases, Tags: []string{"necro"}, Rarity: Legendary,
+		Targets: []TargetSpec{{Type: TargetSquare, EmptySquare: true, OwnRanks: []int{1}}},
+		Effects: []Effect{{Kind: EffectRevivePiece, Params: map[string]interface{}{"pieces": []PieceKind{Knight, Bishop, Rook}, "no_check": true}}}},
+
+	// ───────────────────────── ARCANO ─────────────────────────
+
+	{ID: "blink", Name: "Blink", ManaCost: 4, Phases: mainPhases, Tags: []string{"arcano"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: minor}, {Type: TargetSquare, EmptySquare: true, MaxDistance: 2}},
+		Effects: []Effect{{Kind: EffectMovePiece, Params: map[string]interface{}{"no_check": true}}}},
+
+	{ID: "swap", Name: "Scambio", ManaCost: 3, Phases: mainPhases, Tags: []string{"arcano"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetOwnPiece}, {Type: TargetOwnPiece}},
+		Effects: []Effect{{Kind: EffectSwapPieces, Params: map[string]interface{}{"no_check": true}}}},
+
+	{ID: "metamorphosis", Name: "Metamorfosi", ManaCost: 5, Phases: mainPhases, Tags: []string{"arcano"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: minor}},
+		Effects: []Effect{{Kind: EffectTransformPiece, Params: map[string]interface{}{
+			"map": map[string]interface{}{"knight": "bishop", "bishop": "knight"}, "no_check": true}}}},
+
+	// ───────────────────────── SACRO ─────────────────────────
+
+	{ID: "shield", Name: "Scudo", ManaCost: 2, Phases: mainPhases, Tags: []string{"sacro"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: []PieceKind{Pawn, Knight, Bishop, Rook}}},
+		Effects: []Effect{{Kind: EffectShieldPiece, Params: map[string]interface{}{"duration": 1}}}},
+
+	{ID: "royal_shield", Name: "Scudo reale", ManaCost: 4, Phases: mainPhases, Tags: []string{"sacro"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: []PieceKind{Queen}}},
+		Effects: []Effect{{Kind: EffectShieldPiece, Params: map[string]interface{}{"duration": 1}}}},
+
+	{ID: "royal_guard", Name: "Guardia reale", ManaCost: 3, Phases: mainPhases, Tags: []string{"sacro"}, Rarity: Common,
+		Effects: []Effect{{Kind: EffectShieldArea, Params: map[string]interface{}{
+			"around": "own_king", "radius": 1, "duration": 1}}}},
+
+	{ID: "divine_castling", Name: "Arrocco divino", ManaCost: 4, Phases: preMove, Tags: []string{"sacro"}, Rarity: Common,
+		Effects: []Effect{{Kind: EffectRestoreCastling}}},
+
+	{ID: "sanctuary", Name: "Santuario", ManaCost: 5, Phases: mainPhases, Tags: []string{"sacro"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetSquare}},
+		Effects: []Effect{{Kind: EffectCreateSquareEffect, Params: map[string]interface{}{
+			"effect": "no_capture", "duration": 3}}}},
+
+	// ───────────────────────── RUNE ─────────────────────────
+
+	{ID: "revelation", Name: "Rivelazione", ManaCost: 1, Phases: mainPhases, Tags: []string{"rune"}, Rarity: Common,
+		Effects: []Effect{
+			{Kind: EffectRevealRunes, Params: map[string]interface{}{"side": "enemy"}},
+			{Kind: EffectDrawCard, Params: map[string]interface{}{"amount": 1}},
+		}},
+
+	{ID: "stasis_rune", Name: "Runa di stasi", ManaCost: 2, Phases: mainPhases, Tags: []string{"rune", "gelo"}, Rarity: Common,
+		Targets: []TargetSpec{emptySquare},
+		Effects: []Effect{{Kind: EffectPlaceRune, Params: map[string]interface{}{"on_enter": "freeze_piece", "duration": 2}}}},
+
+	{ID: "repel_rune", Name: "Runa di respinta", ManaCost: 2, Phases: mainPhases, Tags: []string{"rune"}, Rarity: Common,
+		Targets: []TargetSpec{emptySquare},
+		Effects: []Effect{{Kind: EffectPlaceRune, Params: map[string]interface{}{"on_enter": "return_to_origin"}}}},
+
+	{ID: "explosive_rune", Name: "Runa esplosiva", ManaCost: 3, Phases: mainPhases, Tags: []string{"rune"}, Rarity: Common,
+		Targets: []TargetSpec{emptySquare},
+		Effects: []Effect{{Kind: EffectPlaceRune, Params: map[string]interface{}{
+			"on_enter": "destroy_piece", "only": []PieceKind{Pawn, Knight, Bishop},
+			"fallback": "freeze_piece", "fallback_duration": 1}}}},
+
+	{ID: "detonation", Name: "Detonazione", ManaCost: 4, Phases: mainPhases, Tags: []string{"rune", "gelo"}, Rarity: Common,
+		Effects: []Effect{{Kind: EffectDetonateRunes, Params: map[string]interface{}{
+			"radius": 1, "do": "freeze_piece", "duration": 1}}}},
+
+	{ID: "minefield", Name: "Campo minato", ManaCost: 7, Phases: mainPhases, Tags: []string{"rune"}, Rarity: Legendary,
+		Targets: []TargetSpec{emptySquare, emptySquare, emptySquare},
+		Effects: []Effect{{Kind: EffectPlaceRune, Params: map[string]interface{}{"on_enter": "freeze_piece", "duration": 2}}}},
+
+	// ──────────────────────── FALANGE ────────────────────────
+
+	{ID: "forced_march", Name: "Marcia forzata", ManaCost: 1, Phases: mainPhases, Tags: []string{"falange"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: []PieceKind{Pawn}}},
+		Effects: []Effect{{Kind: EffectMovePiece, Params: map[string]interface{}{
+			"relative": "forward", "squares": 1, "no_capture": true, "no_promotion": true, "no_check": true}}}},
+
+	{ID: "conscription", Name: "Leva militare", ManaCost: 4, Phases: mainPhases, Tags: []string{"falange"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetSquare, EmptySquare: true, OwnRanks: []int{2}}},
+		Effects: []Effect{{Kind: EffectSummonPawn, Params: map[string]interface{}{"max_pawns": 8}}}},
+
+	{ID: "phalanx", Name: "Falange", ManaCost: 3, Phases: mainPhases, Tags: []string{"falange", "sacro"}, Rarity: Common,
+		Effects: []Effect{{Kind: EffectShieldArea, Params: map[string]interface{}{
+			"filter": "own_pawns_side_by_side", "duration": 1}}}},
+
+	{ID: "early_promotion", Name: "Promozione anticipata", ManaCost: 6, Phases: mainPhases, Tags: []string{"falange"}, Rarity: Legendary,
+		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: []PieceKind{Pawn}, MinRank: 6}},
+		Effects: []Effect{{Kind: EffectPromotePiece, Params: map[string]interface{}{
+			"choices": []PieceKind{Knight, Bishop, Rook, Queen}, "no_check": true}}}},
+}
+
+// Catalog è la libreria delle magie indicizzata per ID.
+var Catalog = indexCatalog(catalogList)
+
+// indexCatalog indicizza la lista per ID. Liste nil diventano vuote, così in
+// JSON escono come [] e non come null.
+func indexCatalog(list []Spell) map[string]Spell {
+	out := make(map[string]Spell, len(list))
+	for _, s := range list {
+		if s.Targets == nil {
+			s.Targets = []TargetSpec{}
+		}
+		if s.Tags == nil {
+			s.Tags = []string{}
+		}
+		out[s.ID] = s
+	}
+	return out
+}
+
+// deckRecipe definisce quante copie di ogni carta compongono il mazzo, uguale
+// per entrambi i giocatori. Totale = 40, nei limiti di copie della rarità (2 per
+// le comuni, 1 per le leggendarie): le 4 leggendarie a 1 copia, 14 comuni a 2 e
+// 8 comuni a 1 (M43, da rivedere nel bilanciamento).
+var deckRecipe = []struct {
+	ID    string
+	Count int
+}{
+	{"frost", 2},
+	{"ice_wall", 2},
+	{"ice_chain", 1},
+	{"shatter", 2},
+	{"eternal_winter", 1},
+	{"blood_pact", 2},
+	{"recall", 1},
+	{"resurrection", 1},
+	{"blink", 2},
+	{"swap", 1},
+	{"metamorphosis", 1},
+	{"shield", 2},
+	{"royal_shield", 2},
+	{"royal_guard", 1},
+	{"divine_castling", 1},
+	{"sanctuary", 2},
+	{"revelation", 1},
+	{"stasis_rune", 2},
+	{"repel_rune", 2},
+	{"explosive_rune", 2},
+	{"detonation", 2},
+	{"minefield", 1},
+	{"forced_march", 2},
+	{"conscription", 2},
+	{"phalanx", 1},
+	{"early_promotion", 1},
+}

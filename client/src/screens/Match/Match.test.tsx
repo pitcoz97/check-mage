@@ -140,6 +140,31 @@ describe('schermata di partita', () => {
     expect(hint()).toContain('Mossa non valida.');
   });
 
+  it('muri e santuari: disegnati sulla casa, le mosse bloccate non si evidenziano; move_blocked annulla la mossa', async () => {
+    const { receive, expectSent } = await setup();
+    receive(
+      gameState({
+        square_effects: [
+          { square: 'e3', effects: [{ kind: 'wall', remaining_turns: 2, source_spell_id: 'ice_wall', caster: 'black' }] },
+          { square: 'd4', effects: [{ kind: 'no_capture', remaining_turns: 1, source_spell_id: 'sanctuary', caster: 'black' }] },
+        ],
+      }),
+    );
+    await waitFor(() => expect(square('e3').getAttribute('aria-label')).toBe('e3, Muro, ancora 2 turni'));
+    expect(square('d4').getAttribute('aria-label')).toBe('d4, Santuario, ancora 1 turno');
+    fireEvent.click(square('e2'));
+    expect(document.querySelectorAll('[data-target="true"]')).toHaveLength(0);
+    fireEvent.click(square('d2'));
+    expect([...document.querySelectorAll('[data-target="true"]')].map((b) => b.getAttribute('data-square')).sort()).toEqual(['d3', 'd4']);
+    fireEvent.click(square('d4'));
+    await expectSent({ type: 'move', payload: { move: 'd2d4' } });
+    receive({ type: 'error', payload: { message: 'x', code: 'move_blocked', details: { square: 'e3', reason: 'wall' } } });
+    await waitFor(() => expect(square('d2').getAttribute('aria-label')).toBe('d2, pedone Bianco'));
+    expect(hint()).toContain('Un muro in e3 blocca la mossa.');
+    receive({ type: 'square_effects_changed', payload: { square_effects: [] } });
+    await waitFor(() => expect(square('e3').getAttribute('aria-label')).toBe('e3'));
+  });
+
   it('il rifiuto deciso dal client non disturba il server', async () => {
     const { sent, receive } = await setup();
     receive(gameState({ phase: 'main1' }));
@@ -151,17 +176,17 @@ describe('schermata di partita', () => {
   it('mano, targeting e cast: la carta apre la scelta del bersaglio e il frame parte con la casella scelta', async () => {
     const { receive, expectSent, sent } = await setup();
     receive(gameState({ phase: 'main1', white_mana: 3, white_max_mana: 5 }));
-    receive({ type: 'hand', payload: { hand: ['frostbolt', 'nova'], mana: 3, max_mana: 5, deck_size: 34 } });
+    receive({ type: 'hand', payload: { hand: ['frost', 'shatter'], mana: 3, max_mana: 5, deck_size: 34 } });
 
     // Il catalogo arriva in modo asincrono: prima le carte non ci sono.
-    const card = await waitFor(() => document.querySelector('[data-card="frostbolt"]') as HTMLButtonElement);
-    expect(card.textContent).toContain('Frost Bolt');
-    // Nova costa 5 e il mana è 3: resta visibile, spenta; il motivo è nell'etichetta e compare al tocco (D5).
-    const nova = document.querySelector('[data-card="nova"]') as HTMLButtonElement;
+    const card = await waitFor(() => document.querySelector('[data-card="frost"]') as HTMLButtonElement);
+    expect(card.textContent).toContain('Brina');
+    // Frantumare costa 4 e il mana è 3: resta visibile, spenta; il motivo è nell'etichetta e compare al tocco (D5).
+    const nova = document.querySelector('[data-card="shatter"]') as HTMLButtonElement;
     expect(nova.getAttribute('aria-disabled')).toBe('true');
-    expect(nova.getAttribute('aria-label')).toContain('Servono 5 mana');
+    expect(nova.getAttribute('aria-label')).toContain('Servono 4 mana');
     fireEvent.click(nova);
-    expect(hint()).toContain('Servono 5 mana.');
+    expect(hint()).toContain('Servono 4 mana.');
     expect(sent()).toEqual([]);
     fireEvent.click(card);
 
@@ -170,22 +195,46 @@ describe('schermata di partita', () => {
     expect(square('e7').dataset['castTarget']).toBe('true');
     expect(square('e2').dataset['castTarget']).toBe('false');
     fireEvent.click(square('e7'));
-    await expectSent({ type: 'cast_spell', payload: { spell_id: 'frostbolt', targets: ['e7'] } });
+    await expectSent({ type: 'cast_spell', payload: { spell_id: 'frost', targets: ['e7'] } });
 
     // Mano e mana non cambiano finché non lo dice il server.
-    expect(document.querySelector('[data-card="frostbolt"]')).toBeTruthy();
-    receive({ type: 'spell_cast', payload: { player: 'white', spell_id: 'frostbolt', targets: ['e7'], effects_applied: [{ kind: 'freeze_piece', target: 'e7', remaining_turns: 2 }] } });
-    await waitFor(() => expect(document.querySelector('[data-card="frostbolt"]')).toBeNull());
+    expect(document.querySelector('[data-card="frost"]')).toBeTruthy();
+    receive({ type: 'spell_cast', payload: { player: 'white', spell_id: 'frost', targets: ['e7'], effects_applied: [{ kind: 'freeze_piece', target: 'e7', remaining_turns: 2 }] } });
+    await waitFor(() => expect(document.querySelector('[data-card="frost"]')).toBeNull());
     expect(square('e7').getAttribute('aria-label')).toBe('e7, pedone Nero, Congelato, ancora 2 turni');
-    expect(hint()).toContain('Hai lanciato Frost Bolt: Gelo');
+    expect(hint()).toContain('Hai lanciato Brina: Gelo');
     expect(sent()).toHaveLength(1);
+  });
+
+  it('Promozione anticipata: dopo il pedone si sceglie il pezzo, e il cast porta la scelta', async () => {
+    const { receive, expectSent, sent } = await setup();
+    receive(gameState({ phase: 'main1', white_mana: 6, white_max_mana: 6, board: { fen: 'k7/4P3/8/8/8/8/8/4K3 w - - 0 1', moves: [], turn: 'white', status: 'active' } }));
+    receive({ type: 'hand', payload: { hand: ['early_promotion'], mana: 6, max_mana: 6, deck_size: 30 } });
+    fireEvent.click(await waitFor(() => document.querySelector('[data-card="early_promotion"]') as HTMLButtonElement));
+    fireEvent.click(square('e7'));
+    const dialog = await waitFor(() => document.querySelector('[data-piece-choice]') as HTMLElement);
+    expect([...dialog.querySelectorAll('[data-choice]')].map((b) => b.getAttribute('data-choice'))).toEqual(['knight', 'bishop', 'rook', 'queen']);
+    expect(sent()).toEqual([]);
+    fireEvent.click(dialog.querySelector('[data-choice="knight"]') as HTMLButtonElement);
+    await expectSent({ type: 'cast_spell', payload: { spell_id: 'early_promotion', targets: ['e7'], choice: { piece: 'knight' } } });
+    expect(document.querySelector('[data-piece-choice]')).toBeNull();
+  });
+
+  it('cimitero nella riga del giocatore, raggruppato per tipo, aggiornato da graveyard_changed', async () => {
+    const { receive } = await setup();
+    receive(gameState({ black_graveyard: ['pawn', 'knight', 'pawn'] }));
+    const strip = await waitFor(() => document.querySelector('[data-graveyard="black"]') as HTMLElement);
+    expect(strip.getAttribute('aria-label')).toBe('Cimitero: cavallo × 1, pedone × 2');
+    expect(document.querySelector('[data-graveyard="white"]')).toBeNull();
+    receive({ type: 'graveyard_changed', payload: { player: 'white', graveyard: ['rook'] } });
+    await waitFor(() => expect(document.querySelector('[data-graveyard="white"]')?.getAttribute('aria-label')).toBe('Cimitero: torre × 1'));
   });
 
   it('il targeting si annulla con Esc o con un secondo tocco sulla carta, senza disturbare il server', async () => {
     const { receive, sent } = await setup();
     receive(gameState({ phase: 'main1', white_mana: 5, white_max_mana: 5 }));
-    receive({ type: 'hand', payload: { hand: ['frostbolt'], mana: 5, max_mana: 5, deck_size: 35 } });
-    fireEvent.click(await waitFor(() => document.querySelector('[data-card="frostbolt"]') as HTMLButtonElement));
+    receive({ type: 'hand', payload: { hand: ['frost'], mana: 5, max_mana: 5, deck_size: 35 } });
+    fireEvent.click(await waitFor(() => document.querySelector('[data-card="frost"]') as HTMLButtonElement));
     expect(document.querySelector('[data-hint-box="panel"]')?.getAttribute('data-mode')).toBe('casting');
 
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -194,7 +243,7 @@ describe('schermata di partita', () => {
     expect(sent()).toEqual([]);
 
     // Secondo tocco sulla carta selezionata: annulla anche quello, senza pulsante (D8).
-    const card = document.querySelector('[data-card="frostbolt"]') as HTMLButtonElement;
+    const card = document.querySelector('[data-card="frost"]') as HTMLButtonElement;
     fireEvent.click(card);
     expect(card.dataset['selected']).toBe('true');
     expect(screen.queryByRole('button', { name: 'Annulla' })).toBeNull();
@@ -249,10 +298,10 @@ describe('schermata di partita', () => {
   it('storico: le magie della sessione stanno dopo la mossa che le precede, con chi le ha lanciate (D11)', async () => {
     const { receive } = await setup();
     receive(gameState({ board: { fen: START, moves: ['e2e4'], turn: 'black', status: 'active' }, active_player: 'black', phase: 'main1' }));
-    receive({ type: 'spell_cast', payload: { player: 'black', spell_id: 'frostbolt', targets: ['e4'], effects_applied: [{ kind: 'noop' }] } });
+    receive({ type: 'spell_cast', payload: { player: 'black', spell_id: 'frost', targets: ['e4'], effects_applied: [{ kind: 'noop' }] } });
     const items = [...document.querySelectorAll('[data-region="side"] [data-history] li')].map((item) => item.textContent);
     expect(items[0]).toContain('e2e4');
-    expect(items[1]).toContain('Frost Bolt');
+    expect(items[1]).toContain('Brina');
     expect(items[1]).toContain('→ e4');
     expect(items[1]).toContain('luigi');
   });
@@ -270,7 +319,7 @@ describe('schermata di partita', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Grimorio' }));
     const sheet = screen.getByRole('dialog');
     expect(sheet.getAttribute('data-sheet')).toBe('grimoire');
-    expect(sheet.querySelector('[data-grimoire]')?.textContent).toContain('Frost Bolt');
+    expect(sheet.querySelector('[data-grimoire]')?.textContent).toContain('Brina');
     expect(sheet.textContent).toContain('½ Offri patta');
     // Su Android è l'unica uscita dalla partita, che resta in background (D13).
     expect(within(sheet).getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('/lobby');

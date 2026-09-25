@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"chess-server/internal/gameerr"
 	"chess-server/internal/phase"
 	"chess-server/internal/spells"
 )
@@ -169,20 +170,20 @@ func TestCastSpell_Success(t *testing.T) {
 	s := New(1)
 	s.CurrentPhase = phase.PhaseMain1 // bianco può castare
 	// Metti una carta nota e mana sufficiente.
-	s.White.Hand = []string{"spark"}
+	s.White.Hand = []string{"frost"}
 	s.White.Mana = 5
 
-	res, err := s.CastSpell(PlayerWhite, "spark", nil, noApply)
+	res, err := s.CastSpell(PlayerWhite, "frost", []string{"e7"}, noApply)
 	if err != nil {
 		t.Fatalf("cast fallito inatteso: %v", err)
 	}
-	if res.ManaAfter != 4 { // spark costa 1
+	if res.ManaAfter != 4 { // frost costa 1
 		t.Errorf("mana dopo cast = %d, atteso 4", res.ManaAfter)
 	}
-	if s.White.HandIndex("spark") != -1 {
+	if s.White.HandIndex("frost") != -1 {
 		t.Error("la carta dovrebbe essere uscita dalla mano")
 	}
-	if len(s.White.Discard) != 1 || s.White.Discard[0] != "spark" {
+	if len(s.White.Discard) != 1 || s.White.Discard[0] != "frost" {
 		t.Error("la carta dovrebbe essere nello scarto")
 	}
 }
@@ -191,40 +192,41 @@ func TestCastSpell_Rejections(t *testing.T) {
 	base := func() *State {
 		s := New(1)
 		s.CurrentPhase = phase.PhaseMain1
-		s.White.Hand = []string{"nova"} // costa 5
+		s.White.Hand = []string{"shatter"} // costa 4, un bersaglio
 		s.White.Mana = 5
 		return s
 	}
+	target := []string{"e7"}
 
 	// Fase sbagliata.
 	s := base()
 	s.CurrentPhase = phase.PhaseMove
-	if _, err := s.CastSpell(PlayerWhite, "nova", nil, noApply); err == nil {
+	if _, err := s.CastSpell(PlayerWhite, "shatter", target, noApply); err == nil {
 		t.Error("cast in fase move dovrebbe fallire")
 	}
 
 	// Non è il tuo turno.
 	s = base()
-	if _, err := s.CastSpell(PlayerBlack, "nova", nil, noApply); err == nil {
+	if _, err := s.CastSpell(PlayerBlack, "shatter", target, noApply); err == nil {
 		t.Error("cast fuori turno dovrebbe fallire")
 	}
 
 	// Mana insufficiente.
 	s = base()
 	s.White.Mana = 1
-	if _, err := s.CastSpell(PlayerWhite, "nova", nil, noApply); err == nil {
+	if _, err := s.CastSpell(PlayerWhite, "shatter", target, noApply); err == nil {
 		t.Error("cast con mana insufficiente dovrebbe fallire")
 	}
 
 	// Carta non in mano.
 	s = base()
-	if _, err := s.CastSpell(PlayerWhite, "surge", nil, noApply); err == nil {
+	if _, err := s.CastSpell(PlayerWhite, "blink", []string{"b1", "c3"}, noApply); err == nil {
 		t.Error("cast di carta non in mano dovrebbe fallire")
 	}
 
 	// Magia sconosciuta.
 	s = base()
-	if _, err := s.CastSpell(PlayerWhite, "boom", nil, noApply); err == nil {
+	if _, err := s.CastSpell(PlayerWhite, "boom", target, noApply); err == nil {
 		t.Error("cast di magia sconosciuta dovrebbe fallire")
 	}
 
@@ -233,13 +235,13 @@ func TestCastSpell_Rejections(t *testing.T) {
 	failApply := func(def spells.Spell, targets []string) ([]interface{}, error) {
 		return nil, fmt.Errorf("bersaglio non valido")
 	}
-	if _, err := s.CastSpell(PlayerWhite, "nova", nil, failApply); err == nil {
+	if _, err := s.CastSpell(PlayerWhite, "shatter", target, failApply); err == nil {
 		t.Error("se apply fallisce il cast deve fallire")
 	}
 	if s.White.Mana != 5 {
 		t.Errorf("mana speso nonostante apply fallito: %d, atteso 5", s.White.Mana)
 	}
-	if s.White.HandIndex("nova") < 0 {
+	if s.White.HandIndex("shatter") < 0 {
 		t.Error("la carta deve restare in mano se apply fallisce")
 	}
 }
@@ -247,10 +249,10 @@ func TestCastSpell_Rejections(t *testing.T) {
 func TestCanCastAny(t *testing.T) {
 	s := New(1)
 	s.CurrentPhase = phase.PhaseMain1
-	s.White.Hand = []string{"spark"} // costa 1
+	s.White.Hand = []string{"frost"} // costa 1
 	s.White.Mana = 1
 	if !s.CanCastAny() {
-		t.Error("con spark e 1 mana in main1 dovrebbe poter castare")
+		t.Error("con frost e 1 mana in main1 dovrebbe poter castare")
 	}
 
 	s.White.Mana = 0
@@ -265,7 +267,7 @@ func TestCanCastAny(t *testing.T) {
 	}
 
 	// Fuori dalle fasi main non si casta.
-	s.White.Hand = []string{"spark"}
+	s.White.Hand = []string{"frost"}
 	s.White.Mana = 5
 	s.CurrentPhase = phase.PhaseMove
 	if s.CanCastAny() {
@@ -288,7 +290,7 @@ func TestAutoAdvance_SkipsDrawAndUncastableMain(t *testing.T) {
 func TestAutoAdvance_StopsAtCastableMain(t *testing.T) {
 	s := New(1)
 	s.CurrentPhase = phase.PhaseDraw
-	s.White.Hand = []string{"spark"}
+	s.White.Hand = []string{"frost"}
 	s.White.Mana = 1
 
 	s.AutoAdvance()
@@ -337,13 +339,13 @@ func TestDrawFor(t *testing.T) {
 func TestGainMana(t *testing.T) {
 	s := New(1)
 	s.White.Mana = 3
-	m := s.GainMana(PlayerWhite, 2)
+	m := s.GainMana(PlayerWhite, 2, false)
 	if m.Current != 5 || s.White.Mana != 5 {
 		t.Errorf("mana dopo +2 = %d, atteso 5", s.White.Mana)
 	}
 	// Cap assoluto.
 	s.White.Mana = 9
-	s.GainMana(PlayerWhite, 5)
+	s.GainMana(PlayerWhite, 5, false)
 	if s.White.Mana != spells.MaxManaCap {
 		t.Errorf("mana = %d, atteso cap %d", s.White.Mana, spells.MaxManaCap)
 	}
@@ -374,5 +376,64 @@ func TestIsActiveAndAllows(t *testing.T) {
 	}
 	if !s.Allows(phase.ActionMakeMove) {
 		t.Error("la fase move deve permettere make_move")
+	}
+}
+
+// Il numero di bersagli è quello di Spell.Targets.
+func TestCastSpell_TargetCount(t *testing.T) {
+	s := New(1)
+	s.CurrentPhase = phase.PhaseMain1
+	s.White.Hand = []string{"blink"} // due bersagli
+	s.White.Mana = 5
+	_, err := s.CastSpell(PlayerWhite, "blink", []string{"b1"}, noApply)
+	if gameerr.From(err).Code != gameerr.InvalidTargetCount {
+		t.Errorf("un solo bersaglio per blink: err = %v, atteso invalid_target_count", err)
+	}
+	if _, err := s.CastSpell(PlayerWhite, "blink", []string{"b1", "c3"}, noApply); err != nil {
+		t.Errorf("blink con due bersagli: %v", err)
+	}
+}
+
+// Patto di sangue (per_turn 1): il secondo cast nello stesso turno è rifiutato
+// senza costi; al turno successivo del giocatore torna disponibile.
+func TestCastSpell_PerTurnLimit(t *testing.T) {
+	s := New(1)
+	s.CurrentPhase = phase.PhaseMain1
+	s.White.Hand = []string{"blood_pact", "blood_pact"}
+	s.White.Mana = 3
+
+	if _, err := s.CastSpell(PlayerWhite, "blood_pact", []string{"a2"}, noApply); err != nil {
+		t.Fatalf("primo patto di sangue: %v", err)
+	}
+	_, err := s.CastSpell(PlayerWhite, "blood_pact", []string{"b2"}, noApply)
+	ge := gameerr.From(err)
+	if ge.Code != gameerr.LimitReached || ge.Details["per_turn"] != 1 {
+		t.Errorf("secondo patto: err = %v %v, atteso limit_reached per_turn 1", ge.Code, ge.Details)
+	}
+	if s.White.HandIndex("blood_pact") < 0 || len(s.White.Hand) != 1 {
+		t.Error("la seconda copia deve restare in mano")
+	}
+	// Al limite la carta non conta come giocabile: la fase main si può saltare.
+	s.White.Mana = 0
+	if s.CanCastAny() {
+		t.Error("una magia al limite non deve rendere la fase giocabile")
+	}
+
+	advanceToNextTurn(s) // nero
+	advanceToNextTurn(s) // di nuovo bianco: i limiti ripartono
+	if s.White.CastsThisTurn != nil {
+		t.Errorf("i cast del turno devono azzerarsi, trovati %v", s.White.CastsThisTurn)
+	}
+	s.CurrentPhase = phase.PhaseMain1
+	if _, err := s.CastSpell(PlayerWhite, "blood_pact", []string{"a2"}, noApply); err != nil {
+		t.Errorf("patto di sangue al turno dopo: %v", err)
+	}
+}
+
+func TestGainMana_ExceedCap(t *testing.T) {
+	s := New(1)
+	s.White.Mana = 9
+	if m := s.GainMana(PlayerWhite, 3, true); m.Current != 12 {
+		t.Errorf("con exceedCap il mana = %d, atteso 12", m.Current)
 	}
 }

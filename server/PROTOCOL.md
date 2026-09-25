@@ -1,18 +1,30 @@
 # WebSocket Protocol — Chess + Magic
 
-Riferimento autoritativo del protocollo realtime del server. Per una checklist
-orientata all'implementazione del client vedi [FRONTEND_TEST_SPEC.md](FRONTEND_TEST_SPEC.md).
+Riferimento autoritativo del protocollo realtime del server. Le modifiche
+rispetto al commit `7f817e5` sono riassunte in
+[docs/SERVER-CHANGES.md](docs/SERVER-CHANGES.md).
 
 ## Connessione
 
 - Endpoint: `GET /ws` (upgrade a WebSocket).
-- Autenticazione JWT, in **uno** dei due modi:
-  - header `Authorization: Bearer <access_token>`, oppure
-  - query param `?token=<access_token>` (per i browser, che non possono
-    impostare header sul WebSocket).
+- Autenticazione, in **uno** dei tre modi:
+  - **consigliato:** ticket monouso. `GET /ws/ticket` (con `Authorization: Bearer <access_token>`)
+    risponde `{ticket, expires_in}`; poi si apre `/ws?ticket=<ticket>` entro
+    `expires_in` secondi (30). Il ticket vale una sola volta.
+  - header `Authorization: Bearer <access_token>`;
+  - query param `?token=<access_token>` (supportato, ma il JWT finisce nei log).
+- Solo gli **access token** sono accettati: un refresh token riceve 401.
 - Appena due giocatori sono in coda viene creata una `Room`; il primo in coda è
-  il **Bianco**, il secondo il **Nero**.
-- Rate limit: ~5 messaggi/secondo per client.
+  il **Bianco**, il secondo il **Nero**. L'identità dei giocatori arriva nel
+  primo `game_state` (`white_player` / `black_player`).
+- Se lo stesso utente apre una seconda connessione (in coda o in partita), la
+  connessione nuova prende il posto di quella vecchia: la vecchia riceve un
+  `error` con `code: "replaced_by_new_connection"` e viene chiusa con codice
+  WebSocket **4001**.
+- Heartbeat: il server manda un ping ogni ~54s e chiude la connessione se non
+  riceve nulla (pong o messaggi) per 60s. I browser rispondono ai ping da soli.
+- Dimensione massima di un messaggio in arrivo: 4096 byte.
+- Rate limit: ~5 messaggi/secondo per client (oltre: `error` con `code: "rate_limited"`).
 
 ## Inviluppo messaggi
 
@@ -30,8 +42,8 @@ in **UCI** (`"e2e4"`, promozione `"e7e8q"`).
 
 Sequenza fissa per turno: `draw → main1 → move → main2 → end_turn` (poi il turno
 passa all'avversario). Il server **auto-avanza** le fasi che non richiedono
-input, quindi il client può ricevere più `phase_changed` in sequenza e non
-osserva mai `draw` né `end_turn`:
+input, quindi il client può ricevere più `phase_changed` in sequenza. `draw`
+viene notificata al cambio di turno; `end_turn` non viene mai notificata.
 
 | Fase | Auto-avanza? | Azioni client |
 |------|-------------|---------------|
@@ -41,8 +53,8 @@ osserva mai `draw` né `end_turn`:
 | `main2` | se il giocatore non può castare nulla | `cast_spell`, `pass_phase` |
 | `end_turn` | transizione server-side | — |
 
-`resign` / `draw_offer` sono sempre ammessi durante il proprio turno. Dopo una
-mossa valida la fase avanza da sola (il client non manda `pass_phase`).
+`resign` / `draw_offer` sono ammessi in qualunque momento della partita. Dopo
+una mossa valida la fase avanza da sola (il client non manda `pass_phase`).
 
 ## Client → Server
 
@@ -50,91 +62,320 @@ mossa valida la fase avanza da sola (il client non manda `pass_phase`).
 |--------|-----------|------|
 | `move` | `{ "move": "e2e4" }` | solo in fase `move` |
 | `pass_phase` | _(nessuno)_ | solo in `main1`/`main2` |
-| `cast_spell` | `{ "spell_id": "...", "targets": ["e7"] }` | `main1`/`main2`; `targets` secondo il tipo (0/1/2 caselle) |
+| `cast_spell` | `{ "spell_id": "...", "targets": ["e7"], "choice": { "piece": "knight" } }` | `main1`/`main2`; `targets` = una casella per ogni elemento di `targets` della magia, nello stesso ordine; `choice` solo per `promote_piece` e per `revive_piece` con più tipi possibili |
 | `resign` | _(nessuno)_ | |
-| `draw_offer` | _(nessuno)_ | |
+| `draw_offer` | _(nessuno)_ | una sola offerta pendente per volta |
 | `draw_accepted` | _(nessuno)_ | in risposta a `draw_offer` |
 | `draw_declined` | _(nessuno)_ | in risposta a `draw_offer` |
+
+Dopo `game_over` ogni azione riceve `error` con `code: "game_over"`.
 
 ## Server → Client
 
 | `type` | `payload` | Destinatario |
 |--------|-----------|--------------|
-| `game_state` | vedi sotto | entrambi (pubblico) |
-| `timer_update` | `{ white_time, black_time, turn }` | entrambi (`turn` = giocatore attivo, di chi scorre il tempo) |
+| `game_state` | vedi sotto | entrambi, ciascuno la sua vista (rune nascoste dell'avversario tolte) |
+| `timer_update` | `{ white_time, black_time, turn }` | entrambi, ~1/s (`turn` = giocatore attivo, di chi scorre il tempo) |
 | `phase_changed` | `{ phase, active_player, turn_number }` | entrambi |
 | `hand` | `{ hand:[id...], mana, max_mana, deck_size }` | **solo proprietario** |
 | `card_drawn` | `{ card_id, deck_size }` | **solo chi pesca** |
 | `hand_size_changed` | `{ player, size }` | entrambi |
 | `mana_changed` | `{ player, current, max }` | entrambi |
-| `spell_cast` | `{ player, spell_id, targets, effects_applied:[...] }` | entrambi |
-| `effect_expired` | `{ square, effect_kind, piece_id?, reason? }` | entrambi |
+| `spell_cast` | `{ player, spell_id, targets, effects_applied:[...] }`; per una magia nascosta l'avversario riceve `{ player, hidden: true, effects_applied: [{ kind: "hidden_effect" }] }` | entrambi |
+| `graveyard_changed` | `{ player, graveyard: ["pawn", …] }`: il cimitero di un giocatore, in ordine | entrambi |
+| `square_effects_changed` | `{ square_effects: [...] }`: la lista completa degli stati delle case (stessa forma di `game_state.square_effects`), quando uno viene creato, rivelato, consumato o scade | entrambi, ciascuno la sua lista (rune nascoste dell'avversario tolte) |
+| `rune_triggered` | `{ square, owner, on_enter, result }`: una runa è scattata (vedi "Rune") | entrambi |
+| `effect_expired` | scadenza: `{ square, effect_kind, piece_id }`; scudo consumato: `{ square, effect_kind: "shield", reason: "shield_absorbed" }` | entrambi |
 | `game_over` | `{ result, reason, winner? }` | entrambi |
 | `draw_offer` | `{ from }` | avversario |
 | `draw_offer_sent` | `{ message }` | offerente |
-| `draw_declined` | `{ message }` | offerente |
+| `draw_declined` | `{ message, reason }` — `reason`: `"declined"` (rifiutata) o `"move_played"` (decaduta: l'avversario ha mosso) | offerente |
 | `opponent_disconnected` | `{ message }` | avversario |
 | `opponent_reconnected` | `{ message }` | avversario |
-| `error` | `{ message }` | mittente |
+| `error` | `{ message, code, details? }` | mittente |
+
+I campi `message` sono testo in italiano per il debug: il client deve basarsi
+su `type`, `code` e `reason`.
 
 ### `game_state` (stato pubblico)
 
+Arriva all'avvio della partita, dopo ogni mossa, dopo ogni magia che modifica la
+scacchiera, alla riconnessione (con `reconnected: true`) e subito **prima** di
+`game_over` (con lo `status` finale).
+
 ```json
 {
-  "board": { "fen": "...", "moves": ["e2e4"], "turn": "white", "status": "active" },
+  "board": { "fen": "...", "moves": ["e2e4", "0000"], "turn": "white", "status": "active" },
+  "white_player": { "id": 42, "username": "mario" },
+  "black_player": { "id": 7, "username": "luigi" },
+  "time_control": { "base_ms": 600000, "increment_ms": 5000 },
   "white_time": 600000, "black_time": 600000,
   "phase": "main1", "active_player": "white", "turn_number": 1,
   "white_mana": 1, "white_max_mana": 1, "black_mana": 1, "black_max_mana": 1,
   "white_hand_size": 4, "black_hand_size": 4,
   "white_deck_size": 36, "black_deck_size": 36,
-  "active_effects": [ { "square": "e7", "effects": [ { "kind": "freeze", "remaining_turns": 2 } ] } ],
+  "active_effects": [ { "square": "e7", "effects": [ { "kind": "freeze", "remaining_turns": 1, "source_spell_id": "frost", "caster": "white" } ] } ],
+  "white_graveyard": ["pawn"], "black_graveyard": [],
+  "square_effects": [
+    { "square": "e5", "effects": [ { "kind": "wall", "remaining_turns": 2, "source_spell_id": "ice_wall", "caster": "white" } ] },
+    { "square": "d6", "effects": [ { "kind": "rune", "remaining_turns": -1, "source_spell_id": "stasis_rune", "caster": "black",
+                                     "hidden": true, "rune": { "on_enter": "freeze_piece", "duration": 2 } } ] }
+  ],
   "reconnected": true
 }
 ```
 
-La **FEN è la fonte di verità** della scacchiera (aggiornata sia dalle mosse sia
-dalle magie che editano la board). Il client non ricalcola lo stato.
+- La **FEN è la fonte di verità** della scacchiera (aggiornata sia dalle mosse
+  sia dalle magie che editano la board). Il client non ricalcola lo stato.
+- `board.moves` contiene le mosse UCI; `"0000"` indica una mossa consumata senza
+  spostare pezzi (cattura assorbita da uno scudo). Le magie non compaiono nella
+  lista, quindi `moves` non basta a ricostruire la posizione.
+- `board.status`: `active`, `checkmate`, `stalemate`, `draw`, `resigned`,
+  `timeout`, `abandoned`. Tutti i valori diversi da `active` sono terminali.
+- `active_effects` è ordinato per casella.
+- `square_effects` (stati delle **case**: `wall`, `no_capture`, `rune`) è
+  ordinato per casella. Manca nei server precedenti allo Step 3 del catalogo:
+  vale lista vuota. Ogni giocatore riceve la **sua** vista: le rune nascoste
+  dell'avversario non ci sono, nemmeno alla riconnessione. Una runa ha
+  `remaining_turns: -1`, `hidden` (vera finché l'avversario non la vede: nella
+  lista del proprietario) e `rune` (`on_enter`, e se servono `duration`, `only`,
+  `fallback`, `fallback_duration`).
 
-`effects_applied` (in `spell_cast`) è una lista di oggetti `{ kind, ... }` con
-campi specifici per effetto: `destroy_piece` → `target`, `piece_destroyed`;
-`freeze_piece`/`shield_piece` → `target`, `remaining_turns`; `move_piece` →
-`from`, `to`; `draw_card` → `count`; `gain_mana` → `amount`, `mana`.
+### `game_over`
+
+`result`: `1-0`, `0-1`, `1/2-1/2`. `winner` (username) è presente solo se c'è un
+vincitore.
+
+| `reason` | `board.status` |
+|----------|----------------|
+| `checkmate` | `checkmate` |
+| `stalemate` | `stalemate` |
+| `draw` (50 mosse, materiale insufficiente, tripla ripetizione) | `draw` |
+| `agreement` | `draw` |
+| `resign` | `resigned` |
+| `timeout` | `timeout` |
+| `abandonment` | `abandoned` |
+
+Viene inviato **una sola volta** per partita.
+
+### `effects_applied` (in `spell_cast`)
+
+Lista di oggetti `{ kind, ... }` con campi specifici per effetto:
+`destroy_piece` → `target`, `piece_destroyed`; `freeze_piece`/`shield_piece` →
+`target`, `remaining_turns`; `move_piece` → `from`, `to` (anche per il movimento
+relativo, dove il client manda solo il pezzo); `summon_pawn` → `target`, `piece`;
+`draw_card` → `count` (carte davvero pescate); `gain_mana` → `amount`, `mana`;
+`freeze_all`/`shield_area` → `targets` (case colpite), `remaining_turns`;
+`swap_pieces` → `targets` (le due case); `transform_piece`/`promote_piece`/
+`revive_piece` → `target`, `piece` (il tipo risultante); `restore_castling_rights`
+→ nessun campo (arriva il `game_state` con la FEN nuova); `create_wall` →
+`target`, `remaining_turns`; `create_square_effect` → `target`, `effect` (es.
+`no_capture`), `remaining_turns` (la lista aggiornata arriva con
+`square_effects_changed`); `place_rune` → `targets` (le case), `on_enter`;
+`reveal_runes` → `side` (il giocatore le cui rune diventano visibili);
+`detonate_runes` → `runes` (le case delle rune consumate), `targets` (i pezzi
+congelati), `remaining_turns`; `hidden_effect` → nessun campo (lo riceve solo
+l'avversario di chi lancia una magia nascosta).
+
+### `error`
+
+```json
+{ "message": "mana insufficiente: servono 4, hai 1", "code": "insufficient_mana", "details": { "needed": 4, "available": 1 } }
+```
+
+| `code` | Quando | `details` |
+|--------|--------|-----------|
+| `invalid_payload` | JSON o payload malformato | — |
+| `unknown_message_type` | `type` non gestito | `type` |
+| `rate_limited` | troppi messaggi | — |
+| `game_over` | azione su una partita conclusa | — |
+| `replaced_by_new_connection` | un'altra connessione dello stesso utente ha preso il posto di questa | — |
+| `not_your_turn` | azione fuori turno | — |
+| `wrong_phase` | mossa, pass o magia nella fase sbagliata | `phase` |
+| `illegal_move` | mossa illegale | `move` |
+| `piece_frozen` | il pezzo da muovere è congelato | `square` |
+| `move_blocked` | uno stato della casa vieta la mossa: muro sul percorso o cattura su un santuario | `square`, `reason` (`wall`, `no_capture`) |
+| `unknown_spell` | `spell_id` inesistente | `spell_id` |
+| `card_not_in_hand` | carta non in mano | `spell_id` |
+| `insufficient_mana` | mana insufficiente | `needed`, `available` |
+| `invalid_target_count` | numero di bersagli errato | `expected`, `received` |
+| `invalid_target` | un bersaglio non rispetta il suo `TargetSpec` o l'effetto | `index`, `reason`, `square` |
+| `illegal_position` | la magia darebbe scacco o lascerebbe sotto scacco il re di chi lancia | `king` |
+| `limit_reached` | la magia ha già raggiunto i cast ammessi in questo turno | `spell_id`, `per_turn` |
+| `no_effect` | la magia non avrebbe effetto | `reason` |
+| `invalid_choice` | `choice` mancante o non ammessa | `reason` |
+| `draw_offer_pending` | c'è già un'offerta di patta | — |
+| `no_draw_offer` | risposta senza offerta pendente | — |
+| `own_draw_offer` | risposta alla propria offerta | — |
+| `internal_error` | errore imprevisto | — |
+
+Un `code` sconosciuto va trattato come errore generico.
+
+Valori di `reason` per `invalid_target`: `off_board`, `duplicate`, `not_empty`,
+`no_piece`, `wrong_owner`, `king`, `piece_kind`, `missing_effect`, `too_far`,
+`rank`, `max_pawns`, `promotion`, `pawn_rank`, `wall` (casa col muro: non è vuota),
+`no_capture` (Frantumare su un pezzo in un santuario). Un valore sconosciuto va trattato
+come bersaglio non valido generico.
+
+`no_effect` (la magia non avrebbe effetto, cast rifiutato a costo zero) ha
+`reason` ∈ `no_pieces`, `empty_graveyard`, `no_castling`, `no_runes`
+(Detonazione senza rune proprie); `invalid_choice` ha
+`reason` ∈ `missing`, `not_allowed`.
 
 ## Anti-cheat
 
 - Il client vede **solo la propria mano** (`hand`/`card_drawn`); dell'avversario
   conosce solo dimensione mano/mazzo e mana.
+- Le **rune nascoste** dell'avversario non arrivano mai: né in `game_state`
+  (anche alla riconnessione) né in `square_effects_changed`. Il cast di una runa
+  arriva all'avversario senza `spell_id` né `targets` (`hidden: true`); mana e
+  dimensione della mano cambiano come per ogni magia.
 - Il server è autoritativo: applica lui gli effetti e li comunica; il client li
   visualizza soltanto.
 
 ## Regole magiche rilevanti per il client
 
-- **freeze**: un pezzo congelato non può muoversi (mossa rifiutata con `error`).
-- **shield**: assorbe una cattura — il pezzo sopravvive ma l'attaccante consuma
-  comunque la mossa; arriva `effect_expired` con `reason: "shield_absorbed"`.
-- Gli effetti persistenti seguono il **pezzo** (non la casella) e durano
-  `remaining_turns` turni del proprietario.
+- **freeze**: un pezzo congelato non può muoversi (`error` `piece_frozen`).
+- **shield**: assorbe una cattura, anche **en passant**. Il pezzo sopravvive ma
+  l'attaccante consuma comunque la mossa (`"0000"` in `board.moves`); arriva
+  `effect_expired` con `reason: "shield_absorbed"` e `square` = casella del pezzo
+  protetto. Eccezione: se la cattura è l'unico modo in cui l'attaccante esce
+  dallo scacco, lo scudo **si rompe** e la cattura avviene normalmente (il pezzo
+  sparisce con il suo scudo, senza `effect_expired`).
+- Gli effetti persistenti seguono il **pezzo** (non la casella). La durata conta
+  i turni dell'**avversario di chi lancia** (`caster`): `remaining_turns` scende
+  alla fine di ciascuno di quei turni. `freeze` 1 blocca il prossimo turno del
+  pezzo colpito; `shield` 1 protegge durante il prossimo turno avversario e
+  sparisce all'inizio del turno dopo. `remaining_turns` 0 = fino alla fine del
+  turno di chi lancia; -1 = permanente.
+- **Stati delle case** (`square_effects`): restano sulla casa, qualunque pezzo
+  ci sia, con le stesse durate degli stati sui pezzi.
+  - **wall**: nessun pezzo ci entra né la attraversa (torre, alfiere e donna:
+    le case fra partenza e arrivo; pedone: la casa di mezzo della spinta
+    doppia; arrocco: tutte le case fra re e torre). Il cavallo lo scavalca ma
+    non ci atterra. Il muro blocca **solo il movimento**: scacco e matto restano
+    quelli degli scacchi (una torre dietro un muro dà ancora scacco).
+  - **no_capture** (santuario): nessuna cattura del pezzo che sta sulla casa,
+    en passant compreso (conta la casa del pedone preso), né distruzione di un
+    pezzo nemico con una magia; il sacrificio di un proprio pezzo è ammesso.
+  - Una mossa vietata è rifiutata con `move_blocked` (prima dello scudo, che non
+    si consuma). Una casa col muro non è vuota per i bersagli `empty_square`.
+- **Rune** (`rune`): stati delle case permanenti, finché non scattano o
+  vengono detonate; al massimo una per giocatore per casa (una seconda runa
+  propria sostituisce la prima). Una casa con le rune resta **vuota** per i
+  bersagli `empty_square`, anche per chi le vede.
+  - Una runa scatta quando un pezzo **nemico** di chi l'ha piazzata ci entra
+    **con una mossa**: normale, cattura, en passant, promozione; nell'arrocco
+    entra la torre. Il **re** non la fa scattare (può entrare, e la runa
+    resta); un pezzo arrivato per magia nemmeno. Poi si consuma.
+  - `on_enter`: `freeze_piece` (il pezzo è congelato per `duration` suoi turni;
+    quello in corso non conta), `return_to_origin` (il pezzo torna sulla casa di
+    partenza com'era prima della mossa — un pedone promosso torna pedone — con
+    id ed effetti; la cattura fatta entrando resta), `destroy_piece` (solo i
+    tipi in `only`; gli altri subiscono `fallback`; su un santuario il pezzo è
+    congelato invece). Lo scudo non protegge dalla distruzione.
+  - Se l'effetto lascerebbe sotto scacco il re di chi ha mosso, la runa **non
+    scatta** e resta nascosta. Matto, stallo e ripetizione si valutano sulla
+    posizione dopo la runa.
+  - `rune_triggered.result`: `{kind: "freeze_piece", target, remaining_turns}`,
+    `{kind: "return_to_origin", from, to}` oppure `{kind: "destroy_piece",
+    target, piece_destroyed}` (il pezzo va nel cimitero di chi ha mosso:
+    arriva `graveyard_changed`). Arrivano poi `game_state` e
+    `square_effects_changed` senza la runa.
+  - **Rivelazione** rende visibili a entrambi, per sempre, le rune nemiche che
+    esistono in quel momento; quelle piazzate dopo sono di nuovo nascoste.
+    **Detonazione** consuma le proprie rune e congela i pezzi nemici entro 1
+    casa da ciascuna (non il re).
+- **Bersagli.** Ogni magia dichiara in `targets` una lista di `TargetSpec`
+  (vedi sotto); il cast manda una casella per elemento, nello stesso ordine. Le
+  caselle devono essere distinte e il re non è mai un bersaglio (salvo un
+  `own_piece` che lo elenca esplicitamente in `pieces`).
+- **Niente scacco da magia**, in `main1` come in `main2`: una magia che tocca la
+  scacchiera è rifiutata con `illegal_position` se dà scacco al re avversario o
+  lascia sotto scacco il re di chi lancia (se lo era già, la magia deve
+  risolvere lo scacco). Se il re avversario era già sotto scacco per la mossa del
+  turno, la magia è ammessa. Il matto arriva solo da una mossa.
+- **Senza mosse giocabili**: se tutte le mosse legali del giocatore di turno sono
+  di pezzi congelati o bloccate da muri e santuari, valgono le regole degli scacchi: re sotto scacco = matto,
+  altrimenti stallo. Si verifica dopo ogni mossa, a ogni cambio di turno e dopo
+  una magia in `main1` che cambia la scacchiera (un Patto di sangue può lasciare
+  senza mosse chi lo lancia, come un muro).
+- **move_piece** sposta un pezzo proprio su una casella vuota senza regole di
+  movimento: un re su g1 non arrocca, un pedone in diagonale non cattura en
+  passant. Con `relative: "forward"` il client manda solo il pezzo e il server
+  calcola l'arrivo (`squares` passi in avanti per chi lancia); con
+  `no_promotion` non si arriva all'ultima traversa.
+- Una magia che toglie o sposta il pedone appena spinto di due azzera la casella
+  en passant della FEN.
+- **Limiti per turno** (`limits.per_turn`): oltre il limite il cast è rifiutato
+  con `limit_reached`; il conteggio riparte all'inizio di ogni turno del
+  giocatore. Una carta al limite non tiene aperta la fase main.
+- Una magia non cambia mai il tratto e non fa avanzare la fase (l'auto-avanzamento
+  scatta solo se, dopo il cast, non resta nulla di castabile).
 
-## Catalogo magie (set MVP)
+## Catalogo magie
 
-| ID | Nome | Costo | Target | Effetto |
-|----|------|-------|--------|---------|
-| `spark`/`jolt`/`pulse`/`surge`/`nova` | — | 1/2/2/3/5 | none | `noop` (placeholder) |
-| `disintegrate` | Disintegrate | 4 | enemy_piece | distrugge un pezzo nemico |
-| `frostbolt` | Frost Bolt | 2 | enemy_piece | congela un pezzo nemico (2 turni) |
-| `aegis` | Aegis | 3 | own_piece | scudo su un pezzo proprio (2 turni) |
-| `insight` | Insight | 1 | none | pesca 1 carta |
-| `channel` | Channel | 0 | none | +2 mana questo turno |
-| `teleport` | Teleport | 3 | piece_move | sposta un pezzo proprio su casella vuota |
+Il catalogo segue `docs/BRIEFING-MAGIE.md` e cresce per step: oggi contiene le 26
+magie degli Step 1–4. Disponibile via `GET /spells`:
 
-Mazzo: 40 carte (in Fase 1 condiviso/identico per i due giocatori).
+```json
+{ "id": "blink", "name": "Blink", "mana_cost": 4, "phases": ["main1", "main2"],
+  "targets": [ { "type": "own_piece", "pieces": ["knight", "bishop"] },
+               { "type": "square", "empty_square": true, "max_distance": 2 } ],
+  "effects": [ { "kind": "move_piece", "params": { "no_check": true } } ],
+  "tags": ["arcano"], "rarity": "common" }
+```
+
+`TargetSpec`: `type` ∈ `square`/`own_piece`/`enemy_piece`; opzionali `pieces`
+(ammessi; assente = tutti tranne il re), `require_effect` (stato richiesto, es.
+`freeze`), `empty_square`, `max_distance` (Chebyshev dal bersaglio precedente),
+`own_ranks` e `min_rank` (traverse relative a chi lancia, 1 = la sua prima).
+`targets` vuoto = nessun bersaglio. `rarity` ∈ `common`/`legendary`; `limits`
+(opzionale) = `{ "per_turn": n }`.
+
+| ID | Nome | Costo | Bersagli | Effetto |
+|----|------|-------|----------|---------|
+| `frost` | Brina | 1 | pedone nemico | `freeze_piece` 1 |
+| `ice_chain` | Catena di ghiaccio | 3 | cavallo o alfiere nemico | `freeze_piece` 1 |
+| `shatter` | Frantumare | 4 | pezzo nemico congelato, non regina | `destroy_piece` |
+| `blood_pact` | Patto di sangue | 0 | proprio pedone | `destroy_piece` + `gain_mana` 2 (cap 10), 1 per turno |
+| `blink` | Blink | 4 | proprio pezzo minore + casa vuota entro 2 | `move_piece` |
+| `shield` | Scudo | 2 | proprio pezzo, non regina né re | `shield_piece` 1 |
+| `royal_shield` | Scudo reale | 4 | propria regina | `shield_piece` 1 |
+| `forced_march` | Marcia forzata | 1 | proprio pedone | `move_piece` avanti di 1, senza cattura né promozione |
+| `conscription` | Leva militare | 4 | casa vuota della propria 2ª traversa | `summon_pawn` (massimo 8 pedoni) |
+| `eternal_winter` | Inverno eterno (leggendaria) | 7 | — | `freeze_all` sui pedoni nemici, 1 |
+| `recall` | Richiamo | 3 | casa vuota della propria 2ª traversa | `revive_piece` di un pedone |
+| `resurrection` | Resurrezione (leggendaria) | 8 | casa vuota della propria 1ª traversa | `revive_piece` di cavallo, alfiere o torre (`choice`) |
+| `swap` | Scambio | 3 | due propri pezzi, non il re | `swap_pieces` |
+| `metamorphosis` | Metamorfosi | 5 | proprio cavallo o alfiere | `transform_piece` cavallo ↔ alfiere |
+| `royal_guard` | Guardia reale | 3 | — | `shield_area` ai propri pezzi attorno al re, 1 |
+| `divine_castling` | Arrocco divino | 4, solo main1 | — | `restore_castling_rights` |
+| `phalanx` | Falange | 3 | — | `shield_area` ai propri pedoni con un pedone accanto sulla traversa, 1 |
+| `early_promotion` | Promozione anticipata (leggendaria) | 6 | proprio pedone dalla 6ª traversa | `promote_piece` (`choice`) |
+| `ice_wall` | Muro di ghiaccio | 2 | casa vuota | `create_wall` 2 |
+| `sanctuary` | Santuario | 5 | una casa qualsiasi | `create_square_effect` `no_capture` 3 |
+| `revelation` | Rivelazione | 1 | — | `reveal_runes` sulle rune nemiche + `draw_card` 1 |
+| `stasis_rune` | Runa di stasi | 2 | casa vuota | `place_rune`: congela 2 turni chi entra (nascosta) |
+| `repel_rune` | Runa di respinta | 2 | casa vuota | `place_rune`: chi entra torna alla casa di partenza (nascosta) |
+| `explosive_rune` | Runa esplosiva | 3 | casa vuota | `place_rune`: distrugge pedone o pezzo minore, congela 1 turno torre e regina (nascosta) |
+| `detonation` | Detonazione | 4 | — | `detonate_runes`: consuma le proprie rune e congela 1 turno i nemici attorno |
+| `minefield` | Campo minato (leggendaria) | 7 | tre case vuote | `place_rune`: tre Rune di stasi (nascosta) |
+
+**Cimitero.** Ogni pezzo tolto dalla scacchiera (cattura, anche en passant, o
+magia) va nel cimitero del proprietario con il tipo che aveva; la cattura
+assorbita da uno scudo no. Richiamo e Resurrezione ne tolgono la prima
+occorrenza del tipo riportato, che torna con un id nuovo e senza effetti.
+**Scambio** non può portare un pedone sulla 1ª o sull'8ª traversa (`pawn_rank`).
+**Arrocco divino** ripristina il diritto solo dove re e torre sono sulle case
+iniziali; arroccare attraverso case attaccate resta vietato.
+
+Mazzo: 40 carte, identico per i due giocatori, nei limiti di copie della
+rarità (2 per le comuni, 1 per le leggendarie).
 
 ## Limiti noti
 
 - Le partite in corso sono persistite in Postgres: un riavvio del server non le
   perde e i giocatori possono riconnettersi (le room ripristinate restano
   dormienti finché qualcuno non si riconnette).
-- Il server non comunica esplicitamente il colore del giocatore: il client lo
-  deduce.
-- `move_piece` (Teleport) può lasciare il re avversario sotto scacco (legale);
-  garantisce solo che il re di chi lancia non resti sotto scacco.
+- Il PGN salvato nel DB usa mosse UCI numerate (non SAN) e non registra le magie.

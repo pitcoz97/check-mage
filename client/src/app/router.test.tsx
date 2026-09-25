@@ -90,13 +90,13 @@ describe('router e layout shell', () => {
   it('/dev/cards mostra tutto il catalogo (solo in sviluppo)', async () => {
     await renderAuthenticated('/dev/cards');
     expect(await screen.findByRole('heading', { name: 'Catalogo magie' }, { timeout: 5_000 })).toBeTruthy();
-    await waitFor(() => expect(document.querySelectorAll('[data-card]').length).toBeGreaterThan(11));
-    expect(screen.getByText('Sorgente: server — 11 magie')).toBeTruthy();
+    await waitFor(() => expect(document.querySelectorAll('[data-card]').length).toBeGreaterThan(18));
+    expect(screen.getByText('Sorgente: server — 26 magie')).toBeTruthy();
     // Stato scelto dal selettore: con mana 0 resta giocabile solo la magia che costa 0.
     fireEvent.click(screen.getByRole('button', { name: 'Mana insufficiente' }));
     // La griglia e la mano a ventaglio mostrano le stesse carte: conta la griglia.
     const grid = [...document.querySelectorAll('[data-playable="true"]')].filter((card) => card.closest('[data-hand]') === null);
-    expect(grid.map((card) => card.getAttribute('data-card'))).toEqual(['channel']);
+    expect(grid.map((card) => card.getAttribute('data-card'))).toEqual(['blood_pact']);
   });
 
   it('/match senza una partita in corso → lobby (aprire il socket metterebbe in coda)', async () => {

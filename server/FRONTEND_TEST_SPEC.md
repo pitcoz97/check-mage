@@ -1,5 +1,7 @@
 # Frontend di test — Funzionalità da implementare
 
+> **Nota (settembre 2026):** alcune parti di questa checklist sono superate. Il riferimento è [PROTOCOL.md](PROTOCOL.md); le modifiche recenti per il client sono in [docs/SERVER-CHANGES.md](docs/SERVER-CHANGES.md) (codici d'errore, identità dei giocatori, ticket WebSocket, nuovi status di fine partita).
+
 Checklist completa delle funzionalità che il client di test ("Chess server web frontend")
 deve avere per esercitare **tutto** il server, incluse le modifiche **scacchi + magie**
 (roadmap in `update.md`). Riferimento autoritativo del protocollo: [PROTOCOL.md](PROTOCOL.md).

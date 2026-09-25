@@ -83,6 +83,11 @@ function snapshotOf(state: MatchState) {
     effects: [...(game?.activeEffects ?? [])]
       .map((e) => ({ square: e.square, kinds: e.effects.map((x) => `${x.kind}:${String(x.sourceSpellId)}`).sort() }))
       .sort((a, b) => a.square.localeCompare(b.square)),
+    // Stati delle case (muri, santuari, rune): sempre liste intere del server, quindi confrontabili per intero.
+    squares: (game?.squareStates ?? []).map((s) => ({
+      square: s.square,
+      kinds: s.effects.map((x) => `${x.kind}:${String(x.owner ?? '')}:${String(x.hidden ?? '')}`).sort(),
+    })),
   };
 }
 
@@ -93,6 +98,8 @@ export class E2EClient {
   readonly failures: DecodeFailure[] = [];
   readonly warnings: AdapterWarning[] = [];
   readonly problems: string[] = [];
+  /** Frame grezzi ricevuti, prima dell'adapter: servono a verificare che cosa il server non manda (anti-cheat). */
+  readonly frames: string[] = [];
   /** Stati della connessione attraversati, in ordine. */
   readonly statusHistory: ConnectionStatus['kind'][] = [];
 
@@ -251,6 +258,7 @@ export class E2EClient {
   }
 
   private onFrame(raw: string, store: StoreApi<MatchStoreState>): void {
+    this.frames.push(raw);
     try {
       const result = routeFrame(raw, { dispatch: (event) => this.record(event, store) }, silent);
       if (result.ok) this.warnings.push(...result.warnings);

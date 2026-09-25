@@ -109,3 +109,15 @@ func TestLoad_DefaultValues(t *testing.T) {
 		t.Errorf("DefaultBaseTime = %v, want %v", C.DefaultBaseTime, 10*time.Minute)
 	}
 }
+
+func TestGetList(t *testing.T) {
+	os.Setenv("TEST_LIST", " a , b,,c ")
+	defer os.Unsetenv("TEST_LIST")
+	got := getList("TEST_LIST", nil)
+	if len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "c" {
+		t.Errorf("getList = %v, want [a b c]", got)
+	}
+	if def := getList("TEST_LIST_MISSING", []string{"x"}); len(def) != 1 || def[0] != "x" {
+		t.Errorf("default = %v, want [x]", def)
+	}
+}

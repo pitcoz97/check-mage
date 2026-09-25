@@ -8,44 +8,38 @@ import (
 	"testing"
 )
 
+// Senza database configurato il health check risponde 503 con status
+// "unavailable" (prima andava in panic).
 func TestStatusHandler(t *testing.T) {
 	req := httptest.NewRequest("GET", "/status", nil)
 	rr := httptest.NewRecorder()
 
 	StatusHandler(rr, req)
 
-	// Verifica status code
-	if rr.Code != http.StatusOK {
-		t.Errorf("Status = %v, want %v", rr.Code, http.StatusOK)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("Status = %v, want %v", rr.Code, http.StatusServiceUnavailable)
 	}
 
-	// Verifica content type
 	contentType := rr.Header().Get("Content-Type")
 	if contentType != "application/json" {
 		t.Errorf("Content-Type = %v, want %v", contentType, "application/json")
 	}
 
-	// Decodifica risposta
 	var resp models.APIResponse
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
-
-	// Verifica success
-	if resp.Success != true {
-		t.Errorf("Success = %v, want %v", resp.Success, true)
+	if resp.Success {
+		t.Error("Success dovrebbe essere false senza DB")
 	}
 
-	// Verifica che ci siano i dati
 	data, ok := resp.Data.(map[string]interface{})
 	if !ok {
 		t.Fatal("Data dovrebbe essere un map")
 	}
-
-	if data["status"] != "ok" {
-		t.Errorf("status = %v, want %v", data["status"], "ok")
+	if data["status"] != "unavailable" {
+		t.Errorf("status = %v, want %v", data["status"], "unavailable")
 	}
-
 	if data["version"] != "0.1.0" {
 		t.Errorf("version = %v, want %v", data["version"], "0.1.0")
 	}

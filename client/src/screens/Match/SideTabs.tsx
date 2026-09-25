@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { PlayedMove } from '../../game/model';
 import { useCatalog } from '../../spells/CatalogProvider';
-import { spellRulesText } from '../../spells/effects.registry';
+import { spellName, spellText } from '../../spells/texts';
 import { useMatch } from '../../store/MatchProvider';
 import type { LoggedSpell } from '../../store/matchStore';
 
@@ -138,7 +138,9 @@ function MoveList() {
             <svg viewBox="0 0 24 24" aria-hidden="true" className="size-3.5 shrink-0 text-arcane-bright" fill="currentColor">
               <path d="M12 3l1.8 4.6L18.5 9.5l-4.7 1.9L12 16l-1.8-4.6L5.5 9.5l4.7-1.9z" />
             </svg>
-            <span className="font-bold text-arcane-bright">{byId.get(row.spell.spellId)?.name ?? row.spell.spellId}</span>
+            <span className="font-bold text-arcane-bright">
+              {row.spell.spellId === null ? t('spells.hiddenSpell') : spellName(t, byId.get(row.spell.spellId), row.spell.spellId)}
+            </span>
             {row.spell.targets.length > 0 && <span className="text-muted">→ {row.spell.targets.join(' ')}</span>}
             <span className="grow" />
             <span className="text-12 text-faint">
@@ -160,13 +162,13 @@ function Grimoire() {
       {spells.map((spell) => (
         <li key={spell.id} className="flex flex-col gap-1 rounded-8 px-2.5 py-2 odd:bg-row-stripe">
           <span className="flex items-center gap-2">
-            <span className="font-display text-14 font-bold tracking-[0.02em]">{spell.name}</span>
+            <span className="font-display text-14 font-bold tracking-[0.02em]">{spellName(t, spell, spell.id)}</span>
             <span className="grow" />
             <span className="flex size-5 items-center justify-center rounded-full bg-gold text-12 font-extrabold text-on-gold shadow-edge-coin">
               {spell.manaCost}
             </span>
           </span>
-          <span className="text-13 leading-[1.4] text-tertiary">{spellRulesText(t, spell.effects).join(' ')}</span>
+          <span className="text-13 leading-[1.4] text-tertiary">{spellText(t, spell, spell.id).join(' ')}</span>
         </li>
       ))}
     </ul>

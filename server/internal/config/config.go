@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -32,6 +33,10 @@ type Config struct {
 	RateGeneral float64
 	RateAuth    float64
 	RateWS      float64
+
+	// HTTP
+	CORSAllowedOrigins []string // origini ammesse (pattern go-chi/cors, es. "https://*")
+	TrustedProxies     []string // IP o CIDR dei reverse proxy di cui fidarsi per X-Forwarded-For
 
 	// Environment
 	Env string
@@ -65,6 +70,10 @@ func Load() {
 		RateGeneral: getFloat("RATE_GENERAL", 10),
 		RateAuth:    getFloat("RATE_AUTH", 3),
 		RateWS:      getFloat("RATE_WS", 1),
+
+		CORSAllowedOrigins: getList("CORS_ALLOWED_ORIGINS",
+			[]string{"https://*", "http://*", "capacitor://localhost"}),
+		TrustedProxies: getList("TRUSTED_PROXIES", nil),
 
 		Env: getEnv("ENV", "development"),
 	}
@@ -110,4 +119,19 @@ func getFloat(key string, defaultVal float64) float64 {
 		return defaultVal
 	}
 	return f
+}
+
+// getList legge una lista separata da virgole (spazi ignorati) con un default.
+func getList(key string, defaultVal []string) []string {
+	val := os.Getenv(key)
+	if val == "" {
+		return defaultVal
+	}
+	var out []string
+	for _, item := range strings.Split(val, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }

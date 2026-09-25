@@ -28,6 +28,7 @@ import {
   GAME_OVER_REASONS,
   GAME_RESULTS,
   PHASES,
+  PERMANENT_TURNS,
   PIECE_KINDS,
   PROTOCOL_ERROR_CODES,
   type ActiveEffect,
@@ -40,6 +41,7 @@ import {
   type PlayedMove,
   type ProtocolErrorCode,
   type ProtocolErrorInfo,
+  type RuneResult,
   type Square,
   type SquareEffects,
   type TimeControl,
@@ -185,27 +187,50 @@ const wireActiveEffectSchema = z.object({
   kind: nonEmptyString,
   remaining_turns: count,
   source_spell_id: z.string().optional(),
+  caster: loose,
+  // Solo per le rune (Step 4): `hidden` manca quando è falsa, `rune` porta cosa fa quando scatta.
+  hidden: loose,
+  rune: loose,
 });
+const wireRuneSpecSchema = z.object({ on_enter: nonEmptyString });
+
+/** Uno stato attivo sul filo → modello. `-1` = permanente (le rune, ASSUMPTIONS S9); altri negativi a 0. */
+function decodeActiveEffect(ctx: Ctx, effect: z.infer<typeof wireActiveEffectSchema>): ActiveEffect {
+  const remainingTurns =
+    effect.remaining_turns === PERMANENT_TURNS ? PERMANENT_TURNS : clampNonNegative(ctx, effect.remaining_turns, 'remaining_turns');
+  const base: ActiveEffect = {
+    kind: effect.kind,
+    remainingTurns,
+    sourceSpellId: effect.source_spell_id !== undefined && effect.source_spell_id !== '' ? effect.source_spell_id : null,
+  };
+  if (effect.kind !== 'rune') return base;
+  const spec = parseWith(wireRuneSpecSchema, effect.rune);
+  if (!spec.ok) warn(ctx, 'active_effect_malformed', `rune: ${spec.issues.join('; ')}`);
+  const owner = parseWith(colorSchema, effect.caster);
+  return {
+    ...base,
+    hidden: effect.hidden === true,
+    ...(owner.ok ? { owner: owner.data } : {}),
+    ...(spec.ok ? { onEnter: spec.data.on_enter } : {}),
+  };
+}
 const wireSquareEffectsSchema = z.object({ square: squareSchema, effects: z.array(wireActiveEffectSchema) });
 
-function decodeActiveEffects(ctx: Ctx, raw: unknown): SquareEffects[] {
+/** Stati per casa: `active_effects` (sui pezzi) e `square_effects` (sulle case) hanno la stessa forma. */
+function decodeActiveEffects(ctx: Ctx, raw: unknown, field = 'active_effects'): SquareEffects[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) {
-    warn(ctx, 'active_effect_malformed', 'active_effects non è un array');
+    warn(ctx, 'active_effect_malformed', `${field} non è un array`);
     return [];
   }
   const out: SquareEffects[] = [];
   raw.forEach((item: unknown, index) => {
     const parsed = parseWith(wireSquareEffectsSchema, item);
     if (!parsed.ok) {
-      warn(ctx, 'active_effect_malformed', `active_effects[${index}]: ${parsed.issues.join('; ')}`);
+      warn(ctx, 'active_effect_malformed', `${field}[${index}]: ${parsed.issues.join('; ')}`);
       return;
     }
-    const effects: ActiveEffect[] = parsed.data.effects.map((effect) => ({
-      kind: effect.kind,
-      remainingTurns: clampNonNegative(ctx, effect.remaining_turns, 'remaining_turns'),
-      sourceSpellId: effect.source_spell_id !== undefined && effect.source_spell_id !== '' ? effect.source_spell_id : null,
-    }));
+    const effects: ActiveEffect[] = parsed.data.effects.map((effect) => decodeActiveEffect(ctx, effect));
     out.push({ square: parsed.data.square, effects });
   });
   return out;
@@ -261,6 +286,14 @@ const APPLIED_EFFECT_SCHEMAS = {
   move_piece: z.object({ from: squareSchema, to: squareSchema }),
   draw_card: z.object({ count }),
   gain_mana: z.object({ amount: count, mana: count }),
+  summon_pawn: z.object({ target: squareSchema, piece: loose }),
+  mass: z.object({ targets: z.array(squareSchema), remaining_turns: count }),
+  swap_pieces: z.object({ targets: z.array(squareSchema) }),
+  create_wall: z.object({ target: squareSchema, remaining_turns: count }),
+  create_square_effect: z.object({ target: squareSchema, effect: nonEmptyString, remaining_turns: count }),
+  place_rune: z.object({ targets: z.array(squareSchema), on_enter: nonEmptyString }),
+  reveal_runes: z.object({ side: colorSchema }),
+  detonate_runes: z.object({ runes: z.array(squareSchema), targets: z.array(squareSchema), remaining_turns: count }),
 } as const;
 
 function decodeAppliedEffect(ctx: Ctx, raw: unknown, index: number): AppliedEffect {
@@ -301,6 +334,57 @@ function decodeAppliedEffect(ctx: Ctx, raw: unknown, index: number): AppliedEffe
       return p.ok
         ? { kind, amount: p.data.amount, manaAfter: clampNonNegative(ctx, p.data.mana, 'mana') }
         : unknown(p.issues.join('; '));
+    }
+    case 'freeze_all':
+    case 'shield_area': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.mass, raw);
+      if (!p.ok) return unknown(p.issues.join('; '));
+      return { kind, targets: p.data.targets, remainingTurns: clampNonNegative(ctx, p.data.remaining_turns, 'remaining_turns') };
+    }
+    case 'swap_pieces': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.swap_pieces, raw);
+      return p.ok ? { kind, targets: p.data.targets } : unknown(p.issues.join('; '));
+    }
+    case 'restore_castling_rights':
+      return { kind };
+    case 'create_wall': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.create_wall, raw);
+      if (!p.ok) return unknown(p.issues.join('; '));
+      return { kind, target: p.data.target, state: 'wall', remainingTurns: clampNonNegative(ctx, p.data.remaining_turns, 'remaining_turns') };
+    }
+    case 'create_square_effect': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.create_square_effect, raw);
+      if (!p.ok) return unknown(p.issues.join('; '));
+      return {
+        kind,
+        target: p.data.target,
+        state: p.data.effect,
+        remainingTurns: clampNonNegative(ctx, p.data.remaining_turns, 'remaining_turns'),
+      };
+    }
+    case 'place_rune': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.place_rune, raw);
+      return p.ok ? { kind, targets: p.data.targets, onEnter: p.data.on_enter } : unknown(p.issues.join('; '));
+    }
+    case 'reveal_runes': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.reveal_runes, raw);
+      return p.ok ? { kind, side: p.data.side } : unknown(p.issues.join('; '));
+    }
+    case 'detonate_runes': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.detonate_runes, raw);
+      if (!p.ok) return unknown(p.issues.join('; '));
+      return { kind, runes: p.data.runes, targets: p.data.targets, remainingTurns: clampNonNegative(ctx, p.data.remaining_turns, 'remaining_turns') };
+    }
+    case 'hidden_effect':
+      return { kind };
+    case 'summon_pawn':
+    case 'transform_piece':
+    case 'promote_piece':
+    case 'revive_piece': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.summon_pawn, raw);
+      if (!p.ok) return unknown(p.issues.join('; '));
+      const piece = p.data.piece;
+      return { kind, target: p.data.target, piece: isOneOf(PIECE_NAMES, piece) ? piece : readEnum(ctx, piece, PIECE_NAMES, 'piece') };
     }
     default:
       return unknown(`kind sconosciuto ${JSON.stringify(kind)}`);
@@ -372,6 +456,9 @@ const gameStateSchema = z.object({
   white_deck_size: count,
   black_deck_size: count,
   active_effects: loose,
+  white_graveyard: loose,
+  black_graveyard: loose,
+  square_effects: loose,
   reconnected: loose,
   white_player: loose,
   black_player: loose,
@@ -400,12 +487,38 @@ const decodeGameState: Decoder<'game_state'> = (payload, ctx) =>
         handSizes: perColor(n(core.white_hand_size, 'white_hand_size'), n(core.black_hand_size, 'black_hand_size')),
         deckSizes: perColor(n(core.white_deck_size, 'white_deck_size'), n(core.black_deck_size, 'black_deck_size')),
         activeEffects: decodeActiveEffects(ctx, core.active_effects),
+        graveyards: perColor(decodeGraveyard(ctx, core.white_graveyard, 'white_graveyard'), decodeGraveyard(ctx, core.black_graveyard, 'black_graveyard')),
+        // Assente nei server precedenti allo Step 3 del catalogo: nessuno stato sulle case (ASSUMPTIONS S7).
+        squareStates: decodeActiveEffects(ctx, core.square_effects, 'square_effects'),
         reconnected: core.reconnected === true,
         players: decodePlayers(ctx, core.white_player, core.black_player),
         timeControl: decodeTimeControl(ctx, core.time_control),
       },
     };
   });
+
+/** Cimitero: lista di tipi di pezzo; assente (server precedente) = vuoto, tipi sconosciuti scartati con warning. */
+function decodeGraveyard(ctx: Ctx, raw: unknown, field: string): PieceKind[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    warn(ctx, 'value_invalid', field);
+    return [];
+  }
+  return raw.map((piece, index) => readEnum(ctx, piece, PIECE_NAMES, `${field}[${index}]`)).filter((piece) => piece !== 'unknown');
+}
+
+const decodeGraveyardChanged: Decoder<'graveyard_changed'> = (payload, ctx) =>
+  withCore(z.object({ player: colorSchema, graveyard: loose }), payload, (core) => ({
+    type: 'graveyard_changed',
+    player: core.player,
+    graveyard: decodeGraveyard(ctx, core.graveyard, 'graveyard'),
+  }));
+
+const decodeSquareEffectsChanged: Decoder<'square_effects_changed'> = (payload, ctx) =>
+  withCore(z.object({ square_effects: loose }), payload, (core) => ({
+    type: 'square_effects_changed',
+    squareStates: decodeActiveEffects(ctx, core.square_effects, 'square_effects'),
+  }));
 
 // `game/room.go:1004-1019`
 const decodeHand: Decoder<'hand'> = (payload, ctx) =>
@@ -453,27 +566,86 @@ const decodePhaseChanged: Decoder<'phase_changed'> = (payload, ctx) =>
   }));
 
 // `game/room.go:685-690`. `targets` ed `effects_applied` tollerati anche `null`.
-const decodeSpellCast: Decoder<'spell_cast'> = (payload, ctx) =>
-  withCore(
-    z.object({ player: colorSchema, spell_id: nonEmptyString, targets: nullableList(z.unknown()), effects_applied: loose }),
-    payload,
-    (core) => {
-      const targets = core.targets.filter(isSquare);
-      if (targets.length !== core.targets.length) warn(ctx, 'value_invalid', 'spell_cast.targets');
-      const rawEffects = core.effects_applied;
-      const list: unknown[] = Array.isArray(rawEffects) ? rawEffects : [];
-      if (rawEffects !== undefined && rawEffects !== null && !Array.isArray(rawEffects)) {
-        warn(ctx, 'effect_unknown', 'effects_applied non è un array');
-      }
+// `game/room.go` handleCastSpell. Una magia nascosta (una runa dell'avversario) arriva con `hidden: true`, senza
+// `spell_id` né `targets` (ASSUMPTIONS M42): diventa `spellId: null` e nessun bersaglio.
+const spellCastSchema = z.object({ player: colorSchema, spell_id: nonEmptyString, targets: nullableList(z.unknown()), effects_applied: loose });
+const hiddenSpellCastSchema = z.object({ player: colorSchema, effects_applied: loose });
+
+function decodeAppliedEffects(ctx: Ctx, raw: unknown): AppliedEffect[] {
+  if (raw !== undefined && raw !== null && !Array.isArray(raw)) warn(ctx, 'effect_unknown', 'effects_applied non è un array');
+  const list: unknown[] = Array.isArray(raw) ? raw : [];
+  return list.map((effect, index) => decodeAppliedEffect(ctx, effect, index));
+}
+
+const decodeSpellCast: Decoder<'spell_cast'> = (payload, ctx) => {
+  if (isRecord(payload) && payload['hidden'] === true) {
+    return withCore(hiddenSpellCastSchema, payload, (core) => ({
+      type: 'spell_cast',
+      player: core.player,
+      spellId: null,
+      targets: [],
+      effects: decodeAppliedEffects(ctx, core.effects_applied),
+    }));
+  }
+  return withCore(spellCastSchema, payload, (core) => {
+    const targets = core.targets.filter(isSquare);
+    if (targets.length !== core.targets.length) warn(ctx, 'value_invalid', 'spell_cast.targets');
+    return {
+      type: 'spell_cast',
+      player: core.player,
+      spellId: core.spell_id,
+      targets,
+      effects: decodeAppliedEffects(ctx, core.effects_applied),
+    };
+  });
+};
+
+// `game/room.go` triggerRune: lo stato aggiornato arriva a parte, qui solo cosa è successo.
+const RUNE_RESULT_SCHEMAS = {
+  freeze_piece: z.object({ target: squareSchema, remaining_turns: count }),
+  return_to_origin: z.object({ from: squareSchema, to: squareSchema }),
+  destroy_piece: z.object({ target: squareSchema, piece_destroyed: loose }),
+} as const;
+
+function decodeRuneResult(ctx: Ctx, raw: unknown): RuneResult {
+  const kind = isRecord(raw) && typeof raw['kind'] === 'string' ? raw['kind'] : '';
+  const unknown = (detail: string): RuneResult => {
+    warn(ctx, 'effect_unknown', `rune_triggered.result: ${detail}`);
+    return { kind: 'unknown', rawKind: kind };
+  };
+  switch (kind) {
+    case 'freeze_piece': {
+      const p = parseWith(RUNE_RESULT_SCHEMAS.freeze_piece, raw);
+      if (!p.ok) return unknown(p.issues.join('; '));
+      return { kind, target: p.data.target, remainingTurns: clampNonNegative(ctx, p.data.remaining_turns, 'remaining_turns') };
+    }
+    case 'return_to_origin': {
+      const p = parseWith(RUNE_RESULT_SCHEMAS.return_to_origin, raw);
+      return p.ok ? { kind, from: p.data.from, to: p.data.to } : unknown(p.issues.join('; '));
+    }
+    case 'destroy_piece': {
+      const p = parseWith(RUNE_RESULT_SCHEMAS.destroy_piece, raw);
+      if (!p.ok) return unknown(p.issues.join('; '));
+      const destroyed = p.data.piece_destroyed;
       return {
-        type: 'spell_cast',
-        player: core.player,
-        spellId: core.spell_id,
-        targets,
-        effects: list.map((effect, index) => decodeAppliedEffect(ctx, effect, index)),
+        kind,
+        target: p.data.target,
+        destroyedPiece: isOneOf(PIECE_NAMES, destroyed) ? destroyed : readEnum(ctx, destroyed, PIECE_NAMES, 'piece_destroyed'),
       };
-    },
-  );
+    }
+    default:
+      return unknown(`kind ${JSON.stringify(kind)}`);
+  }
+}
+
+const decodeRuneTriggered: Decoder<'rune_triggered'> = (payload, ctx) =>
+  withCore(z.object({ square: squareSchema, owner: colorSchema, on_enter: nonEmptyString, result: loose }), payload, (core) => ({
+    type: 'rune_triggered',
+    square: core.square,
+    owner: core.owner,
+    onEnter: core.on_enter,
+    result: decodeRuneResult(ctx, core.result),
+  }));
 
 // `game/room.go:548-555` (scudo consumato) e `902-916` (scadenza).
 const decodeEffectExpired: Decoder<'effect_expired'> = (payload, ctx) =>
@@ -532,6 +704,9 @@ const DECODERS: { readonly [K in ServerMessageType]: Decoder<K> } = {
   phase_changed: decodePhaseChanged,
   spell_cast: decodeSpellCast,
   effect_expired: decodeEffectExpired,
+  graveyard_changed: decodeGraveyardChanged,
+  square_effects_changed: decodeSquareEffectsChanged,
+  rune_triggered: decodeRuneTriggered,
   timer_update: decodeTimerUpdate,
   game_over: decodeGameOver,
   error: decodeError,
@@ -583,6 +758,9 @@ const wireErrorDetailsSchema = z.object({
   expected: loose,
   received: loose,
   king: loose,
+  index: loose,
+  reason: loose,
+  per_turn: loose,
 });
 
 const intOrNull = (value: unknown): number | null => (typeof value === 'number' && Number.isInteger(value) ? value : null);
@@ -613,6 +791,9 @@ function interpretWsError(ctx: Ctx, payload: unknown): ProtocolErrorInfo {
     expected: intOrNull(details.expected),
     received: intOrNull(details.received),
     king: isOneOf(COLORS, king) ? king : null,
+    index: intOrNull(details.index),
+    reason: typeof details.reason === 'string' && details.reason !== '' ? details.reason : null,
+    perTurn: intOrNull(details.per_turn),
   };
 }
 
@@ -626,7 +807,10 @@ type WireClientMessage =
       readonly type: 'resign' | 'draw_offer' | 'draw_accepted' | 'draw_declined' | 'pass_phase';
       readonly payload: Record<string, never>;
     }
-  | { readonly type: 'cast_spell'; readonly payload: { readonly spell_id: string; readonly targets: readonly string[] } };
+  | {
+      readonly type: 'cast_spell';
+      readonly payload: { readonly spell_id: string; readonly targets: readonly string[]; readonly choice?: { readonly piece: string } };
+    };
 
 export function encodeClientIntent(intent: ClientIntent): string {
   let message: WireClientMessage;
@@ -636,7 +820,13 @@ export function encodeClientIntent(intent: ClientIntent): string {
       break;
     case 'cast_spell':
       // Il server identifica la carta per spell_id (`match/match.go:318`): l'id locale non viaggia.
-      message = { type: 'cast_spell', payload: { spell_id: intent.card.spellId, targets: [...intent.targets] } };
+      message = {
+        type: 'cast_spell',
+        payload:
+          intent.choice === null
+            ? { spell_id: intent.card.spellId, targets: [...intent.targets] }
+            : { spell_id: intent.card.spellId, targets: [...intent.targets], choice: { piece: intent.choice } },
+      };
       break;
     case 'resign':
     case 'draw_offer':
@@ -924,13 +1114,28 @@ export function normalizePasswordPolicy(data: unknown): Normalized<CredentialPol
 // §7 Catalogo magie (`GET /spells`, `handlers/catalog.go:13-20`; riserva `src/spells/fallback.json`, G10)
 // ===================================================================================================
 
+/** `TargetSpec` (`spells/spells.go`): i campi vuoti mancano sul filo (omitempty). */
+const wireTargetSpecSchema = z.object({
+  type: z.string(),
+  pieces: z.array(z.string()).nullable().optional(),
+  require_effect: z.string().nullable().optional(),
+  empty_square: z.boolean().nullable().optional(),
+  max_distance: z.number().nullable().optional(),
+  own_ranks: z.array(z.number()).nullable().optional(),
+  min_rank: z.number().nullable().optional(),
+});
+
 const wireSpellSchema = z.object({
   id: nonEmptyString,
   name: nonEmptyString,
   mana_cost: z.number(),
   phases: z.array(z.string()),
-  target_type: z.string(),
+  targets: z.array(wireTargetSpecSchema).nullable(),
   effects: z.array(z.object({ kind: z.string(), params: z.record(z.string(), z.unknown()).nullable().optional() })),
+  tags: z.array(z.string()).nullable().optional(),
+  // Una rarità sconosciuta si legge come comune: cambia solo la cornice della carta.
+  rarity: z.string().nullable().optional(),
+  limits: z.record(z.string(), z.number()).nullable().optional(),
 });
 
 export interface NormalizedCatalog {
@@ -959,8 +1164,19 @@ export function normalizeSpellCatalog(raw: unknown): NormalizedCatalog {
       name: wire.data.name,
       manaCost: wire.data.mana_cost,
       phases: wire.data.phases,
-      targetType: wire.data.target_type,
+      targets: (wire.data.targets ?? []).map((spec) => ({
+        type: spec.type,
+        pieces: spec.pieces ?? [],
+        requireEffect: spec.require_effect ?? null,
+        emptySquare: spec.empty_square ?? false,
+        maxDistance: spec.max_distance ?? 0,
+        ownRanks: spec.own_ranks ?? [],
+        minRank: spec.min_rank ?? 0,
+      })),
       effects: wire.data.effects.map((effect) => ({ kind: effect.kind, params: effect.params ?? {} })),
+      tags: wire.data.tags ?? [],
+      rarity: wire.data.rarity === 'legendary' ? 'legendary' : 'common',
+      perTurn: wire.data.limits?.['per_turn'] ?? null,
     });
     if (!internal.ok) {
       warn(ctx, 'catalog_entry_invalid', `${wire.data.id}: ${internal.issues.join('; ')}`);

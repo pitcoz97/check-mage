@@ -1,10 +1,11 @@
 import { useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { effectPresentation, spellRulesText } from '../../spells/effects.registry';
+import { effectPresentation } from '../../spells/effects.registry';
 import { EffectIcon } from '../../spells/icons/EffectIcon';
 import type { CardRefusal } from '../../spells/playability';
 import type { Spell } from '../../spells/schema';
+import { RARITY_FRAME, spellName, spellText, spellTypeLine } from '../../spells/texts';
 import { spellCardLabel } from './cardLabel';
 
 /**
@@ -13,8 +14,9 @@ import { spellCardLabel } from './cardLabel';
  * arte e testo di regole. Nessun ramo per una magia in particolare, e una magia che il client non conosce si vede
  * comunque.
  *
- * Rarità e tipo non sono nel catalogo (P2-15): la cornice è quella della rarità comune e la riga del tipo nasce dal
- * kind del primo effetto (D7). La carta non giocabile è **scurita** da un velo, mai trasparente (D5).
+ * La cornice segue la rarità (comune, o la "mitica" del design per le leggendarie) e la riga del tipo l'archetipo
+ * (ASSUMPTIONS §7, M14); nome e testo vengono dall'i18n per id. L'arte segue il kind del primo effetto (D7). La
+ * carta non giocabile è **scurita** da un velo, mai trasparente (D5).
  */
 
 /** Corpo del nome: parte da quello del design e scende fino al minimo; sotto va a capo (D6). */
@@ -32,19 +34,20 @@ export interface SpellCardFaceProps {
 /** La faccia della carta: solo presentazione. Il testo accessibile lo porta chi la rende cliccabile. */
 export function SpellCardFace({ spell, spellId, dimmed = false }: SpellCardFaceProps) {
   const { t } = useTranslation();
-  const name = spell?.name ?? spellId;
+  const name = spellName(t, spell, spellId);
   // Di una magia che il catalogo non conosce non si inventa il testo: resta il nome.
-  const rules = spell === undefined ? [] : spellRulesText(t, spell.effects);
-  const first = spell?.effects[0];
-  const presentation = effectPresentation(first?.kind ?? 'unknown');
-  const type = first === undefined ? t('spells.card.typePlain') : t('spells.card.type', { kind: presentation.label(t) });
+  const rules = spellText(t, spell, spellId);
+  const presentation = effectPresentation(spell?.effects[0]?.kind ?? 'unknown');
+  const type = spellTypeLine(t, spell);
+  const frame = RARITY_FRAME[spell?.rarity ?? 'common'];
   const nameRef = useFittedName(name);
 
   return (
     <span
       aria-hidden="true"
       data-card-face
-      className="relative flex h-[280px] w-[200px] flex-col rounded-12 border-2 border-rarity-common bg-card-frame p-1.5 text-left text-primary shadow-card"
+      data-rarity={spell?.rarity ?? 'common'}
+      className={`relative flex h-[280px] w-[200px] flex-col rounded-12 border-2 ${frame.border} bg-card-frame p-1.5 text-left text-primary shadow-card`}
     >
       <span className="flex grow flex-col overflow-hidden rounded-8 bg-card-inner">
         <span className="flex h-8 shrink-0 items-center justify-between gap-1.5 bg-elevated pr-[5px] pl-2.5">
@@ -72,7 +75,7 @@ export function SpellCardFace({ spell, spellId, dimmed = false }: SpellCardFaceP
           <span data-card-type className="text-[10.5px] font-bold tracking-[0.08em] text-card-type uppercase">
             {type}
           </span>
-          <span className="size-[9px] rotate-45 bg-rarity-common shadow-ring-card-frame" />
+          <span className={`size-[9px] rotate-45 ${frame.gem} shadow-ring-card-frame`} />
         </span>
 
         <span data-card-rules className="flex grow flex-col gap-1 bg-parchment px-2.5 py-2 text-12 leading-[1.35] font-medium text-on-parchment">

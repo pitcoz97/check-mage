@@ -117,23 +117,34 @@ func (e *Engine) IsMoveLegalInternal(fen, newMove string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	e.send(positionFromFEN(fen))
-
-	// Elenca le mosse legali della posizione: se newMove è tra queste è legale.
-	e.send("go perft 1")
-	lines := e.readUntil("Nodes searched")
-
-	// Se Stockfish risponde con "Nodes searched: 0" la mossa era illegale
-	for _, line := range lines {
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) == 2 {
-			candidate := strings.TrimSpace(parts[0])
-			if candidate == newMove {
-				return true
-			}
+	// Se newMove è tra le mosse legali della posizione è legale.
+	for _, m := range e.legalMoves(fen) {
+		if m == newMove {
+			return true
 		}
 	}
 	return false
+}
+
+// legalMoves elenca le mosse legali (UCI) del lato al tratto con "go perft 1",
+// che stampa una riga "<mossa>: <nodi>" per mossa. Va chiamata con e.mu tenuto.
+func (e *Engine) legalMoves(fen string) []string {
+	e.send(positionFromFEN(fen))
+	e.send("go perft 1")
+	lines := e.readUntil("Nodes searched")
+
+	var moves []string
+	for _, line := range lines {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		candidate := strings.TrimSpace(parts[0])
+		if candidate != "" && !strings.HasPrefix(candidate, "Nodes") {
+			moves = append(moves, candidate)
+		}
+	}
+	return moves
 }
 
 // BestMove ritorna la mossa migliore nella posizione data dalla FEN.
@@ -186,38 +197,34 @@ func (e *Engine) IsInCheck(fen string) bool {
 
 // GetGameStatus controlla se la partita è finita nella posizione data dalla FEN
 func (e *Engine) GetGameStatus(fen string) GameStatus {
+	return e.GetGameStatusFiltered(fen, nil)
+}
+
+// GetGameStatusFiltered è GetGameStatus contando solo le mosse legali che
+// playable accetta (nil = tutte). Serve agli stati delle magie: una mossa legale
+// per gli scacchi può essere vietata (es. un pezzo congelato). Senza mosse
+// giocabili valgono le regole degli scacchi: re sotto scacco = matto, altrimenti
+// stallo.
+func (e *Engine) GetGameStatusFiltered(fen string, playable func(move string) bool) GameStatus {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return classify(fen, e.legalMoves(fen), playable, func() bool { return e.isInCheck(fen) })
+}
 
-	e.send(positionFromFEN(fen))
-
-	// Conta le mosse legali disponibili
-	e.send("go perft 1")
-	lines := e.readUntil("Nodes searched")
-
-	// Conta le mosse legali e i nodi totali
-	legalMoves := 0
-	totalNodes := 0
-	for _, line := range lines {
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) == 2 {
-			candidate := strings.TrimSpace(parts[0])
-			if candidate != "" && !strings.HasPrefix(candidate, "Nodes") {
-				legalMoves++
-				var count int
-				fmt.Sscanf(strings.TrimSpace(parts[1]), "%d", &count)
-				totalNodes += count
-			}
-		}
-		if strings.HasPrefix(line, "Nodes searched") {
-			fmt.Sscanf(line, "Nodes searched: %d", &totalNodes)
+// classify decide l'esito della posizione date le mosse legali: senza mosse
+// giocabili è matto (re sotto scacco) o stallo; altrimenti patta per regola o
+// partita in corso. È pura, così la regola si testa senza Stockfish.
+func classify(fen string, legal []string, playable func(move string) bool, inCheck func() bool) GameStatus {
+	playableMoves := 0
+	for _, m := range legal {
+		if playable == nil || playable(m) {
+			playableMoves++
 		}
 	}
 
-	// Nessuna mossa legale = scacco matto o stallo
-	if legalMoves == 0 {
-		// Verifica se il re è sotto scacco
-		if e.isInCheck(fen) {
+	// Nessuna mossa giocabile = scacco matto o stallo
+	if playableMoves == 0 {
+		if inCheck() {
 			return StatusCheckmate
 		}
 		return StatusStalemate

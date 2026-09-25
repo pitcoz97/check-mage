@@ -12,6 +12,7 @@ import type {
   ProtocolErrorInfo,
   PublicGameState,
   SpellId,
+  RuneResult,
   Square,
   SquareEffects,
   UserId,
@@ -49,7 +50,8 @@ export interface PendingCast {
 /** Ultima magia risolta, come l'ha dichiarata il server (`spell_cast`): il client la anima, non la ricalcola (G8). */
 export interface ResolvedSpell {
   readonly player: Color;
-  readonly spellId: SpellId;
+  /** `null` = magia nascosta dell'avversario (ASSUMPTIONS M42). */
+  readonly spellId: SpellId | null;
   readonly targets: readonly Square[];
   readonly effects: readonly AppliedEffect[];
   readonly seq: number;
@@ -62,9 +64,19 @@ export interface ResolvedSpell {
  */
 export interface LoggedSpell {
   readonly player: Color;
-  readonly spellId: SpellId;
+  /** `null` = magia nascosta dell'avversario: nel registro come "Magia nascosta". */
+  readonly spellId: SpellId | null;
   readonly targets: readonly Square[];
   readonly moveIndex: number;
+  readonly seq: number;
+}
+
+/** Ultima runa scattata (`rune_triggered`): la casa lampeggia e il box del suggerimento lo dice. */
+export interface TriggeredRune {
+  readonly square: Square;
+  readonly owner: Color;
+  readonly onEnter: string;
+  readonly result: RuneResult;
   readonly seq: number;
 }
 
@@ -98,6 +110,7 @@ export interface MatchState {
   /** Cast in volo: la mano resta ferma finché il server non risponde. Mai un cambio di stato di gioco. */
   readonly pendingCast: PendingCast | null;
   readonly lastCast: ResolvedSpell | null;
+  readonly lastRune: TriggeredRune | null;
   /** Magie viste in questa sessione, in ordine d'arrivo. */
   readonly spellLog: readonly LoggedSpell[];
   readonly outcome: GameOutcome | null;
@@ -121,6 +134,7 @@ export function initialMatchState(selfId: UserId | null): MatchState {
     optimistic: null,
     pendingCast: null,
     lastCast: null,
+    lastRune: null,
     spellLog: [],
     outcome: null,
     seq: 0,
@@ -173,7 +187,18 @@ export function reconcileHand(previous: readonly HandCard[], incoming: readonly 
 const PERSISTENT_STATE_OF: Partial<Record<AppliedEffect['kind'], string>> = {
   freeze_piece: 'freeze',
   shield_piece: 'shield',
+  freeze_all: 'freeze',
+  shield_area: 'shield',
+  // I pezzi congelati attorno alle rune; le rune consumate spariscono con `square_effects_changed`.
+  detonate_runes: 'freeze',
 };
+
+/** Le case su cui un effetto dichiarato lascia lo stato: una (`target`) o tante (`targets`, effetti di massa). */
+function stateSquares(effect: AppliedEffect): readonly SquareEffects['square'][] {
+  if ('target' in effect) return [effect.target];
+  if ('targets' in effect) return effect.targets;
+  return [];
+}
 
 function upsertEffect(effects: readonly SquareEffects[], square: SquareEffects['square'], effect: ActiveEffect): SquareEffects[] {
   const entry = effects.find((e) => e.square === square);
@@ -280,17 +305,20 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
 
     case 'spell_cast': {
       let hand = state.hand;
-      if (event.player === state.myColor) {
-        // Il server non rimanda `hand` dopo un cast: la carta giocata si toglie qui (una sola copia).
+      if (event.player === state.myColor && event.spellId !== null) {
+        // Il server non rimanda `hand` dopo un cast: la carta giocata si toglie qui (una sola copia). Una magia
+        // nascosta è sempre dell'avversario: la mano non si tocca.
         const index = hand.findIndex((card) => card.spellId === event.spellId);
         if (index >= 0) hand = [...hand.slice(0, index), ...hand.slice(index + 1)];
       }
       let activeEffects = game?.activeEffects ?? [];
       for (const effect of event.effects) {
         const kind = PERSISTENT_STATE_OF[effect.kind];
-        if (kind === undefined || !('target' in effect)) continue;
+        if (kind === undefined) continue;
         const remainingTurns = 'remainingTurns' in effect ? effect.remainingTurns : 1;
-        activeEffects = upsertEffect(activeEffects, effect.target, { kind, remainingTurns, sourceSpellId: event.spellId });
+        for (const square of stateSquares(effect)) {
+          activeEffects = upsertEffect(activeEffects, square, { kind, remainingTurns, sourceSpellId: event.spellId });
+        }
       }
       return {
         ...base,
@@ -309,6 +337,16 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
       return game === null
         ? base
         : { ...base, game: { ...game, activeEffects: removeEffect(game.activeEffects, event.expired.square, event.expired.kind) } };
+
+    case 'square_effects_changed':
+      return game === null ? base : { ...base, game: { ...game, squareStates: event.squareStates } };
+
+    case 'rune_triggered':
+      // Lo stato (FEN, gelo, cimitero, runa consumata) è già arrivato o arriva con gli eventi vicini: qui solo l'avviso.
+      return { ...base, lastRune: { square: event.square, owner: event.owner, onEnter: event.onEnter, result: event.result, seq } };
+
+    case 'graveyard_changed':
+      return game === null ? base : { ...base, game: { ...game, graveyards: { ...game.graveyards, [event.player]: event.graveyard } } };
 
     case 'timer_update':
       return {

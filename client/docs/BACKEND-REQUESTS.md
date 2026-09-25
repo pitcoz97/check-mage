@@ -1,10 +1,10 @@
 # BACKEND-REQUESTS
 
-Registro vivo delle modifiche da chiedere al server Go (`C:\Projects\chess-server`).
+Registro vivo delle modifiche da chiedere al server Go (`server/`).
 Il client **non** aggira nessuna di queste voci.
 
 **Riferimento del codice:** branch `fix/backend-requests` (commit `62475c9`), costruito su `7f817e5`. Non è ancora
-unito in `main`. Riepilogo lato server in `chess-server/docs/SERVER-CHANGES.md`.
+unito in `main`. Riepilogo lato server in `server/docs/SERVER-CHANGES.md`.
 I riferimenti `file.go:riga` sono relativi a `internal/` e puntano a quel branch, salvo dove è indicato `7f817e5`.
 
 Priorità:
@@ -84,7 +84,10 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
   con `active_effects`.
 
 ### P2-15 — Testo della carta nel catalogo
-- **Stato:** aperta · **Priorità:** P2
+- **Stato:** in parte risolta (branch `feat/spell-catalog`) · **Priorità:** P2
+- **Esito:** `GET /spells` porta `rarity` (`common`/`legendary`) e `tags` (archetipi); la carta ne ricava cornice
+  e riga del tipo. Nomi e testi li tiene il client nell'i18n per id (ASSUMPTIONS §7, M4). Resta aperto solo `flavor`
+  (testo di ambientazione), che nessuno ha ancora chiesto.
 - **Perché:** `GET /spells` porta solo dati di gioco (`spells/spells.go:61-74`). Il testo di regole della carta il client
   lo **genera** dai parametri degli effetti, quindi resta sempre allineato al bilanciamento; ma non esiste un posto dove
   mettere il testo di ambientazione, che è contenuto di gioco e non deve vivere nel client (rischio di invecchiare a

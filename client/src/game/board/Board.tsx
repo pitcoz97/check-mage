@@ -2,7 +2,7 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from 'react-i18next';
 
 import type { Color, Square, SquareEffects } from '../model';
-import { statePresentation } from '../../spells/effects.registry';
+import { stateLabel } from '../../spells/effects.registry';
 import { PieceIcon } from '../pieces/PieceIcon';
 import { isLightSquare, kingInCheckSquare, piecesOf, squaresInOrder, type PlacedPiece } from '../position';
 import { useBoardTheme } from './boardTheme';
@@ -92,13 +92,8 @@ export function Board({
   const pieceOn = new Map(pieces.map((piece) => [piece.square, piece]));
   const checkSquare = kingInCheckSquare(context.fen);
   const effectsOn = new Map(effects.map((entry) => [entry.square, entry.effects]));
+  const squareStatesOn = new Map(context.squareStates.map((entry) => [entry.square, entry.effects]));
   const flashing = new Set(flash);
-
-  /** Etichetta accessibile di uno stato sul pezzo: "Congelato, ancora 2 turni". */
-  function stateLabel(kind: string, remainingTurns: number): string {
-    const state = statePresentation(kind).label(t);
-    return remainingTurns === 1 ? t('spells.state.badgeOne', { state }) : t('spells.state.badgeMany', { state, count: remainingTurns });
-  }
 
   function apply(outcome: ReturnType<typeof tapSquare>): void {
     if (outcome.kind === 'selection') setSelection(outcome.selection);
@@ -166,11 +161,12 @@ export function Board({
     >
       {squares.map((square, index) => {
         const piece = pieceOn.get(square);
-        const states = effectsOn.get(square) ?? [];
+        // Prima gli stati della casa (muro, santuario), poi quelli del pezzo.
+        const states = [...(squareStatesOn.get(square) ?? []), ...(effectsOn.get(square) ?? [])];
         const isTarget = targeting === null ? selection?.targets.includes(square) === true : targeting.squares.has(square);
         const pieceLabel =
           piece === undefined ? square : `${square}, ${t(`board.piece.${piece.kind}`)} ${t(piece.color === 'white' ? 'match.colorWhite' : 'match.colorBlack')}`;
-        const label = [pieceLabel, ...states.map((state) => stateLabel(state.kind, state.remainingTurns))].join(', ');
+        const label = [pieceLabel, ...states.map((state) => stateLabel(t, state, context.myColor))].join(', ');
         return (
           <button
             key={square}

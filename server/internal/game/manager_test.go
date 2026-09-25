@@ -214,11 +214,11 @@ func TestManager_Reconnection(t *testing.T) {
 
 	// Crea una room manualmente con stato active
 	room := &Room{
-		ID:     "room-1-2",
-		Board:  &Board{Status: "active"},
-		Match:  match.New(0),
-		White:  createMockClient(1, "player1"),
-		Black:  createMockClient(2, "player2"),
+		ID:    "room-1-2",
+		Board: &Board{Status: "active"},
+		Match: match.New(0),
+		White: createMockClient(1, "player1"),
+		Black: createMockClient(2, "player2"),
 	}
 	GameManager.rooms["room-1-2"] = room
 	GameManager.userRooms[1] = "room-1-2"
@@ -241,11 +241,11 @@ func TestManager_Reconnection_RoomNotActive(t *testing.T) {
 
 	// Crea una room con stato non active (finita)
 	room := &Room{
-		ID:     "room-1-2",
-		Board:  &Board{Status: "checkmate"},
-		Match:  match.New(0),
-		White:  createMockClient(1, "player1"),
-		Black:  createMockClient(2, "player2"),
+		ID:    "room-1-2",
+		Board: &Board{Status: "checkmate"},
+		Match: match.New(0),
+		White: createMockClient(1, "player1"),
+		Black: createMockClient(2, "player2"),
 	}
 	GameManager.rooms["room-1-2"] = room
 	GameManager.userRooms[1] = "room-1-2"

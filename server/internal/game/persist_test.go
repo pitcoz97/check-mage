@@ -32,9 +32,9 @@ func TestRoomSnapshot_RoundTrip(t *testing.T) {
 	orig.Match.TurnNumber = 3
 	orig.Match.ActivePlayer = match.PlayerBlack
 	orig.Match.White.Mana = 2
-	orig.Match.White.Hand = []string{"spark", "nova"}
+	orig.Match.White.Hand = []string{"frost", "shield"}
 	// Un effetto persistente su un pezzo nero.
-	if err := effects.FreezePiece(orig.Tracker, "e7", effects.White, 2, "frostbolt"); err != nil {
+	if err := effects.FreezePiece(orig.Tracker, "e7", effects.White, 2, "frost"); err != nil {
 		t.Fatalf("setup freeze fallito: %v", err)
 	}
 

@@ -3,6 +3,8 @@ package handlers
 import (
 	"chess-server/internal/game"
 	mw "chess-server/internal/middleware"
+	"chess-server/internal/models"
+	"encoding/json"
 	"net/http"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -16,8 +18,30 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// WSTicket gestisce GET /ws/ticket: emette un ticket monouso (30s) per aprire
+// il WebSocket con /ws?ticket=… senza mettere il JWT nell'URL.
+func WSTicket(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	claims := r.Context().Value(mw.UserKey).(jwt.MapClaims)
+	ticket, ttl, err := mw.WSTickets.Issue(claims)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(models.APIResponse{Success: false, Error: "Errore generazione ticket"})
+		return
+	}
+
+	json.NewEncoder(w).Encode(models.APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"ticket":     ticket,
+			"expires_in": int(ttl.Seconds()),
+		},
+	})
+}
+
 func WSHandler(w http.ResponseWriter, r *http.Request) {
-	// Legge i dati dell'utente dal context (messi dal middleware JWT)
+	// Legge i dati dell'utente dal context (messi da WSAuth: ticket o JWT)
 	claims := r.Context().Value(mw.UserKey).(jwt.MapClaims)
 	userID := int(claims["user_id"].(float64))
 	username := claims["username"].(string)
