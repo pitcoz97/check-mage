@@ -17,7 +17,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.node.json && tsc -p mock-server/tsconfig.json",
     "lint": "eslint .",
-    "verify:server": "tsx scripts/verify-server.ts"
+    "verify:server": "tsx scripts/verify-server.ts",
+    "fonts:pieces": "tsx scripts/subset-pieces-font.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
@@ -27,7 +28,8 @@
     "@capacitor/splash-screen": "^8.0.2",
     "@capacitor/status-bar": "^8.0.3",
     "@fontsource/cinzel": "^5.3.0",
-    "@fontsource/montserrat": "^5.3.0",
+    "@fontsource/figtree": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "chess.js": "^1.4.0",
     "i18next": "^26.4.2",
     "react": "^19.3.0",
@@ -40,6 +42,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.5.2",
     "@eslint/js": "^10.0.1",
+    "@fontsource/noto-sans-symbols-2": "^5.3.0",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/react": "^16.3.3",
     "@types/express": "^5.0.6",
@@ -55,6 +58,7 @@
     "globals": "^17.12.0",
     "jsdom": "^29.1.1",
     "prettier": "^3.9.6",
+    "subset-font": "^2.9.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.13",
     "typescript": "^6.0.3",

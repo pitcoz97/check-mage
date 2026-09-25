@@ -1,5 +1,16 @@
 @import './theme.css';
 
+/* Pezzi degli scacchi: Noto Sans Symbols 2 ritagliato ai sei glifi pieni (scripts/subset-pieces-font.ts, D2).
+   `block`: meglio un istante senza pezzi che un pezzo disegnato col font di sistema e poi sostituito. */
+@font-face {
+  font-family: 'CheckMage Pieces';
+  src: url('./fonts/checkmage-pieces.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+  unicode-range: U+265A-265F;
+}
+
 @layer base {
   html,
   body,
