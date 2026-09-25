@@ -218,7 +218,7 @@ func TestPublicState_PlayersAndTimeControl(t *testing.T) {
 	}
 }
 
-/ B11: la casella catturata en passant è quella del pedone, non quella d'arrivo.
+// B11: la casella catturata en passant è quella del pedone, non quella d'arrivo.
 func TestCaptureSquare(t *testing.T) {
 	const epFEN = "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1"
 	if got := captureSquare(epFEN, "e5", "d6"); got != "d5" {

@@ -995,7 +995,7 @@ func (r *Room) checkActivePlayerEnd() *gameEnd {
 	return nil
 }
 
-/ broadcastExpired notifica entrambi i client degli effetti scaduti.
+// broadcastExpired notifica entrambi i client degli effetti scaduti.
 func (r *Room) broadcastExpired(expired []effects.ExpiredEffect) {
 	for _, e := range expired {
 		logger.L.Info("Effetto scaduto",
