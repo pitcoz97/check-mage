@@ -3,7 +3,7 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Redesign, step R4 (partita) — fatto, in attesa di review.** R1–R3 approvati. Branch `feat/redesign`. Analisi, decisioni (D1–D22)
+**Redesign, step R5 (shell e home) — fatto, in attesa di review.** R1–R4 approvati. Branch `feat/redesign`. Analisi, decisioni (D1–D22)
 e step R1–R6 in `REDESIGN_PLAN.md`; il design sta in `design-reference/` (fuori da git).
 Prima del redesign: Step 0–7 completi, Step 6 in attesa dell'APK (`docs/ANDROID.md`).
 Server: `C:\Projects\chess-server` (sola lettura, qui non eseguibile), branch `fix/backend-requests` (`62475c9`).
@@ -53,6 +53,18 @@ Server: `C:\Projects\chess-server` (sola lettura, qui non eseguibile), branch `f
     suggerimento unico con avvisi di 5 s (D16), `ManaPanel` e dieci rombi (C16), schede Mosse/Grimorio/Chat con le
     magie della sessione nello storico (`spellLog` nel matchStore, D11);
   - `/dev/match`: la partita vera con un socket finto e lo scenario delle tavole, senza account.
+- **Redesign R5:**
+  - barre delle tavole: laterale 220 (desktop), verticale 72 in partita, intestazione e barra 76 su Android; voci
+    «Presto» visibili e inerti (D9); su Android un'icona Impostazioni al posto del selettore IT/EN (D15) e la voce
+    Home nel foglio della partita (unica uscita, D13);
+  - home: benvenuto e rating (senza delta, D10), card della partita in corso con miniatura live o solo il flag (C11),
+    Gioca con Classificata e Amichevole/Bot «Presto» (D12), card in basso con la classifica vera; niente più rimbalzo
+    a /match: ci si entra solo dalla coda (D13, in `AppShell`);
+  - `/leaderboard` (`fetchLeaderboard`) e `/settings` (tema, lingua, Esci con conferma, D14);
+  - `/dev/home` (`?match=1`, `/leaderboard`, `/settings`) con l'impianto finto condiviso con `/dev/match`.
+  Misure via DOM contro le tavole: coincidono (partita: scacchiera a x 266 contro 264).
+- **Verifica R5:** typecheck, lint, build puliti; 455 test verdi; e2e 10/10. JS iniziale 554 kB (+34: miniatura e
+  scacchiera servono anche alla home e non stanno più solo nel chunk della partita).
 - **Verifica R4:** typecheck, lint, build puliti; 448 test verdi; e2e 10/10.
 - **Verifica R3:** typecheck, lint, build puliti; 439 test verdi; e2e 10/10. Confronto via DOM col componente Carta:
   tutte le misure coincidono.
@@ -61,7 +73,8 @@ Server: `C:\Projects\chess-server` (sola lettura, qui non eseguibile), branch `f
   (520 kB iniziali); i font si scaricano per sottoinsieme Unicode, solo quelli usati.
 
 ## Prossima azione concreta
-Review di R4: `/dev/match` in sviluppo (1440×900 e 390×844), e la partita vera col login. Poi R5 — shell e home.
+Review di R5: `/dev/home` e `/dev/match` in sviluppo, poi il giro vero col login (coda → partita → home → Riprendi).
+Poi R6 — parti senza design e chiusura.
 
 ## Decisioni prese
 - Redesign: tutte in `REDESIGN_PLAN.md` §10 (D1–D22). Il design vince sulla resa, CLAUDE.md sul resto.
@@ -77,8 +90,6 @@ Review di R4: `/dev/match` in sviluppo (1440×900 e 390×844), e la partita vera
 
 ## Da ricordare negli Step successivi
 - R5: selettore del tema (`boardThemeStore.set`) nelle Impostazioni; la miniatura della home è `MiniBoard`.
-- R5: la barra di navigazione da 72px a sinistra della partita (desktop) sposta la colonna della scacchiera nella
-  posizione esatta della tavola.
 - R6: banner di connessione, patta ricevuta, conferma della resa, promozione e fine partita funzionano ma hanno
   ancora la resa di prima.
 - APK mai costruito qui: se Gradle si lamenta, guardare `android/app/src/main/res/`.

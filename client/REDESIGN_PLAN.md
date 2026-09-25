@@ -423,7 +423,7 @@ Ogni step è a sé: piano breve → implementazione → verifica (test verdi e s
 | **R2 — Scacchiera e pezzi** (fatto) | temi, coordinate, stati (velo, badge in alto a destra con turni residui), bersagli viola, mosse legali / selezione / scacco ridisegnati, glifi, miniatura per la home | 3.2, F1, F2, D1–D3, D19 |
 | **R3 — Carta e mano** (fatto) | nuova carta (rarità comune di default, moneta del costo, arte per kind, riga del tipo, pergamena, stato scurito, nome che si riduce), icone a tratto, mano a ventaglio, annullo col tocco sulla carta | 3.3, F3, D5–D8 |
 | **R4 — Partita** (fatto) | layout desktop e Android (Menu con foglio), pannelli giocatore, orologio, fasi a pillole con "Turno N", mana a 10 rombi, box del suggerimento unico (targeting, avvisi, motivo della carta spenta, pezzi congelati), CTA con la fase successiva, schede Mosse (UCI) / Grimorio / Chat, magie nello storico | 3.4, F4–F8, F11, D16–D18, D21 |
-| **R5 — Shell e home** | barra laterale / verticale / inferiore, home del design (Gioca con Classificata, card «Presto»), Partita in corso in background con miniatura live, Classifica, Impostazioni (tema, lingua, Esci), redirect solo coda → partita | 3.5, F14, F16, F18, D9–D15 |
+| **R5 — Shell e home** (fatto) | barra laterale / verticale / inferiore, home del design (Gioca con Classificata, card «Presto»), Partita in corso in background con miniatura live, Classifica, Impostazioni (tema, lingua, Esci), redirect solo coda → partita | 3.5, F14, F16, F18, D9–D15 |
 | **R6 — Parti senza design e chiusura** | tutto ciò che è nella sezione 6, nel linguaggio del design; Android sincronizzato; PROGRESS | 6, 8, D20 |
 
 ---
@@ -446,7 +446,7 @@ Ogni step è a sé: piano breve → implementazione → verifica (test verdi e s
 | D12 | Modalità | «Classificata» attiva e selezionata (è la coda reale); Amichevole e Bot «Presto». |
 | D13 | Navigazione durante la partita | La barra resta visibile; andando in home la **partita continua in background** (il socket resta aperto: la sessione vive già a livello d'app in `src/store/matchSession.ts`) e la home mostra «Partita in corso · Riprendi» con la miniatura live. La lobby manda a `/match` solo al passaggio coda → partita. |
 | D14 | Esci | In fondo alle **Impostazioni**, con conferma. |
-| D15 | Lingua | **Solo nelle Impostazioni** (e nel login); non nella barra laterale né nell'intestazione Android. |
+| D15 | Lingua | **Solo nelle Impostazioni** (e nel login); non nella barra laterale né nell'intestazione Android. Su Android, al posto del selettore IT/EN, un'icona porta alle Impostazioni (altrimenti non raggiungibili). |
 | D16 | Avvisi | Nel **box del suggerimento**, temporanei; poi torna il suggerimento. |
 | D17 | Partita su Android | Barra inferiore del design; «Menu» apre un foglio con Patta, Resa e le schede Mosse / Grimorio / Chat. Nessuna freccia di navigazione fra le posizioni (F10 non realizzabile). |
 | D18 | Notazione | **Resta UCI.** |
