@@ -56,8 +56,11 @@
   --color-piece-dark: var(--piece-dark);
   --color-piece-edge: var(--piece-edge);
 
-  --color-mana-full: var(--mana-full);
-  --color-mana-empty: var(--mana-empty);
+  --color-clock-low: var(--clock-low-ring);
+  --color-row-stripe: var(--row-stripe);
+  --color-row-current: var(--row-current);
+  --color-spell-chip: var(--spell-chip);
+  --color-hint-casting: var(--hint-casting);
   --color-card-frame: var(--card-frame);
   --color-card-inner: var(--card-inner);
   --color-card-type: var(--card-type-text);
@@ -93,6 +96,12 @@
   --shadow-edge-coin: var(--edge-coin);
   --shadow-ring-card-frame: var(--ring-card-frame);
   --shadow-glow-mana: var(--glow-mana);
+  --shadow-glow-mana-sm: var(--glow-mana-sm);
+  --shadow-glow-mana-chip: var(--glow-mana-chip);
+  --shadow-ring-mana-spent: var(--ring-mana-spent);
+  --shadow-ring-mana-locked: var(--ring-mana-locked);
+  --shadow-ring-clock-low: var(--ring-clock-low);
+  --shadow-ring-hint-casting: var(--ring-hint-casting);
   --shadow-card: var(--drop-card);
   --shadow-board: var(--drop-board);
   --shadow-ring-frozen: var(--ring-frozen);

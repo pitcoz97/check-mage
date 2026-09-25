@@ -49,7 +49,8 @@ const TEXT_ON_DARK: readonly [string, readonly string[]][] = [
   ['arcane-bright', [...DARK_SURFACES, 'bg-elevated']],
   ['arcane-pale', [...DARK_SURFACES, 'bg-arcane']],
   ['play-bright', [...DARK_SURFACES, 'bg-elevated']],
-  ['danger', [...DARK_SURFACES, 'bg-elevated']],
+  // Anche sull'orologio inattivo in esaurimento (D19).
+  ['danger', [...DARK_SURFACES, 'bg-elevated', 'bg-quiet']],
 ];
 
 /** Testo sulle superfici colorate: pulsanti, orologio attivo, box di testo della carta. */
@@ -58,6 +59,8 @@ const TEXT_ON_COLOR: readonly [string, string][] = [
   ['text-on-gold', 'gold'],
   ['text-on-danger', 'danger-surface'],
   ['text-on-parchment', 'bg-parchment'],
+  // Orologio attivo, normale e in esaurimento (D19).
+  ['danger-surface', 'bg-parchment'],
   ['bg-app', 'bg-parchment'],
 ];
 

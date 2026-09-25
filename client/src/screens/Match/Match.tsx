@@ -8,19 +8,21 @@ import { Button } from '../../design/components/Button';
 import { Panel } from '../../design/components/Panel';
 import { Spinner } from '../../design/components/Spinner';
 import { useCatalog } from '../../spells/CatalogProvider';
-import { effectPresentation } from '../../spells/effects.registry';
 import { cardRefusalMessage } from '../../spells/playability';
 import { useMatch, useMatchSession, useSessionStatus } from '../../store/MatchProvider';
 import type { GameOutcome } from '../../store/matchStore';
-import { useCasting, type Casting } from './useCasting';
-import { Actions } from './Actions';
+import { PassButton, SecondaryActions } from './Actions';
 import { ConnectionBanner } from './ConnectionBanner';
-import { protocolErrorMessage } from './errorMessage';
+import { HintBox } from './HintBox';
+import { ManaPanel } from './ManaPanel';
 import { MatchBoard } from './MatchBoard';
 import { MatchLayout } from './MatchLayout';
-import { MoveHistory } from './MoveHistory';
-import { PhaseTrack } from './PhaseTrack';
-import { PlayerPanel } from './PlayerPanel';
+import { MatchBottomBar } from './MatchSheet';
+import { PlayerRow } from './PlayerRow';
+import { SideTabs } from './SideTabs';
+import { PhasePills, TurnPanel } from './TurnPanel';
+import { useCasting, type Casting } from './useCasting';
+import { useNotice } from './useNotice';
 
 /**
  * Dopo un ricaricamento il client riapre la connessione solo se ricorda una partita aperta (ASSUMPTIONS C11).
@@ -31,45 +33,6 @@ export const RESUME_TIMEOUT_MS = 4_000;
 
 /** Durata del lampeggio sulle caselle toccate da una magia. */
 const SPELL_FLASH_MS = 1_200;
-
-/**
- * Ultimo avviso da mostrare: rifiuto del server, esito di un'offerta di patta, o rifiuto deciso dal client.
- * Si sceglie per progressivo, senza effetti collaterali: l'avviso più recente vince.
- */
-function useNotice(): { text: string | null; show(text: string): void } {
-  const { t } = useTranslation();
-  const seq = useMatch((s) => s.seq);
-  const lastError = useMatch((s) => s.lastError);
-  const drawNotice = useMatch((s) => s.drawNotice);
-  const lastCast = useMatch((s) => s.lastCast);
-  const myColor = useMatch((s) => s.myColor);
-  const byId = useCatalog((s) => s.byId);
-  const [local, setLocal] = useState<{ text: string; seq: number } | null>(null);
-
-  const candidates = [
-    lastError === null ? null : { seq: lastError.seq, text: protocolErrorMessage(t, lastError.info) },
-    lastCast === null
-      ? null
-      : {
-          seq: lastCast.seq,
-          text: t(lastCast.player === myColor ? 'spells.castByYou' : 'spells.castByOpponent', {
-            name: byId.get(lastCast.spellId)?.name ?? lastCast.spellId,
-            effects: lastCast.effects.map((effect) => effectPresentation(effect.kind).label(t)).join(', '),
-          }),
-        },
-    drawNotice === null
-      ? null
-      : { seq: drawNotice.seq, text: t(drawNotice.reason === 'move_played' ? 'match.notice.drawLapsed' : 'match.notice.drawDeclined') },
-    local,
-  ].filter((candidate) => candidate !== null);
-  const latest = candidates.sort((a, b) => a.seq - b.seq).at(-1);
-
-  return {
-    text: latest?.text ?? null,
-    // Mezzo punto sopra il progressivo corrente: più recente di tutto ciò che è già arrivato dal server.
-    show: (text: string) => setLocal({ text, seq: seq + 0.5 }),
-  };
-}
 
 function outcomeHeadline(outcome: GameOutcome, myColor: Color | null): 'win' | 'loss' | 'draw' | 'whiteWins' | 'blackWins' | 'unknownResult' {
   if (outcome.result === '1/2-1/2') return 'draw';
@@ -165,52 +128,55 @@ function PlayerHand({ casting, onRefused }: { casting: Casting; onRefused(messag
   );
 }
 
-/** Barra della modalità targeting: cosa si sta lanciando, cosa scegliere, come annullare (senza pulsante, D8). */
-function TargetingBar({ casting }: { casting: Casting }) {
-  const { t } = useTranslation();
-  if (casting.spellName === null) return null;
-  return (
-    <Panel role="status" data-targeting className="flex flex-wrap items-center gap-2 px-3 py-2 text-14">
-      <span className="font-semibold">{t('spells.targeting.title', { name: casting.spellName })}</span>
-      <span className="text-muted">{casting.prompt}</span>
-      <span className="ml-auto text-12 text-muted">{t('spells.targeting.cancelHint')}</span>
-    </Panel>
-  );
-}
-
 function MatchScreen() {
   const outcome = useMatch((s) => s.outcome);
-  const notice = useNotice();
-  const casting = useCasting(notice.show);
+  const { notice, show, dismiss } = useNotice();
+  const targeting = useCasting(show);
+  // Scegliere una carta porta l'istruzione del bersaglio nel box: un avviso precedente lascia il posto.
+  const casting: Casting = {
+    ...targeting,
+    pick: (card, spell) => {
+      dismiss();
+      targeting.pick(card, spell);
+    },
+  };
   const flash = useSpellFlash();
   return (
     <MatchLayout
-      banner={
-        <>
-          <ConnectionBanner />
-          {notice.text !== null && outcome === null && (
-            <p role="status" aria-live="polite" className="bg-elevated px-4 py-2 text-center text-14">
-              {notice.text}
-            </p>
-          )}
-        </>
+      banner={<ConnectionBanner />}
+      opponent={<PlayerRow side="opponent" />}
+      board={<MatchBoard onRefused={show} targeting={casting.boardTargeting} flash={flash} />}
+      self={<PlayerRow side="self" />}
+      hand={
+        outcome === null ? (
+          <PlayerHand casting={casting} onRefused={show} />
+        ) : (
+          <div className="px-3 lg:hidden">
+            <OutcomePanel outcome={outcome} />
+          </div>
+        )
       }
-      opponent={<PlayerPanel side="opponent" />}
-      board={<MatchBoard onRefused={notice.show} targeting={casting.boardTargeting} flash={flash} />}
-      phases={<PhaseTrack />}
-      history={<MoveHistory />}
+      turn={<TurnPanel hint={<HintBox casting={casting} notice={notice} variant="panel" />} />}
+      mana={<ManaPanel />}
+      tabs={<SideTabs className="grow" />}
       actions={
         outcome === null ? (
           <>
-            <TargetingBar casting={casting} />
-            <Actions />
+            <PassButton />
+            <SecondaryActions />
           </>
         ) : (
           <OutcomePanel outcome={outcome} />
         )
       }
-      self={<PlayerPanel side="self" />}
-      hand={outcome === null ? <PlayerHand casting={casting} onRefused={notice.show} /> : null}
+      phasesCompact={
+        <>
+          <PhasePills compact />
+          <PassButton compact />
+        </>
+      }
+      hintLine={<HintBox casting={casting} notice={notice} variant="line" />}
+      bottomBar={<MatchBottomBar />}
     />
   );
 }

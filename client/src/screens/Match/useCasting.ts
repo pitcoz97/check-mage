@@ -27,6 +27,7 @@ export interface Casting {
   /** Carta in corso di bersaglio. */
   readonly selectedInstanceId: string | null;
   readonly spellName: string | null;
+  readonly spellCost: number | null;
   /** Istruzione del passo corrente ("Scegli un pezzo avversario"). */
   readonly prompt: string | null;
   readonly boardTargeting: BoardTargeting | null;
@@ -83,6 +84,7 @@ export function useCasting(notify: (message: string) => void): Casting {
   return {
     selectedInstanceId: state.kind === 'idle' ? null : state.card.instanceId,
     spellName: state.kind === 'idle' ? null : state.spell.name,
+    spellCost: state.kind === 'idle' ? null : state.spell.manaCost,
     prompt: targetingPrompt(state, t),
     boardTargeting:
       state.kind === 'idle'

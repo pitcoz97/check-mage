@@ -92,9 +92,20 @@
     0 3px 5px rgba(0, 0, 0, 0.35);
   --piece-dark-outline: 0 1px 0 rgba(245, 239, 226, 0.55), 0 -1px 0 rgba(245, 239, 226, 0.35), 0 3px 5px rgba(0, 0, 0, 0.35);
 
-  /* --- Mana (valori ponte: la barra si ridisegna in R4) --- */
-  --mana-full: var(--gold);
-  --mana-empty: #3d3945;
+  /* --- Mana: rombo acceso (oro), speso (contorno oro), bloccato oltre il massimo del turno --- */
+  --mana-spent-edge: rgba(217, 168, 69, 0.7);
+  --mana-locked-edge: #3d3945;
+
+  /* --- Orologio in esaurimento (D19, non disegnato): anello arancio "Mitica" --- */
+  --clock-low-ring: #e0703e;
+
+  /* --- Storico: righe alterne e mossa in corso --- */
+  --row-stripe: rgba(255, 255, 255, 0.025);
+  --row-current: rgba(217, 168, 69, 0.1);
+  --spell-chip: rgba(155, 123, 224, 0.12);
+  /* Box del suggerimento con una carta selezionata. */
+  --hint-casting: rgba(155, 123, 224, 0.14);
+  --hint-casting-edge: rgba(155, 123, 224, 0.6);
 
   /* --- Carta magia (componente Carta del design) --- */
   --card-frame: #15131a;
@@ -136,6 +147,12 @@
   --edge-coin: inset 0 -2px 0 var(--gold-edge), 0 0 0 1.5px var(--card-frame);
   --ring-card-frame: 0 0 0 1.5px var(--card-frame);
   --glow-mana: 0 0 10px rgba(217, 168, 69, 0.55), inset 0 -2px 0 var(--gold-edge);
+  --glow-mana-sm: 0 0 6px rgba(217, 168, 69, 0.55);
+  --glow-mana-chip: 0 0 8px rgba(217, 168, 69, 0.6);
+  --ring-mana-spent: inset 0 0 0 1.5px var(--mana-spent-edge);
+  --ring-mana-locked: inset 0 0 0 1.5px var(--mana-locked-edge);
+  --ring-clock-low: 0 0 0 2px var(--clock-low-ring);
+  --ring-hint-casting: inset 0 0 0 1.5px var(--hint-casting-edge);
   --drop-card: 0 10px 24px rgba(0, 0, 0, 0.45);
   --drop-board: 0 12px 32px rgba(0, 0, 0, 0.45);
   --ring-frozen: inset 0 0 0 2px var(--board-frozen-edge);

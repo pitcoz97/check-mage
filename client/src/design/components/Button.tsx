@@ -1,11 +1,14 @@
 import type { ButtonHTMLAttributes } from 'react';
 
 type Variant = 'primary' | 'secondary' | 'gold' | 'danger';
-type Size = 'md' | 'lg';
+type Size = 'sm' | 'compact' | 'md' | 'action' | 'lg';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   readonly variant?: Variant;
-  /** `lg` per la CTA principale di una schermata ("Gioca"). */
+  /**
+   * Altezze delle tavole: `sm` 44px (patta, resa), `compact` 44px più marcato (CTA della fase su Android), `md` 48px,
+   * `action` 60px (CTA della fase in partita), `lg` 60px (CTA principale di una schermata, "Gioca").
+   */
   readonly size?: Size;
   readonly fullWidth?: boolean;
 }
@@ -22,7 +25,10 @@ const VARIANTS: Record<Variant, string> = {
 };
 
 const SIZES: Record<Size, string> = {
+  sm: 'min-h-11 px-3.5 text-14',
+  compact: 'min-h-11 px-3.5 text-15',
   md: 'min-h-12 px-4 text-15',
+  action: 'min-h-15 px-6 text-18',
   lg: 'min-h-15 px-6 text-20',
 };
 
