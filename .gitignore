@@ -1,0 +1,7 @@
+# Ogni parte ha il suo .gitignore (server/.gitignore, client/.gitignore): qui solo ciò che vale ovunque.
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+.claude/settings.local.json
