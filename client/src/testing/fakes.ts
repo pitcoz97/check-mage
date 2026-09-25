@@ -1,5 +1,5 @@
 /**
- * Utilità per i test (e per le anteprime di sviluppo, `/dev/match`): server REST finto nell’inviluppo di chess-server e
+ * Utilità per i test (e per le anteprime di sviluppo, `/dev/match` e `/dev/home`): server REST finto nell’inviluppo di chess-server e
  * storage in memoria.
  * Nessun modulo della build di produzione lo importa, quindi non entra nel bundle.
  */
