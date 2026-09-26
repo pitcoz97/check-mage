@@ -43,6 +43,12 @@ const (
 	MsgGraveyardChanged = "graveyard_changed" // server→client: il cimitero di un giocatore è cambiato (broadcast)
 	// server→client: stati delle case (muri, santuari, rune) creati o tolti; lista completa, a ciascuno la sua (rune nascoste filtrate)
 	MsgSquareEffectsChanged = "square_effects_changed"
+	// server→client: trigger e aure dei giocatori, liste complete per destinatario
+	MsgPlayerEffectsChanged = "player_effects_changed"
+	// server→client: un trigger ha reagito (broadcast)
+	MsgTriggerFired = "trigger_fired"
+	// server→client: un'aura si è accesa o spenta (broadcast)
+	MsgAuraChanged = "aura_changed"
 	// server→client: una runa è scattata (broadcast)
 	MsgRuneTriggered = "rune_triggered"
 

@@ -482,7 +482,12 @@ func (r *Room) handleMove(sender *Client, move string) {
 	captured := effects.CaptureSquare(r.Board.FEN, from, to)
 	var graveyards []graveyardUpdate
 	var trig *runeTrigger
+	var ev eventLog
 	shieldAbsorbed := captured != "" && r.Tracker.HasShield(captured)
+	// Tentativo di cattura di un pezzo scudato (Riflesso, M45): conta sia che lo
+	// scudo assorba sia che si rompa.
+	attemptOnShield := shieldAbsorbed
+	attackerID, _, _ := r.Tracker.Info(from)
 	if shieldAbsorbed && effects.IsKingAttacked(effects.PassTurn(r.Board.FEN), effects.Color(senderColor)) {
 		shieldAbsorbed = false
 		logger.L.Info("Scudo rotto: la cattura risolve uno scacco",
@@ -529,7 +534,15 @@ func (r *Room) handleMove(sender *Client, move string) {
 		if len(buried) > 0 {
 			graveyards = r.graveyardUpdates(buried)
 		}
+		// Ogni pezzo finito nel cimitero è un pezzo perso (Anima inquieta, M48).
+		for _, owner := range buried {
+			r.onPieceLost(&ev, owner, 1)
+		}
 	}
+	if attemptOnShield {
+		r.onCaptureAttempt(&ev, match.Player(senderColor), attackerID)
+	}
+	r.refreshAuras(&ev)
 	r.Board.Turn = sideToMove(r.Board.FEN)
 	r.recordPosition()
 
@@ -582,8 +595,10 @@ func (r *Room) handleMove(sender *Client, move string) {
 		if ticked != nil {
 			squares = ticked
 		}
+		r.tickTriggers(&ev, results)
 		r.persist()
 	}
+	r.sealEvents(&ev)
 	r.mu.Unlock()
 
 	if shieldAbsorbed {
@@ -607,6 +622,7 @@ func (r *Room) handleMove(sender *Client, move string) {
 		r.Broadcast(models.MsgRuneTriggered, trig)
 	}
 	r.broadcastGraveyards(graveyards)
+	r.broadcastEvents(ev)
 	for _, res := range results {
 		r.applyAdvanceBroadcasts(res)
 	}
@@ -642,10 +658,13 @@ func (r *Room) handlePassPhase(sender *Client) {
 	// Passa la fase, poi auto-avanza le fasi che non richiedono input.
 	results := append([]match.AdvanceResult{r.Match.Advance()}, r.Match.AutoAdvance()...)
 	expired, squares := r.tickEffectsOnNewTurn(results)
+	var ev eventLog
+	r.tickTriggers(&ev, results)
 	end := r.checkRolloverGameEnd(results)
 	if end == nil {
 		r.persist()
 	}
+	r.sealEvents(&ev)
 
 	logger.L.Info("Fase passata",
 		zap.String("room", r.ID),
@@ -660,6 +679,7 @@ func (r *Room) handlePassPhase(sender *Client) {
 	}
 	r.broadcastExpired(expired)
 	r.broadcastSquareEffects(squares)
+	r.broadcastEvents(ev)
 	if end != nil {
 		r.broadcastState()
 	}
@@ -707,6 +727,8 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string,
 		castSquares = r.squareViewsNow()
 	}
 	expired, squares := r.tickEffectsOnNewTurn(autoResults)
+	ev := outcome.events
+	r.tickTriggers(&ev, autoResults)
 	// Se il cast chiude il turno, verifica la posizione del nuovo giocatore
 	// attivo (una magia può avergli tolto le mosse). Se invece chi lancia ha
 	// ancora il tratto (main1) e la scacchiera o le case sono cambiate, verifica
@@ -718,6 +740,7 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string,
 	if end == nil {
 		r.persist()
 	}
+	r.sealEvents(&ev)
 
 	logger.L.Info("Magia giocata",
 		zap.String("room", r.ID),
@@ -779,6 +802,9 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string,
 	}
 	r.broadcastGraveyards(graveyards)
 	r.broadcastSquareEffects(castSquares)
+	// Reazioni del cast (pesche di Anima inquieta, aure, trigger nuovi) prima dei
+	// passaggi di fase: seguono la magia che le ha prodotte.
+	r.broadcastEvents(ev)
 	for _, ar := range autoResults {
 		r.applyAdvanceBroadcasts(ar)
 	}
@@ -821,6 +847,7 @@ type spellOutcome struct {
 	drawn   []match.DrawResult
 	graves  []match.Player
 	squares bool // gli stati delle case sono cambiati
+	events  eventLog // reazioni di trigger e aure (Step 5)
 }
 
 // applySpellEffects esegue gli effetti di una magia. Un errore annulla il cast
@@ -844,6 +871,8 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 		match.PlayerBlack: r.Match.Black.CopyGraveyard(),
 	}
 	gravesChanged := map[match.Player]bool{}
+	lost := map[match.Player]int{} // pezzi finiti nel cimitero, per Anima inquieta
+	var ev eventLog
 	changed, squaresChanged := false, false
 	applied := make([]interface{}, 0, len(def.Effects))
 	var deferred []func() // pesca e mana: dopo che la scacchiera è convalidata
@@ -877,6 +906,7 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 		owner := toMatchPlayer(effects.ColorOf(piece))
 		graves[owner] = append(graves[owner], spells.GraveEntry{Piece: spells.PieceKind(effects.PieceKindName(piece)), PieceID: id})
 		gravesChanged[owner] = true
+		lost[owner]++
 	}
 
 	for _, eff := range def.Effects {
@@ -1193,6 +1223,40 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 			tracker.Add(sq, pawn)
 			entry["target"], entry["piece"] = sq, "pawn"
 
+		case spells.EffectAddTrigger:
+			on, _ := eff.Params["on"].(string)
+			do, _ := eff.Params["do"].(string)
+			hidden := paramBool(eff.Params, "hidden")
+			trigger := spells.Trigger{
+				On: on, Do: do, Amount: paramInt(eff.Params, "amount", 1),
+				RemainingTurns: paramInt(eff.Params, "duration", 1),
+				Hidden:         hidden, OneShot: paramBool(eff.Params, "one_shot"), SourceSpellID: def.ID,
+			}
+			entry["on"], entry["do"], entry["remaining_turns"] = on, do, trigger.RemainingTurns
+			deferred = append(deferred, func() {
+				ps := r.playerState(caster)
+				ps.Triggers = append(ps.Triggers, trigger)
+				ev.playerEffects = true
+			})
+
+		case spells.EffectAddAura:
+			grant, _ := eff.Params["grant"].(string)
+			if r.playerState(caster).HasAura(grant) {
+				return spellOutcome{}, noEffect("aura_present")
+			}
+			minPawns := 0
+			if cond, ok := eff.Params["condition"].(map[string]interface{}); ok {
+				minPawns = paramInt(cond, spells.AuraConditionOwnPawnsAtLeast, 0)
+			}
+			entry["grant"] = grant
+			deferred = append(deferred, func() {
+				active := r.ownPawns(caster) >= minPawns
+				ps := r.playerState(caster)
+				ps.Auras = append(ps.Auras, spells.Aura{Grant: grant, MinOwnPawns: minPawns, Active: active, SourceSpellID: def.ID})
+				entry["active"] = active
+				ev.playerEffects = true
+			})
+
 		default:
 			return spellOutcome{}, gameerr.Newf(gameerr.Internal, "effetto non supportato: %s", eff.Kind)
 		}
@@ -1218,7 +1282,13 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 	for _, apply := range deferred {
 		apply()
 	}
-	return spellOutcome{applied: applied, changed: changed, drawn: drawn, graves: gravesOut, squares: squaresChanged}, nil
+	// Eventi del cast, dopo il commit: pezzi persi (Anima inquieta, anche il
+	// proprio Patto di sangue) e aure da ricalcolare sulla nuova scacchiera.
+	for _, p := range []match.Player{match.PlayerWhite, match.PlayerBlack} {
+		r.onPieceLost(&ev, p, lost[p])
+	}
+	r.refreshAuras(&ev)
+	return spellOutcome{applied: applied, changed: changed, drawn: drawn, graves: gravesOut, squares: squaresChanged, events: ev}, nil
 }
 
 // hiddenSpellCast è lo spell_cast di una magia nascosta visto dall'avversario di
@@ -2106,6 +2176,7 @@ type playerInfo struct {
 func (r *Room) publicState(viewer match.Player) map[string]interface{} {
 	board := *r.Board
 	board.Moves = append([]string{}, r.Board.Moves...)
+	effectsView := r.playerEffectsFor(viewer)
 	return map[string]interface{}{
 		"board":        board,
 		"white_player": playerInfo{ID: r.White.UserID, Username: r.White.Username},
@@ -2131,6 +2202,8 @@ func (r *Room) publicState(viewer match.Player) map[string]interface{} {
 		"white_graveyard": r.Match.White.GraveyardKinds(),
 		"black_graveyard": r.Match.Black.GraveyardKinds(),
 		"square_effects":  r.squareEffects(viewer),
+		"triggers":        effectsView.Triggers,
+		"auras":           effectsView.Auras,
 	}
 }
 
