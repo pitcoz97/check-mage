@@ -236,3 +236,17 @@ Verifica: `go build ./... && go vet ./... && go test ./...` sulla VM.
 
 Verifica: `go build ./... && go vet ./... && go test ./...` (i test delle rune che passano da una mossa usano
 Stockfish e si saltano dove non è installato).
+
+## 13. Catalogo magie — Step 5 (trigger e aure)
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | 3 magie nuove: `restless_soul`, `reflection` (nascosta), `banner`. Catalogo di 29; lo Stendardo non è nella ricetta del mazzo finché il passo di lato non arriva (Step 6) | Nomi e testi i18n per id |
+| 2 | `game_state` porta `triggers` e `auras` (per destinatario: i trigger nascosti dell'avversario non ci sono) | Etichette nella riga del giocatore |
+| 3 | Eventi nuovi: `player_effects_changed {triggers, auras}` (liste per destinatario), `trigger_fired {player, on, do, source_spell_id, result}`, `aura_changed {player, grant, active}` | Avvisi; sostituire le liste |
+| 4 | Anima inquieta pesca per ogni proprio pezzo perso, dal lancio alla fine del turno avversario, anche per un proprio sacrificio; la carta arriva solo al proprietario | — |
+| 5 | Riflesso congela chi prova a catturare un pezzo scudato del proprietario (scudo che assorbe o si rompe), una volta; il re mai | Lampeggio della casa |
+| 6 | `effects_applied`: `add_trigger {on, do, remaining_turns}`, `add_aura {grant, active}`; `no_effect` ha il nuovo `reason: aura_present` | Registry, messaggio |
+| 7 | Snapshot: trigger e aure stanno nel `PlayerState` (`triggers`, `auras`, assenti negli snapshot precedenti) | — |
+
+Verifica: `go build ./... && go vet ./... && go test ./...` (i test che passano da una mossa usano Stockfish).
