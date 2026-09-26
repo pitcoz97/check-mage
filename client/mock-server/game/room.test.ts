@@ -667,6 +667,99 @@ describe('magie dello step 4: rune', () => {
   });
 });
 
+describe('magie dello step 5: trigger e aure', () => {
+  const FILLER = ['shatter', 'shatter'];
+  const rich = { white: 10 };
+  const soul = { on: 'own_piece_lost', do: 'draw_card', amount: 1, remaining_turns: 1, source_spell_id: 'restless_soul' };
+  const mirror = { on: 'shielded_piece_attacked', do: 'freeze_attacker', amount: 1, remaining_turns: 1, hidden: true, one_shot: true, source_spell_id: 'reflection' };
+
+  it('Anima inquieta: pubblica, ripaga il proprio Patto di sangue con una carta solo a chi la possiede', () => {
+    const { room, white, black, send } = setup({ overrides: { hand: { white: ['restless_soul', 'blood_pact', ...FILLER] }, manaFloor: rich } });
+    send(white, 'cast_spell', { spell_id: 'restless_soul', targets: [] });
+    const lists = { triggers: [{ player: 'white', on: 'own_piece_lost', do: 'draw_card', remaining_turns: 1, source_spell_id: 'restless_soul' }], auras: [] };
+    expect(white.last('player_effects_changed')).toEqual(lists);
+    expect(black.last('player_effects_changed')).toEqual(lists);
+    black.clear();
+    white.clear();
+    send(white, 'cast_spell', { spell_id: 'blood_pact', targets: ['a2'] });
+    const fired = { player: 'white', on: 'own_piece_lost', do: 'draw_card', source_spell_id: 'restless_soul', result: { kind: 'draw_card', count: 1 } };
+    expect(white.last('trigger_fired')).toEqual(fired);
+    expect(black.last('trigger_fired')).toEqual(fired);
+    expect(white.all('card_drawn')).toHaveLength(1);
+    expect(black.all('card_drawn')).toEqual([]);
+    expect(room.match.white.triggers).toHaveLength(1);
+  });
+
+  it('Anima inquieta: la cattura nel turno avversario fa pescare; scade alla fine di quel turno', () => {
+    const { room, white, black, send } = setup();
+    send(white, 'move', { move: 'e2e4' });
+    send(black, 'move', { move: 'd7d5' });
+    send(white, 'move', { move: 'a2a3' });
+    // Lanciata dal Bianco nel suo turno: copre il turno del Nero che segue.
+    room.match.white.triggers = [{ ...soul }];
+    white.clear();
+    send(black, 'move', { move: 'd5e4' });
+    expect(white.last('trigger_fired')?.['result']).toEqual({ kind: 'draw_card', count: 1 });
+    expect(room.match.white.triggers).toEqual([]);
+    expect(white.last('player_effects_changed')).toEqual({ triggers: [], auras: [] });
+  });
+
+  it("Riflesso: nascosto all'avversario; congela chi prova a catturare il pezzo scudato e si consuma", () => {
+    const cast = setup({ overrides: { hand: { white: ['reflection', ...FILLER] }, manaFloor: rich } });
+    cast.black.clear();
+    cast.send(cast.white, 'cast_spell', { spell_id: 'reflection', targets: [] });
+    expect(cast.black.last('spell_cast')).toEqual({ player: 'white', hidden: true, effects_applied: [{ kind: 'hidden_effect' }] });
+    expect(cast.black.last('player_effects_changed')).toEqual({ triggers: [], auras: [] });
+    expect(cast.white.last('player_effects_changed')?.['triggers']).toEqual([
+      { player: 'white', on: 'shielded_piece_attacked', do: 'freeze_attacker', remaining_turns: 1, source_spell_id: 'reflection', hidden: true },
+    ]);
+    expect(JSON.stringify(cast.black.messages)).not.toContain('reflection');
+    expect(cast.room.publicState('black')['triggers']).toEqual([]);
+
+    const { room, white, black, send } = setup();
+    send(white, 'move', { move: 'e2e4' });
+    send(black, 'move', { move: 'd7d5' });
+    send(white, 'move', { move: 'a2a3' });
+    room.tracker.shield('e4', 'white', 1, 'shield');
+    room.match.white.triggers = [{ ...mirror }];
+    send(black, 'move', { move: 'd5e4' });
+    expect(black.last('trigger_fired')).toEqual({
+      player: 'white',
+      on: 'shielded_piece_attacked',
+      do: 'freeze_attacker',
+      source_spell_id: 'reflection',
+      result: { kind: 'freeze_piece', target: 'd5', remaining_turns: 2 },
+    });
+    expect(room.tracker.isFrozen('d5')).toBe(true);
+    expect(room.match.white.triggers).toEqual([]);
+  });
+
+  it('Stendardo: aura anche sotto soglia, secondo Stendardo senza effetto, si spegne sotto i 6 pedoni', () => {
+    const fen = '4k3/3p4/8/8/8/8/PPP1PPP1/4K3 w - - 0 1';
+    const cast = setup({ fen, overrides: { hand: { white: ['banner', 'banner', ...FILLER] }, manaFloor: rich } });
+    cast.send(cast.white, 'cast_spell', { spell_id: 'banner', targets: [] });
+    expect(cast.white.last('spell_cast')?.['effects_applied']).toEqual([{ kind: 'add_aura', grant: 'pawn_sidestep', active: true }]);
+    cast.send(cast.white, 'cast_spell', { spell_id: 'banner', targets: [] });
+    expect(cast.white.last('error')).toMatchObject({ code: 'no_effect', details: { reason: 'aura_present' } });
+
+    const { room, white, black, send } = setup({ fen });
+    room.match.white.auras = [{ grant: 'pawn_sidestep', min_own_pawns: 6, active: true, source_spell_id: 'banner' }];
+    send(white, 'move', { move: 'e2e4' });
+    send(black, 'move', { move: 'd7d5' });
+    send(white, 'move', { move: 'a2a3' });
+    send(black, 'move', { move: 'd5e4' });
+    expect(white.last('aura_changed')).toEqual({ player: 'white', grant: 'pawn_sidestep', active: false });
+    expect(room.publicState('black')['auras']).toEqual([
+      { player: 'white', grant: 'pawn_sidestep', active: false, min_own_pawns: 6, source_spell_id: 'banner' },
+    ]);
+  });
+
+  it('lo Stendardo non è nel mazzo (M50)', () => {
+    const { room } = setup();
+    expect([...room.match.white.deck, ...room.match.white.hand]).not.toContain('banner');
+  });
+});
+
 describe('patta (room.go:1413-1501)', () => {
   it('offerta, doppia offerta, risposta propria, rifiuto con reason, accettazione', () => {
     const { white, black, send, lastError } = setup();

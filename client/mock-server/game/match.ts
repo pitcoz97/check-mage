@@ -1,4 +1,5 @@
 import { WS, type GameError } from '../serverTexts';
+import type { Aura, Trigger } from './playerEffects';
 import { shuffle, type Rng } from '../util';
 import type { WirePhase } from '../wire';
 import { buildDeck, CATALOG, INITIAL_MANA, LIMIT_PER_TURN, MAX_MANA_CAP, STARTING_HAND, type Spell } from './catalog';
@@ -31,6 +32,9 @@ export interface PlayerState {
   casts_this_turn?: Record<string, number>;
   /** Cimitero: i pezzi persi, in ordine (`spells.GraveEntry`). */
   graveyard: GraveEntry[];
+  /** Trigger e aure del giocatore (`spells/player_effects.go`, Step 5). */
+  triggers?: Trigger[];
+  auras?: Aura[];
 }
 
 /** `GraveEntry` (`spells/spells.go`): il tipo del pezzo e il suo id (interno). */

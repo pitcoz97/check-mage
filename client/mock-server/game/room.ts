@@ -38,6 +38,18 @@ import {
   type ManaState,
   type MatchOverrides,
 } from './match';
+import {
+  AURA_CONDITION_OWN_PAWNS_GTE,
+  newEventLog,
+  playerEffectsFor,
+  tickTriggers,
+  TRIGGER_DO_DRAW_CARD,
+  TRIGGER_DO_FREEZE_ATTACKER,
+  TRIGGER_ON_OWN_PIECE_LOST,
+  TRIGGER_ON_SHIELDED_ATTACKED,
+  type EventLog,
+  type Trigger,
+} from './playerEffects';
 import { aroundSquares, RUNE_DESTROY, RUNE_FREEZE, RUNE_RETURN, runeEntry, runeStrike } from './runes';
 import { captureSquare, KIND_NO_CAPTURE, KIND_WALL, moveBlock } from './squares';
 import { validateTargets } from './targets';
@@ -150,7 +162,7 @@ function runeSpecFrom(params: Record<string, unknown> | undefined): RuneSpec {
 
 /** `Spell.HiddenFromOpponent` (`spells.go`): le magie che piazzano rune arrivano all'avversario nascoste (M42). */
 function hiddenFromOpponent(spell: Spell): boolean {
-  return spell.effects.some((e) => e.kind === 'place_rune');
+  return spell.effects.some((e) => e.kind === 'place_rune' || (e.kind === 'add_trigger' && e.params?.['hidden'] === true));
 }
 
 /**
@@ -275,6 +287,10 @@ export class Room {
     const graveOwners: Color[] = [];
     let shieldAbsorbed = captured !== null && this.tracker.hasShield(captured);
     let trig: RuneTrigger | null = null;
+    const ev = newEventLog();
+    // Tentativo di cattura di un pezzo scudato (Riflesso, M45): conta sia che lo scudo assorba sia che si rompa.
+    const attemptOnShield = shieldAbsorbed;
+    const attackerId = this.tracker.info(from)?.id ?? 0;
     if (shieldAbsorbed && isKingAttacked(passTurn(this.board.fen), senderColor)) shieldAbsorbed = false;
 
     if (senderColor === 'white') this.whiteTime += this.options.incrementMs;
@@ -295,7 +311,11 @@ export class Room {
       // Una runa dell'avversario sulla casa d'arrivo: l'esito si calcola sulla posizione dopo la runa.
       trig = this.triggerRune(fenBefore, move, senderColor);
       if (trig !== null) graveOwners.push(...trig.graves);
+      // Ogni pezzo finito nel cimitero è un pezzo perso (Anima inquieta, M48).
+      for (const owner of graveOwners) this.onPieceLost(ev, owner, 1);
     }
+    if (attemptOnShield) this.onCaptureAttempt(ev, senderColor, attackerId);
+    this.refreshAuras(ev);
     this.board.turn = sideToMove(this.board.fen);
     this.recordPosition();
 
@@ -329,8 +349,10 @@ export class Room {
         let ticked: SquareViews | null;
         [expired, ticked] = this.tickEffectsOnNewTurn(results);
         if (ticked !== null) squares = ticked;
+        this.tickTriggers(ev, results);
       }
     }
+    this.sealEvents(ev);
 
     if (shieldAbsorbed) {
       this.broadcast('effect_expired', { square: captured, effect_kind: KIND_SHIELD, reason: 'shield_absorbed' });
@@ -343,6 +365,7 @@ export class Room {
       this.broadcast('rune_triggered', payload);
     }
     this.broadcastGraveyards(graveOwners);
+    this.broadcastEvents(ev);
     for (const res of results) this.applyAdvanceBroadcasts(res);
     this.broadcastExpired(expired);
     this.broadcastSquareEffects(squares);
@@ -358,10 +381,14 @@ export class Room {
 
     const results = [this.match.advance(), ...this.match.autoAdvance()];
     const [expired, squares] = this.tickEffectsOnNewTurn(results);
+    const ev = newEventLog();
+    this.tickTriggers(ev, results);
     const end = this.checkRolloverGameEnd(results);
+    this.sealEvents(ev);
     for (const res of results) this.applyAdvanceBroadcasts(res);
     this.broadcastExpired(expired);
     this.broadcastSquareEffects(squares);
+    this.broadcastEvents(ev);
     if (end !== null) this.broadcastState();
     this.announceEnd(end);
   }
@@ -374,6 +401,7 @@ export class Room {
     let drawn: DrawResult[] = [];
     let graveOwners: Color[] = [];
     let squaresChanged = false;
+    let ev = newEventLog();
 
     let res;
     try {
@@ -383,6 +411,7 @@ export class Room {
         drawn = out.drawn;
         graveOwners = out.graveOwners;
         squaresChanged = out.squaresChanged;
+        ev = out.events;
         return out.applied;
       });
     } catch (error) {
@@ -395,12 +424,14 @@ export class Room {
     // Gli stati creati dal cast partono prima delle scadenze del rollover.
     const castSquares = squaresChanged ? this.squareViewsNow() : null;
     const [expired, squares] = this.tickEffectsOnNewTurn(autoResults);
+    this.tickTriggers(ev, autoResults);
     // Se il cast chiude il turno si valuta il nuovo giocatore attivo; se chi lancia ha ancora il tratto (main1) e la
     // scacchiera o le case sono cambiate, si valuta lui: un Patto di sangue o un muro possono lasciarlo senza mosse.
     let end = this.checkRolloverGameEnd(autoResults);
     if (end === null && (boardChanged || squaresChanged) && sideToMove(this.board.fen) === this.match.activePlayer) {
       end = this.checkActivePlayerEnd();
     }
+    this.sealEvents(ev);
 
     // Una magia nascosta (una runa) arriva all'avversario senza carta né bersagli (M42).
     const full = { player: senderColor, spell_id: res.spell.id, targets: res.targets, effects_applied: res.effectsApplied };
@@ -418,6 +449,8 @@ export class Room {
     if (boardChanged) this.broadcastState();
     this.broadcastGraveyards(graveOwners);
     this.broadcastSquareEffects(castSquares);
+    // Reazioni del cast (pesche, aure, trigger nuovi) prima dei passaggi di fase.
+    this.broadcastEvents(ev);
     for (const ar of autoResults) this.applyAdvanceBroadcasts(ar);
     this.broadcastExpired(expired);
     this.broadcastSquareEffects(squares);
@@ -437,6 +470,8 @@ export class Room {
     const tracker = this.tracker.clone();
     const graves: Record<Color, GraveEntry[]> = { white: [...this.match.white.graveyard], black: [...this.match.black.graveyard] };
     const gravesChanged = new Set<Color>();
+    const lost: Record<Color, number> = { white: 0, black: 0 }; // pezzi finiti nel cimitero, per Anima inquieta
+    const ev = newEventLog();
     let changed = false;
     let squaresChanged = false;
     const applied: Record<string, unknown>[] = [];
@@ -457,6 +492,7 @@ export class Room {
       const owner = pieceColor(piece);
       graves[owner].push({ piece: pieceName(piece), piece_id: info?.id ?? 0 });
       gravesChanged.add(owner);
+      lost[owner]++;
     };
 
     for (const eff of def.effects) {
@@ -674,6 +710,44 @@ export class Room {
           entry['piece'] = 'pawn';
           break;
         }
+        case 'add_trigger': {
+          const trigger: Trigger = {
+            on: typeof eff.params?.['on'] === 'string' ? eff.params['on'] : '',
+            do: typeof eff.params?.['do'] === 'string' ? eff.params['do'] : '',
+            amount: paramInt(eff.params, 'amount', 1),
+            remaining_turns: paramInt(eff.params, 'duration', 1),
+            source_spell_id: def.id,
+          };
+          if (paramBool(eff.params, 'hidden')) trigger.hidden = true;
+          if (paramBool(eff.params, 'one_shot')) trigger.one_shot = true;
+          entry['on'] = trigger.on;
+          entry['do'] = trigger.do;
+          entry['remaining_turns'] = trigger.remaining_turns;
+          deferred.push(() => {
+            const ps = this.match.player(caster);
+            ps.triggers = [...(ps.triggers ?? []), trigger];
+            ev.playerEffects = true;
+          });
+          break;
+        }
+        case 'add_aura': {
+          const grant = typeof eff.params?.['grant'] === 'string' ? eff.params['grant'] : '';
+          if ((this.match.player(caster).auras ?? []).some((a) => a.grant === grant)) throw noEffect('aura_present');
+          const condition = eff.params?.['condition'];
+          const minPawns =
+            typeof condition === 'object' && condition !== null
+              ? paramInt(condition as Record<string, unknown>, AURA_CONDITION_OWN_PAWNS_GTE, 0)
+              : 0;
+          entry['grant'] = grant;
+          deferred.push(() => {
+            const active = this.ownPawns(caster) >= minPawns;
+            const ps = this.match.player(caster);
+            ps.auras = [...(ps.auras ?? []), { grant, min_own_pawns: minPawns, active, source_spell_id: def.id }];
+            entry['active'] = active;
+            ev.playerEffects = true;
+          });
+          break;
+        }
         default:
           throw new EffectError(WS.unsupportedEffect(eff.kind));
       }
@@ -693,7 +767,10 @@ export class Room {
       graveOwners.push(color);
     }
     for (const apply of deferred) apply();
-    return { applied, changed, drawn, graveOwners, squaresChanged };
+    // Eventi del cast, dopo il commit: pezzi persi (anche il proprio Patto di sangue) e aure sulla nuova scacchiera.
+    for (const color of ['white', 'black'] as const) this.onPieceLost(ev, color, lost[color]);
+    this.refreshAuras(ev);
+    return { applied, changed, drawn, graveOwners, squaresChanged, events: ev };
   }
 
   /** `buryCaptured` (`room.go`): il pezzo catturato da una mossa va nel cimitero del proprietario. */
@@ -1022,9 +1099,119 @@ export class Room {
 
   // --- Serializzazione ------------------------------------------------------------------------------
 
+  // --- Bus di eventi (`game/events.go`, Step 5) --------------------------------------------------------------
+
+  /** `onPieceLost`: i trigger own_piece_lost / draw_card del proprietario pescano per ogni pezzo perso (M48). */
+  private onPieceLost(ev: EventLog, owner: Color, n: number): void {
+    if (n <= 0) return;
+    const ps = this.match.player(owner);
+    for (const t of [...(ps.triggers ?? [])]) {
+      if (t.on !== TRIGGER_ON_OWN_PIECE_LOST || t.do !== TRIGGER_DO_DRAW_CARD) continue;
+      let count = 0;
+      for (let k = 0; k < n * Math.max(t.amount, 1); k++) {
+        const d = this.match.drawFor(owner);
+        if (d.cardId !== '') {
+          count++;
+          ev.draws.push(d);
+        }
+      }
+      ev.fired.push({ player: owner, on: t.on, do: t.do, source_spell_id: t.source_spell_id, result: { kind: TRIGGER_DO_DRAW_CARD, count } });
+      if (t.one_shot === true) {
+        ps.triggers = (ps.triggers ?? []).filter((x) => x !== t);
+        ev.playerEffects = true;
+      }
+    }
+  }
+
+  /**
+   * `onCaptureAttempt`: un pezzo di `attacker` ha provato a catturare un pezzo scudato. Il primo Riflesso del difensore
+   * congela l'attaccante dove si trova ora (M45, M47) e si consuma (M46); il re mai.
+   */
+  private onCaptureAttempt(ev: EventLog, attacker: Color, attackerId: number): void {
+    const owner = opponentOf(attacker);
+    const ps = this.match.player(owner);
+    const t = (ps.triggers ?? []).find((x) => x.on === TRIGGER_ON_SHIELDED_ATTACKED && x.do === TRIGGER_DO_FREEZE_ATTACKER);
+    if (t === undefined) return;
+    const square = this.tracker.squareOf(attackerId);
+    if (square === null) return;
+    const piece = this.tracker.info(square)?.piece;
+    if (piece === 'K' || piece === 'k') return;
+    const turns = Math.max(t.amount, 1) + 1; // il turno dell'attaccante non conta (M47)
+    try {
+      this.tracker.freeze(square, owner, turns, t.source_spell_id);
+    } catch {
+      return;
+    }
+    ev.fired.push({
+      player: owner,
+      on: t.on,
+      do: t.do,
+      source_spell_id: t.source_spell_id,
+      result: { kind: 'freeze_piece', target: square, remaining_turns: turns },
+    });
+    if (t.one_shot === true) {
+      ps.triggers = (ps.triggers ?? []).filter((x) => x !== t);
+      ev.playerEffects = true;
+    }
+  }
+
+  /** `refreshAuras`: ricalcola le aure sulla FEN corrente (M49). */
+  private refreshAuras(ev: EventLog): void {
+    for (const player of ['white', 'black'] as const) {
+      const auras = this.match.player(player).auras ?? [];
+      if (auras.length === 0) continue;
+      const pawns = this.ownPawns(player);
+      for (const a of auras) {
+        const active = pawns >= a.min_own_pawns;
+        if (active === a.active) continue;
+        a.active = active;
+        ev.auras.push({ player, grant: a.grant, active });
+        ev.playerEffects = true;
+      }
+    }
+  }
+
+  private ownPawns(player: Color): number {
+    return countPieces(this.board.fen, player === 'white' ? 'P' : 'p');
+  }
+
+  /** `tickTriggers`: a un cambio di turno, le durate dei trigger (M9). */
+  private tickTriggers(ev: EventLog, results: AdvanceResult[]): void {
+    const rollover = results.find((r) => r.newTurn);
+    if (rollover === undefined) return;
+    const finishing = opponentOf(rollover.activePlayer);
+    for (const player of ['white', 'black'] as const) {
+      const ps = this.match.player(player);
+      const { kept, expired } = tickTriggers(ps.triggers ?? [], player === finishing);
+      ps.triggers = kept;
+      if (expired) ev.playerEffects = true;
+    }
+  }
+
+  private playerEffectsFor(viewer: Color) {
+    return playerEffectsFor(viewer, { white: this.match.white, black: this.match.black });
+  }
+
+  /** `sealEvents`: fotografa le liste se sono cambiate. */
+  private sealEvents(ev: EventLog): void {
+    if (ev.playerEffects) ev.views = { white: this.playerEffectsFor('white'), black: this.playerEffectsFor('black') };
+  }
+
+  /** `broadcastEvents`: trigger e aure a entrambi, le carte pescate al proprietario, le liste a ciascuno la sua. */
+  private broadcastEvents(ev: EventLog): void {
+    for (const f of ev.fired) this.broadcast('trigger_fired', { ...f });
+    for (const d of ev.draws) this.broadcastDraw(d);
+    for (const a of ev.auras) this.broadcast('aura_changed', { ...a });
+    if (ev.views === null) return;
+    for (const color of ['white', 'black'] as const) {
+      this.clientOf(color).send(msg('player_effects_changed', { ...ev.views[color] }));
+    }
+  }
+
   /** `publicState(viewer)` (`room.go`): lo stato visto da `viewer`, senza le rune nascoste dell'avversario. */
   publicState(viewer: Color): Record<string, unknown> {
     const { white, black } = this.match;
+    const effectsView = this.playerEffectsFor(viewer);
     return {
       board: { fen: this.board.fen, moves: [...this.board.moves], turn: this.board.turn, status: this.board.status },
       white_player: { id: this.white.userId, username: this.white.username },
@@ -1047,6 +1234,8 @@ export class Room {
       white_graveyard: white.graveyard.map((g) => g.piece),
       black_graveyard: black.graveyard.map((g) => g.piece),
       square_effects: this.tracker.squareEffectsFor(viewer),
+      triggers: effectsView.triggers,
+      auras: effectsView.auras,
     };
   }
 

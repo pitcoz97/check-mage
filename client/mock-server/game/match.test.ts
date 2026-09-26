@@ -106,9 +106,9 @@ describe('MatchState (match/match.go)', () => {
     expect(m.drawFor('black')).toMatchObject({ player: 'black', handSize: 5, deckSize: 35 });
   });
 
-  it('il catalogo ha le 26 magie degli step 1–4 (spells/catalog.go)', () => {
-    expect(CATALOG.size).toBe(26);
-    expect(CATALOG.has('ice_wall') && CATALOG.has('sanctuary') && CATALOG.has('minefield')).toBe(true);
+  it('il catalogo ha le 29 magie degli step 1–5 (spells/catalog.go)', () => {
+    expect(CATALOG.size).toBe(29);
+    expect(CATALOG.has('ice_wall') && CATALOG.has('sanctuary') && CATALOG.has('minefield') && CATALOG.has('banner')).toBe(true);
   });
 
   it('la ricetta rispetta i limiti di copie della rarità (M43)', () => {

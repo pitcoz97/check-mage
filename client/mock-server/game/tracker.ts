@@ -353,6 +353,11 @@ export class Tracker {
       .sort((a, b) => (a.square < b.square ? -1 : a.square > b.square ? 1 : 0));
   }
 
+  /** `Tracker.SquareOf`: la casa del pezzo con quell'id, se è ancora in gioco. */
+  squareOf(id: number): string | null {
+    return this.pieces.get(id)?.square ?? null;
+  }
+
   /** Solo per i test del mock: identità del pezzo in una casella. */
   idAt(square: string): number | undefined {
     return this.bySquare.get(square);
