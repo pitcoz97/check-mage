@@ -313,3 +313,22 @@ I riferimenti sono al server di quel branch.
 | S9 | `remaining_turns: -1` (permanente, oggi solo le rune) resta -1 nel modello e non ha numero sul badge; gli altri valori negativi si portano a 0 come prima. | Una runa non scade. | `adapter.ts` §1, `BoardSquare.tsx` |
 | S10 | Una runa nella propria lista con `hidden: true` è la propria, ancora nascosta all'avversario; senza `hidden` è visibile a entrambi. Le rune nascoste dell'avversario non arrivano mai: il client non ha nulla da filtrare. | `SquareEffectsFor` del server. | `effects.registry.tsx` |
 | S11 | Il nome di una runa scattata viene da `on_enter` (gelo = Runa di stasi, ritorno = Runa di respinta, distruzione = Runa esplosiva): `rune_triggered` non porta la magia, e Campo minato piazza Rune di stasi. | `rune_triggered` non ha `spell_id`. | `i18n`, `useNotice.ts` |
+
+### Step 5 (trigger e aure): decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| M45 | Riflesso scatta solo al **tentativo di cattura** di un proprio pezzo scudato (en passant compreso), sia che lo scudo assorba sia che si rompa: l'attaccante viene congelato. | tu |
+| M46 | Riflesso scatta **una volta sola** e si consuma; fino ad allora è nascosto (cast nascosto, M42; assente dallo stato dell'avversario). Scade dopo 1 turno avversario. | tu |
+| M47 | Il gelo di Riflesso cade nel turno dell'attaccante, che non conta (come M44): copre il suo turno successivo. Il re non viene mai congelato e il trigger resta. | derivata |
+| M48 | Anima inquieta è attiva dal lancio alla fine del prossimo turno avversario; conta ogni proprio pezzo finito nel cimitero (cattura, en passant, magia, runa, anche il proprio Patto di sangue), non la cattura assorbita dallo scudo; pesca 1 per pezzo, a mazzo vuoto niente. Pubblica. | tu + brief |
+| M49 | Stendardo: l'aura si registra anche sotto soglia, è attiva con almeno 6 propri pedoni e si ricalcola dopo ogni cambio della scacchiera; un secondo Stendardo è `no_effect {reason: aura_present}`. | tu + M18 |
+| M50 | Il passo di lato arriva allo Step 6 con le mosse speciali; fino ad allora lo Stendardo è nel catalogo ma fuori dalla ricetta. | tu |
+| M51 | Trigger e aure stanno nel `PlayerState` (snapshot) e arrivano per destinatario: un trigger nascosto dell'avversario non arriva mai. | brief |
+| M52 | Ricetta a 40 su 28 magie (Stendardo fuori): Anima inquieta 1, Riflesso 1; Blink e Marcia forzata a 1 copia. | derivata, da rivedere in bilanciamento |
+
+### Step 5: assunzioni del client
+| # | Assunzione | Motivo | Dove |
+|---|---|---|---|
+| S12 | Un `game_state` senza `triggers`/`auras` (server precedente allo Step 5) vale come liste vuote; `player_effects_changed` sostituisce entrambe. | Come S6 e S7. | `adapter.ts` §2 |
+| S13 | Il nome di un trigger o di un'aura nella riga e negli avvisi è quello della magia che l'ha registrato (`source_spell_id`, i18n per id); l'icona viene da `do`/`grant` (registry), mai da uno `switch` sulla magia. Un'aura notificata da `aura_changed` (che non porta la magia) prende il nome dal `grant`. | `trigger_fired` porta `source_spell_id`, `aura_changed` no. | `effects.registry.tsx`, `useNotice.ts` |
+| S14 | Su Android, quando nella propria riga ci sono trigger o aure, il numero del mana ("10/10") lascia il posto alle pillole: restano i rombi e l'etichetta accessibile. A 390 px le due cose non stanno insieme. | Spazio. | `PlayerRow.tsx` |
