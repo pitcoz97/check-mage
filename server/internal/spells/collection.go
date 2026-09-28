@@ -19,6 +19,21 @@ type CollectionView struct {
 	Total int               `json:"total"`
 }
 
+// UnlockAllCards, finché vale true, dà a ogni utente tutte le carte del catalogo
+// al massimo di copie (collezione e mazzi), senza toccare le copie salvate nel
+// DB: è temporaneo, finché le carte non si potranno ottenere (C12). Con false si
+// torna alle copie possedute davvero (il set iniziale).
+var UnlockAllCards = true
+
+// FullCollection restituisce ogni magia del catalogo al massimo di copie.
+func FullCollection() map[string]int {
+	out := make(map[string]int, len(Catalog))
+	for id, s := range Catalog {
+		out[id] = s.Rarity.MaxCopies()
+	}
+	return out
+}
+
 // StarterCopies è il numero di copie di una magia nel set iniziale: le comuni
 // al massimo, le rare a 1, le leggendarie a 0 (C4, da rivedere nel
 // bilanciamento).

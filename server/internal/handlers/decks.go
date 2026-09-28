@@ -102,10 +102,21 @@ func toView(row db.DeckRow, owned map[string]int) deckView {
 	}
 }
 
+// ownedCopies restituisce le copie possedute dall'utente (il set iniziale
+// arriva alla prima lettura); con spells.UnlockAllCards la collezione è piena
+// (C12), ma le righe del DB restano quelle vere.
+func ownedCopies(userID int) (map[string]int, error) {
+	owned, err := db.LoadCollection(userID, spells.StarterSet())
+	if err != nil || !spells.UnlockAllCards {
+		return owned, err
+	}
+	return spells.FullCollection(), nil
+}
+
 // userDecks legge collezione e mazzi; a chi non ha mazzi crea il mazzo iniziale,
 // attivo (D4).
 func userDecks(userID int) ([]db.DeckRow, map[string]int, error) {
-	owned, err := db.LoadCollection(userID, spells.StarterSet())
+	owned, err := ownedCopies(userID)
 	if err != nil {
 		return nil, nil, err
 	}

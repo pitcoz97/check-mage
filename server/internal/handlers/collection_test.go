@@ -20,8 +20,16 @@ func TestCollection_NoClaims(t *testing.T) {
 	}
 }
 
+// ownedOnly spegne per un test la collezione piena (C12): valgono le copie vere.
+func ownedOnly(t *testing.T) {
+	t.Helper()
+	spells.UnlockAllCards = false
+	t.Cleanup(func() { spells.UnlockAllCards = true })
+}
+
 // Senza DB (test) la collezione è il set iniziale.
 func TestCollection_Starter(t *testing.T) {
+	ownedOnly(t)
 	req := httptest.NewRequest("GET", "/me/collection", nil)
 	req = req.WithContext(context.WithValue(req.Context(), mw.UserKey, jwt.MapClaims{"user_id": float64(7)}))
 	rr := httptest.NewRecorder()

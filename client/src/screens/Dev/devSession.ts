@@ -68,18 +68,13 @@ const LEADERBOARD = [
   { rank: 5, id: 7, username: 'Riccardo', elo: 1240 },
 ];
 
-/**
- * `GET /me/collection` delle anteprime: il set iniziale del server (comuni 2, rare 1, leggendarie 0), con in più
- * Fretta e una seconda Frantumare per vedere una leggendaria posseduta e una rara piena.
- */
-const EXTRA_COPIES: Record<string, number> = { haste: 1, shatter: 2 };
+/** `GET /me/collection` delle anteprime: la collezione piena, come col server finché tutte le carte sono sbloccate (C12). */
 const COLLECTION = (() => {
   const cards = [...fallbackCatalog]
     .sort((a, b) => a.mana_cost - b.mana_cost || a.id.localeCompare(b.id))
     .map((spell) => {
       const max = spell.rarity === 'legendary' ? 1 : 2;
-      const starter = spell.rarity === 'common' ? 2 : spell.rarity === 'rare' ? 1 : 0;
-      return { spell_id: spell.id, copies: EXTRA_COPIES[spell.id] ?? starter, max_copies: max };
+      return { spell_id: spell.id, copies: max, max_copies: max };
     });
   return { cards, owned: cards.reduce((n, c) => n + c.copies, 0), total: cards.reduce((n, c) => n + c.max_copies, 0) };
 })();

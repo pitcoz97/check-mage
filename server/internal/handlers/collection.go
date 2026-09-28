@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"chess-server/internal/db"
 	"chess-server/internal/logger"
 	"chess-server/internal/models"
 	"chess-server/internal/spells"
@@ -19,7 +18,7 @@ func Collection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	owned, err := db.LoadCollection(userID, spells.StarterSet())
+	owned, err := ownedCopies(userID)
 	if err != nil {
 		logger.L.Error("Errore lettura collezione", zap.Int("user_id", userID), zap.Error(err))
 		fail(w, http.StatusInternalServerError, "Errore recupero collezione")

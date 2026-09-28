@@ -53,8 +53,14 @@ export function collectionView(catalog: readonly CollectionSpell[], owned: Reado
   };
 }
 
-export function createCollectionStore(catalog: readonly CollectionSpell[]) {
+/** `FullCollection`: ogni magia al massimo di copie. */
+export function fullCollection(catalog: readonly CollectionSpell[]): Map<string, number> {
+  return new Map(catalog.map((spell) => [spell.id, maxCopies(spell.rarity)]));
+}
+
+export function createCollectionStore(catalog: readonly CollectionSpell[], unlockAll = false) {
   const byUser = new Map<number, Map<string, number>>();
+  const full = fullCollection(catalog);
   /** `LoadCollection`: assegna il set iniziale se l'utente non ha ancora righe, poi legge. */
   const owned = (userId: number): ReadonlyMap<string, number> => {
     let current = byUser.get(userId);
@@ -62,7 +68,8 @@ export function createCollectionStore(catalog: readonly CollectionSpell[]) {
       current = starterSet(catalog);
       byUser.set(userId, current);
     }
-    return current;
+    // `ownedCopies` (C12): con la collezione piena le copie vere restano, ma non contano.
+    return unlockAll ? full : current;
   };
   return {
     owned,

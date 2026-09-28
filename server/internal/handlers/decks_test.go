@@ -64,6 +64,7 @@ func cardsOf(d spells.DeckCards) []deckCardView {
 }
 
 func TestDecks_StarterAndRules(t *testing.T) {
+	ownedOnly(t)
 	db.ResetMemDecks()
 
 	// Alla prima lettura: il mazzo iniziale, valido e attivo (D4).
@@ -168,6 +169,60 @@ func TestDecks_Limit(t *testing.T) {
 	}
 	if code, resp := call(t, CreateDeck, "POST", "", deckRequest{Name: "M", Cards: nil}); code != http.StatusBadRequest || resp.Error != msgDeckLimit {
 		t.Errorf("undicesimo mazzo = %d %s", code, resp.Error)
+	}
+}
+
+// C12: con la collezione piena ogni carta è posseduta al massimo: il mazzo
+// iniziale è la ricetta condivisa intera (Fretta compresa) e una rara entra a 2
+// copie anche se il set iniziale ne dà 1.
+func TestDecks_UnlockAll(t *testing.T) {
+	db.ResetMemDecks()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/me/collection", nil)
+	Collection(rr, req.WithContext(context.WithValue(req.Context(), mw.UserKey, jwt.MapClaims{"user_id": float64(5)})))
+	var coll struct {
+		Data spells.CollectionView `json:"data"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &coll)
+	if coll.Data.Owned != 59 || coll.Data.Total != 59 {
+		t.Fatalf("collezione = %d / %d, attesa 59 / 59", coll.Data.Owned, coll.Data.Total)
+	}
+
+	starter := list(t).Decks[0]
+	if !starter.Valid || starter.Size != 40 {
+		t.Fatalf("mazzo iniziale = %+v", starter)
+	}
+	hasHaste := false
+	for _, c := range starter.Cards {
+		if c.SpellID == "haste" {
+			hasHaste = true
+		}
+		if want := spells.StarterDeck(spells.FullCollection())[c.SpellID]; c.Copies != want {
+			t.Errorf("%s: %d copie, attese %d", c.SpellID, c.Copies, want)
+		}
+	}
+	if !hasHaste {
+		t.Error("il mazzo iniziale deve contenere Fretta")
+	}
+
+	deck := spells.StarterDeck(spells.FullCollection())
+	deck["frost"]--
+	deck["swap"] = 2
+	if deck.Size() != 40 {
+		t.Fatalf("mazzo di prova = %d carte", deck.Size())
+	}
+	code, resp := call(t, CreateDeck, "POST", "", deckRequest{Name: "Scambi", Cards: cardsOf(deck)})
+	if code != http.StatusCreated {
+		t.Fatalf("POST con Scambio a 2 = %d %s", code, resp.Error)
+	}
+	var created deckView
+	_ = json.Unmarshal(resp.Data, &created)
+	if !created.Valid {
+		t.Errorf("mazzo con Scambio a 2 non valido: %+v", created)
+	}
+	if code, resp := call(t, ActivateDeck, "POST", jsonID(created.ID), nil); code != http.StatusOK {
+		t.Errorf("attivazione = %d %s", code, resp.Error)
 	}
 }
 
