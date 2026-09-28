@@ -1,9 +1,12 @@
 import {
+  encodeDeck,
   encodeLogin,
   encodeRefresh,
   encodeRegister,
   normalizeAccount,
   normalizeCollection,
+  normalizeDeck,
+  normalizeDeckList,
   normalizeLeaderboard,
   normalizeLogin,
   normalizePasswordPolicy,
@@ -20,6 +23,8 @@ import type { Spell } from '../spells/schema';
 import type {
   AuthSession,
   CardCollection,
+  Deck,
+  DeckList,
   CredentialPolicy,
   HttpErrorInfo,
   LeaderboardEntry,
@@ -74,6 +79,28 @@ export function createApi(http: HttpClient) {
     /** Copie possedute di ogni magia (`handlers/collection.go`). Autenticato: il set iniziale arriva alla prima lettura. */
     async fetchCollection(): Promise<ApiResult<CardCollection>> {
       return toResult(await http.request('GET', '/me/collection', { auth: true }), normalizeCollection);
+    },
+
+    /** Mazzi personali (`handlers/decks.go`): alla prima lettura il server crea il mazzo iniziale (D4). */
+    async fetchDecks(): Promise<ApiResult<DeckList>> {
+      return toResult(await http.request('GET', '/me/decks', { auth: true }), normalizeDeckList);
+    },
+
+    async createDeck(name: string, cards: ReadonlyMap<string, number>): Promise<ApiResult<Deck>> {
+      return toResult(await http.request('POST', '/me/decks', { auth: true, body: encodeDeck(name, cards) }), normalizeDeck);
+    },
+
+    async updateDeck(id: string, name: string, cards: ReadonlyMap<string, number>): Promise<ApiResult<Deck>> {
+      return toResult(await http.request('PUT', `/me/decks/${encodeURIComponent(id)}`, { auth: true, body: encodeDeck(name, cards) }), normalizeDeck);
+    },
+
+    /** Risponde con la lista aggiornata (il mazzo attivo può essere cambiato, D5). */
+    async deleteDeck(id: string): Promise<ApiResult<DeckList>> {
+      return toResult(await http.request('DELETE', `/me/decks/${encodeURIComponent(id)}`, { auth: true }), normalizeDeckList);
+    },
+
+    async activateDeck(id: string): Promise<ApiResult<DeckList>> {
+      return toResult(await http.request('POST', `/me/decks/${encodeURIComponent(id)}/activate`, { auth: true }), normalizeDeckList);
     },
 
     /** Primi dieci per ELO (`handlers/stats.go:14-51`). Pubblico: niente posizione propria né stagione (P2-20). */

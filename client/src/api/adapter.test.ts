@@ -12,6 +12,9 @@ import {
   interpretHttpResponse,
   normalizeAccount,
   normalizeCollection,
+  normalizeDeck,
+  normalizeDeckList,
+  encodeDeck,
   FALLBACK_CREDENTIAL_POLICY,
   normalizeGameHistory,
   normalizeLeaderboard,
@@ -741,6 +744,27 @@ describe('REST', () => {
     expect(result.warnings.map((w) => w.code)).toEqual(['collection_entry_invalid', 'collection_entry_invalid']);
     expect(normalizeCollection({ cards: null, owned: 0, total: 0 })).toEqual({ ok: true, value: { cards: [], owned: 0, total: 0 }, warnings: [] });
     expect(normalizeCollection({ cards: [] })).toMatchObject({ ok: false });
+  });
+
+  it('mazzi: lista con voci malformate scartate, mazzo singolo, corpo della richiesta', () => {
+    const good = { id: 4, name: 'Gelo', cards: [{ spell_id: 'frost', copies: 2 }], size: 2, valid: false, active: false, updated_at: '2026-09-28T10:00:00Z' };
+    const result = normalizeDeckList({ decks: [good, { id: 5, name: '', cards: [], size: 0, valid: false, active: false, updated_at: 'x' }], max_decks: 10, deck_size: 40 });
+    if (!result.ok) throw new Error('lista rifiutata');
+    expect(result.value.maxDecks).toBe(10);
+    expect(result.value.deckSize).toBe(40);
+    expect(result.value.decks).toEqual([
+      { id: '4', name: 'Gelo', cards: new Map([['frost', 2]]), size: 2, valid: false, active: false, updatedAt: '2026-09-28T10:00:00Z' },
+    ]);
+    expect(result.warnings.map((w) => w.code)).toEqual(['deck_entry_invalid']);
+    expect(normalizeDeck({ ...good, cards: null })).toMatchObject({ ok: true, value: { cards: new Map() } });
+    expect(normalizeDeckList({ decks: [] })).toMatchObject({ ok: false });
+    expect(JSON.parse(encodeDeck('Gelo', new Map([['shield', 1], ['frost', 2], ['haste', 0]])))).toEqual({
+      name: 'Gelo',
+      cards: [
+        { spell_id: 'frost', copies: 2 },
+        { spell_id: 'shield', copies: 1 },
+      ],
+    });
   });
 
   it('ticket WebSocket', () => {

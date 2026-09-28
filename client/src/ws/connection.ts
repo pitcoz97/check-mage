@@ -49,6 +49,8 @@ export async function resolveSocketUrl(source: TicketSource, wsBaseUrl: string):
 
 /** Codice di chiusura di una connessione sostituita (`game/client.go:28`). */
 export const CLOSE_REPLACED = 4001;
+/** Mazzo attivo non valido: niente coda (`CloseDeckInvalid`, `game/client.go`, D6). */
+export const CLOSE_DECK_INVALID = 4002;
 const CLOSE_NORMAL = 1000;
 /** Chiusura senza saluti: handshake rifiutato o connessione caduta (lo stesso codice che usa il browser). */
 const CLOSE_ABNORMAL = 1006;
@@ -110,6 +112,8 @@ export type ConnectionStatus =
   | { readonly kind: 'reconnecting'; readonly attempt: number; readonly since: number; readonly nextAt: number }
   /** Un'altra connessione dello stesso utente ha preso il posto di questa (4001). */
   | { readonly kind: 'replaced' }
+  /** Il server non mette in coda: il mazzo attivo non è valido (4002). */
+  | { readonly kind: 'deck_invalid' }
   /** Ticket rifiutato anche dopo il refresh: la sessione è scaduta. */
   | { readonly kind: 'unauthorized' }
   | { readonly kind: 'closed' };
@@ -265,6 +269,11 @@ export function createConnection(deps: ConnectionDeps): Connection {
           setStatus({ kind: 'replaced' });
           return;
         }
+        if (code === CLOSE_DECK_INVALID) {
+          logger.debug('mazzo attivo non valido (4002)');
+          setStatus({ kind: 'deck_invalid' });
+          return;
+        }
         scheduleRetry();
       },
     });
@@ -302,7 +311,9 @@ export function createConnection(deps: ConnectionDeps): Connection {
 
     wake() {
       // Ferma per scelta (mai aperta, chiusa, sessione scaduta, sostituita da un'altra scheda): non si tocca.
-      if (status.kind === 'idle' || status.kind === 'closed' || status.kind === 'unauthorized' || status.kind === 'replaced') return;
+      if (status.kind === 'idle' || status.kind === 'closed' || status.kind === 'unauthorized' || status.kind === 'replaced' || status.kind === 'deck_invalid') {
+        return;
+      }
       generation++;
       retryTimer = clearTimer(retryTimer);
       dropSocket(CLOSE_NORMAL);

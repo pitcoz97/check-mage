@@ -23,7 +23,7 @@ export interface RequestOptions {
 }
 
 export interface HttpClient {
-  request(method: 'GET' | 'POST', path: string, options?: RequestOptions): Promise<HttpOutcome>;
+  request(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, options?: RequestOptions): Promise<HttpOutcome>;
 }
 
 export interface HttpClientDeps {

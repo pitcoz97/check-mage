@@ -74,6 +74,9 @@
   --color-rarity-rare: var(--rarity-rare);
   --color-rarity-mythic: var(--rarity-mythic);
   --color-pip-empty: var(--pip-empty);
+  --color-sigil-frost: var(--sigil-frost-ring);
+  --color-valid-ink: var(--valid-ink);
+  --color-curve-axis: var(--mana-locked-edge);
   --color-control-off: var(--control-off);
   --color-card-disabled: var(--card-disabled-veil);
   --color-art-leap: var(--art-leap);
