@@ -27,6 +27,8 @@ type ActiveEffect struct {
 	// partita salvata non dipende dal catalogo.
 	Hidden bool      `json:"hidden,omitempty"`
 	Rune   *RuneSpec `json:"rune,omitempty"`
+	// Solo per borrow_movement (special.go): il tipo di pezzo preso in prestito.
+	BorrowAs string `json:"borrow_as,omitempty"`
 }
 
 // Permanent è la durata di un effetto che non scade.

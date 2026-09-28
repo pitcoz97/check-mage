@@ -265,3 +265,12 @@ func (t *Tracker) Info(square string) (int, byte, bool) {
 	}
 	return id, t.pieces[id].Type, true
 }
+
+// SquareOf restituisce la casa del pezzo con quell'id, se è ancora in gioco.
+func (t *Tracker) SquareOf(id int) (string, bool) {
+	ps, ok := t.pieces[id]
+	if !ok {
+		return "", false
+	}
+	return ps.Square, true
+}

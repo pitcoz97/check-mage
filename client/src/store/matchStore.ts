@@ -15,6 +15,7 @@ import type {
   RuneResult,
   Square,
   SquareEffects,
+  TriggerResult,
   UserId,
   Username,
 } from '../game/model';
@@ -71,6 +72,24 @@ export interface LoggedSpell {
   readonly seq: number;
 }
 
+/** Ultimo trigger scattato (`trigger_fired`): l'avviso e, per un gelo, il lampeggio della casa. */
+export interface FiredTrigger {
+  readonly player: Color;
+  readonly on: string;
+  readonly do: string;
+  readonly sourceSpellId: SpellId | null;
+  readonly result: TriggerResult;
+  readonly seq: number;
+}
+
+/** Ultima aura accesa o spenta (`aura_changed`), per l'avviso. */
+export interface ChangedAura {
+  readonly player: Color;
+  readonly grant: string;
+  readonly active: boolean;
+  readonly seq: number;
+}
+
 /** Ultima runa scattata (`rune_triggered`): la casa lampeggia e il box del suggerimento lo dice. */
 export interface TriggeredRune {
   readonly square: Square;
@@ -111,6 +130,8 @@ export interface MatchState {
   readonly pendingCast: PendingCast | null;
   readonly lastCast: ResolvedSpell | null;
   readonly lastRune: TriggeredRune | null;
+  readonly lastTrigger: FiredTrigger | null;
+  readonly lastAura: ChangedAura | null;
   /** Magie viste in questa sessione, in ordine d'arrivo. */
   readonly spellLog: readonly LoggedSpell[];
   readonly outcome: GameOutcome | null;
@@ -135,6 +156,8 @@ export function initialMatchState(selfId: UserId | null): MatchState {
     pendingCast: null,
     lastCast: null,
     lastRune: null,
+    lastTrigger: null,
+    lastAura: null,
     spellLog: [],
     outcome: null,
     seq: 0,
@@ -344,6 +367,22 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
     case 'rune_triggered':
       // Lo stato (FEN, gelo, cimitero, runa consumata) è già arrivato o arriva con gli eventi vicini: qui solo l'avviso.
       return { ...base, lastRune: { square: event.square, owner: event.owner, onEnter: event.onEnter, result: event.result, seq } };
+
+    case 'player_effects_changed':
+      return game === null ? base : { ...base, game: { ...game, playerEffects: event.playerEffects } };
+
+    case 'trigger_fired':
+      // Carte, gelo e liste arrivano con gli eventi vicini (card_drawn, game_state, player_effects_changed).
+      return {
+        ...base,
+        lastTrigger: { player: event.player, on: event.on, do: event.do, sourceSpellId: event.sourceSpellId, result: event.result, seq },
+      };
+
+    case 'move_options':
+      return game === null ? base : { ...base, game: { ...game, moveOptions: event.moveOptions } };
+
+    case 'aura_changed':
+      return { ...base, lastAura: { player: event.player, grant: event.grant, active: event.active, seq } };
 
     case 'graveyard_changed':
       return game === null ? base : { ...base, game: { ...game, graveyards: { ...game.graveyards, [event.player]: event.graveyard } } };

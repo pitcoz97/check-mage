@@ -71,6 +71,8 @@ export interface ActiveEffect {
   readonly hidden?: boolean;
   /** Solo per le rune: cosa fa quando scatta (`freeze_piece`, `return_to_origin`, `destroy_piece`). */
   readonly onEnter?: string;
+  /** Solo per `borrow_movement` (Step 6): il tipo di pezzo preso in prestito. */
+  readonly borrowAs?: PieceKind;
 }
 
 /** `remaining_turns` di uno stato che non scade (`effects.Permanent`). */
@@ -122,6 +124,10 @@ export interface PublicGameState {
   readonly activeEffects: readonly SquareEffects[];
   /** Stati delle case (muri, santuari): restano sulla casa, qualunque pezzo ci sia (ASSUMPTIONS §7 M25–M31). */
   readonly squareStates: readonly SquareEffects[];
+  /** Trigger e aure dei due giocatori (Step 5), già filtrati dal server per chi guarda (ASSUMPTIONS M51). */
+  readonly playerEffects: PlayerEffects;
+  /** Mosse fuori dagli scacchi di chi guarda, nella sua fase Move (Step 6, ASSUMPTIONS M60). */
+  readonly moveOptions: MoveOptions;
   /** Pezzi persi da ciascun giocatore, in ordine (cimitero pubblico, ASSUMPTIONS §7 M19). */
   readonly graveyards: PerColor<readonly PieceKind[]>;
   /** `true` solo nel `game_state` inviato a chi si riconnette (`game/room.go:1136`). */
@@ -178,7 +184,58 @@ export type AppliedEffect =
     }
   /** L'unico effetto di una magia nascosta vista dall'avversario (ASSUMPTIONS M42). */
   | { readonly kind: 'hidden_effect' }
+  /** Trigger e aure (Step 5): registrati sul giocatore che lancia. */
+  | { readonly kind: 'add_trigger'; readonly on: string; readonly do: string; readonly remainingTurns: number }
+  | { readonly kind: 'add_aura'; readonly grant: string; readonly active: boolean }
+  /** Mosse speciali (Step 6): stato di movimento su un pezzo, movimento preso in prestito, seconda mossa. */
+  | { readonly kind: 'add_effect'; readonly target: Square; readonly effect: string; readonly remainingTurns: number }
+  | { readonly kind: 'borrow_movement'; readonly target: Square; readonly piece: PieceKind | 'unknown' }
+  | { readonly kind: 'extra_move'; readonly pieces: readonly PieceKind[]; readonly noCapture: boolean }
   /** Effetto sconosciuto o malformato: si mostra neutro, non blocca il resto (§5.1.6). */
+  | { readonly kind: 'unknown'; readonly rawKind: string };
+
+/**
+ * Trigger di un giocatore (`game_state.triggers`): reagisce a un evento (`on`) con un'azione (`do`). `hidden` = il
+ * proprio trigger, ancora nascosto all'avversario; quelli nascosti dell'avversario non arrivano mai.
+ */
+export interface PlayerTrigger {
+  readonly player: Color;
+  readonly on: string;
+  readonly do: string;
+  readonly remainingTurns: number;
+  readonly sourceSpellId: SpellId | null;
+  readonly hidden: boolean;
+}
+
+/** Aura di un giocatore (`game_state.auras`): attiva finché ha almeno `minOwnPawns` pedoni. */
+export interface PlayerAura {
+  readonly player: Color;
+  readonly grant: string;
+  readonly active: boolean;
+  readonly minOwnPawns: number;
+  readonly sourceSpellId: SpellId | null;
+}
+
+/**
+ * Opzioni di mossa decise dal server (`special_moves`, `extra_move`): mosse speciali già valide da aggiungere agli
+ * evidenziati; con `extraMove` (seconda mossa di Fretta) valgono **solo** quelle.
+ */
+export interface MoveOptions {
+  readonly specialMoves: readonly UciMove[];
+  readonly extraMove: { readonly pieces: readonly PieceKind[]; readonly noCapture: boolean } | null;
+}
+
+export const NO_MOVE_OPTIONS: MoveOptions = { specialMoves: [], extraMove: null };
+
+export interface PlayerEffects {
+  readonly triggers: readonly PlayerTrigger[];
+  readonly auras: readonly PlayerAura[];
+}
+
+/** Cosa ha fatto un trigger (`trigger_fired.result`, `game/events.go`). */
+export type TriggerResult =
+  | { readonly kind: 'draw_card'; readonly count: number }
+  | { readonly kind: 'freeze_piece'; readonly target: Square; readonly remainingTurns: number }
   | { readonly kind: 'unknown'; readonly rawKind: string };
 
 /** Cosa ha fatto una runa scattata (`rune_triggered.result`, `game/room.go` triggerRune). */

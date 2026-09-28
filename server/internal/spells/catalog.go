@@ -61,6 +61,10 @@ var catalogList = []Spell{
 		},
 		Limits: map[string]int{LimitPerTurn: 1}},
 
+	{ID: "restless_soul", Name: "Anima inquieta", ManaCost: 2, Phases: mainPhases, Tags: []string{"necro"}, Rarity: Common,
+		Effects: []Effect{{Kind: EffectAddTrigger, Params: map[string]interface{}{
+			"on": TriggerOnOwnPieceLost, "do": TriggerDoDrawCard, "amount": 1, "duration": 1}}}},
+
 	{ID: "recall", Name: "Richiamo", ManaCost: 3, Phases: mainPhases, Tags: []string{"necro", "falange"}, Rarity: Common,
 		Targets: []TargetSpec{{Type: TargetSquare, EmptySquare: true, OwnRanks: []int{2}}},
 		Effects: []Effect{{Kind: EffectRevivePiece, Params: map[string]interface{}{"pieces": []PieceKind{Pawn}, "no_check": true}}}},
@@ -69,7 +73,20 @@ var catalogList = []Spell{
 		Targets: []TargetSpec{{Type: TargetSquare, EmptySquare: true, OwnRanks: []int{1}}},
 		Effects: []Effect{{Kind: EffectRevivePiece, Params: map[string]interface{}{"pieces": []PieceKind{Knight, Bishop, Rook}, "no_check": true}}}},
 
+	// Il pedone muove anche come un pezzo minore del proprio cimitero, per questo
+	// turno (durata 0, M9 e M55); la scelta arriva con cast_spell.choice.
+	{ID: "echo_of_fallen", Name: "Eco del caduto", ManaCost: 4, Phases: preMove, Tags: []string{"necro", "arcano"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: []PieceKind{Pawn}}},
+		Effects: []Effect{{Kind: EffectBorrowMovement, Params: map[string]interface{}{
+			"from_graveyard": minor, "duration": 0}}}},
+
 	// ───────────────────────── ARCANO ─────────────────────────
+
+	// Solo l'alfiere: il cavallo salta già (M53).
+	{ID: "phase_step", Name: "Passo sfasato", ManaCost: 2, Phases: preMove, Tags: []string{"arcano"}, Rarity: Common,
+		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: []PieceKind{Bishop}}},
+		Effects: []Effect{{Kind: EffectAddEffect, Params: map[string]interface{}{
+			"effect": "phasing", "no_capture": true, "duration": 0}}}},
 
 	{ID: "blink", Name: "Blink", ManaCost: 4, Phases: mainPhases, Tags: []string{"arcano"}, Rarity: Common,
 		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: minor}, {Type: TargetSquare, EmptySquare: true, MaxDistance: 2}},
@@ -83,6 +100,10 @@ var catalogList = []Spell{
 		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: minor}},
 		Effects: []Effect{{Kind: EffectTransformPiece, Params: map[string]interface{}{
 			"map": map[string]interface{}{"knight": "bishop", "bishop": "knight"}, "no_check": true}}}},
+
+	{ID: "haste", Name: "Fretta", ManaCost: 6, Phases: preMove, Tags: []string{"arcano", "falange"}, Rarity: Legendary,
+		Effects: []Effect{{Kind: EffectExtraMove, Params: map[string]interface{}{
+			"pieces": []PieceKind{Pawn}, "no_capture": true}}}},
 
 	// ───────────────────────── SACRO ─────────────────────────
 
@@ -105,6 +126,12 @@ var catalogList = []Spell{
 		Targets: []TargetSpec{{Type: TargetSquare}},
 		Effects: []Effect{{Kind: EffectCreateSquareEffect, Params: map[string]interface{}{
 			"effect": "no_capture", "duration": 3}}}},
+
+	// amount = turni di gelo dell'attaccante; duration = vita del trigger.
+	{ID: "reflection", Name: "Riflesso", ManaCost: 3, Phases: mainPhases, Tags: []string{"sacro", "rune"}, Rarity: Common,
+		Effects: []Effect{{Kind: EffectAddTrigger, Params: map[string]interface{}{
+			"on": TriggerOnShieldedAttacked, "do": TriggerDoFreezeAttacker, "amount": 1, "duration": 1,
+			"hidden": true, "one_shot": true}}}},
 
 	// ───────────────────────── RUNE ─────────────────────────
 
@@ -147,6 +174,11 @@ var catalogList = []Spell{
 		Targets: []TargetSpec{{Type: TargetSquare, EmptySquare: true, OwnRanks: []int{2}}},
 		Effects: []Effect{{Kind: EffectSummonPawn, Params: map[string]interface{}{"max_pawns": 8}}}},
 
+	{ID: "banner", Name: "Stendardo", ManaCost: 2, Phases: mainPhases, Tags: []string{"falange"}, Rarity: Common,
+		Effects: []Effect{{Kind: EffectAddAura, Params: map[string]interface{}{
+			"condition": map[string]interface{}{AuraConditionOwnPawnsAtLeast: 6},
+			"grant":     AuraGrantPawnSidestep, "duration": PermanentTurns}}}},
+
 	{ID: "phalanx", Name: "Falange", ManaCost: 3, Phases: mainPhases, Tags: []string{"falange", "sacro"}, Rarity: Common,
 		Effects: []Effect{{Kind: EffectShieldArea, Params: map[string]interface{}{
 			"filter": "own_pawns_side_by_side", "duration": 1}}}},
@@ -177,9 +209,9 @@ func indexCatalog(list []Spell) map[string]Spell {
 }
 
 // deckRecipe definisce quante copie di ogni carta compongono il mazzo, uguale
-// per entrambi i giocatori. Totale = 40, nei limiti di copie della rarità (2 per
-// le comuni, 1 per le leggendarie): le 4 leggendarie a 1 copia, 14 comuni a 2 e
-// 8 comuni a 1 (M43, da rivedere nel bilanciamento).
+// per entrambi i giocatori. Totale = 40 sulle 32 magie del brief, nei limiti di
+// copie della rarità (2 per le comuni, 1 per le leggendarie): le 5 leggendarie a
+// 1 copia, 8 comuni a 2 e 19 a 1 (M61, da rivedere nel bilanciamento).
 var deckRecipe = []struct {
 	ID    string
 	Count int
@@ -190,24 +222,30 @@ var deckRecipe = []struct {
 	{"shatter", 2},
 	{"eternal_winter", 1},
 	{"blood_pact", 2},
+	{"restless_soul", 1},
 	{"recall", 1},
+	{"echo_of_fallen", 1},
 	{"resurrection", 1},
-	{"blink", 2},
+	{"phase_step", 1},
+	{"blink", 1},
 	{"swap", 1},
 	{"metamorphosis", 1},
+	{"haste", 1},
 	{"shield", 2},
-	{"royal_shield", 2},
+	{"royal_shield", 1},
 	{"royal_guard", 1},
 	{"divine_castling", 1},
 	{"sanctuary", 2},
+	{"reflection", 1},
 	{"revelation", 1},
 	{"stasis_rune", 2},
-	{"repel_rune", 2},
-	{"explosive_rune", 2},
-	{"detonation", 2},
+	{"repel_rune", 1},
+	{"explosive_rune", 1},
+	{"detonation", 1},
 	{"minefield", 1},
-	{"forced_march", 2},
+	{"forced_march", 1},
 	{"conscription", 2},
 	{"phalanx", 1},
+	{"banner", 1},
 	{"early_promotion", 1},
 }

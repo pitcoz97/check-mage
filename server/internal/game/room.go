@@ -53,6 +53,7 @@ type Room struct {
 	drawOfferer       *Client             // chi ha offerto la patta (nil se nessuna offerta)
 	disconnectedTimer map[int]*time.Timer // userID -> timer di disconnessione
 	posCounts         map[string]int      // FEN normalizzata -> occorrenze (tripla ripetizione)
+	extra             *extraMove          // seconda mossa di Fretta del turno (special.go, Step 6)
 	timerStarted      bool                // il timer è già in esecuzione? (room ripristinate partono dormienti)
 	ended             bool                // la partita è conclusa: nessuna azione è più accettata
 	mu                sync.Mutex          // protegge lo stato durante il timer
@@ -186,6 +187,8 @@ type roomSnapshot struct {
 	PosCounts   map[string]int            `json:"pos_counts"`
 	// Stati delle case; assenti negli snapshot precedenti allo Step 3.
 	SquareEffects []effects.SquareEffectInfo `json:"square_effects,omitempty"`
+	// Seconda mossa di Fretta concessa o in corso (Step 6).
+	ExtraMove *extraMove `json:"extra_move,omitempty"`
 }
 
 // buildSnapshot cattura lo stato corrente. Va invocata con r.mu tenuto (o in
@@ -209,6 +212,7 @@ func (r *Room) buildSnapshot() roomSnapshot {
 		Effects:       r.Tracker.ActiveEffects(),
 		SquareEffects: r.Tracker.SquareEffects(),
 		PosCounts:     r.posCounts,
+		ExtraMove:     r.extra,
 	}
 }
 
@@ -345,6 +349,7 @@ func roomFromSnapshot(snap roomSnapshot) *Room {
 	for _, s := range snap.SquareEffects {
 		room.Tracker.RestoreSquareEffects(s.Square, s.Effects)
 	}
+	room.extra = snap.ExtraMove
 	room.White.Room = room
 	room.Black.Room = room
 	return room
@@ -449,7 +454,20 @@ func (r *Room) handleMove(sender *Client, move string) {
 		return
 	}
 
-	if len(move) < 4 || !engine.SF.IsMoveLegal(r.Board.FEN, move) {
+	// Legalità: le mosse degli scacchi le decide Stockfish; quelle speciali
+	// (phasing, movimento preso in prestito, passo di lato) effects.SpecialMoves;
+	// nella seconda mossa di Fretta valgono solo le mosse di extraMoves (M57, M59).
+	secondMove := r.extraActive()
+	special := false
+	legal := len(move) >= 4 && engine.SF.IsMoveLegal(r.Board.FEN, move)
+	switch {
+	case secondMove:
+		legal = containsString(r.extraMoves(), move)
+	case !legal && len(move) >= 4:
+		special = containsString(r.specialMoves(), move)
+		legal = special
+	}
+	if !legal {
 		r.mu.Unlock()
 		sender.sendErr(gameerr.Newf(gameerr.IllegalMove, "Mossa illegale: %s", move).With("move", move))
 		return
@@ -466,7 +484,8 @@ func (r *Room) handleMove(sender *Client, move string) {
 
 	// Stati delle case: un muro sul percorso o una cattura su un santuario.
 	// Prima dello scudo: una mossa bloccata non lo consuma.
-	if square, reason := effects.MoveBlock(r.Board.FEN, r.Tracker, move); reason != "" {
+	// Le mosse speciali escono già filtrate dal generatore (muri e santuari compresi).
+	if square, reason := effects.MoveBlock(r.Board.FEN, r.Tracker, move); !special && reason != "" {
 		r.mu.Unlock()
 		sender.sendErr(gameerr.Newf(gameerr.MoveBlocked, "La mossa %s è bloccata in %s", move, square).
 			With("square", square).With("reason", reason))
@@ -480,9 +499,21 @@ func (r *Room) handleMove(sender *Client, move string) {
 	// dell'attaccante (la cattura era l'unico modo di uscire dallo scacco), la
 	// posizione sarebbe illegale, quindi lo scudo si rompe e la cattura avviene.
 	captured := effects.CaptureSquare(r.Board.FEN, from, to)
+	if special {
+		// Una mossa speciale cattura solo sulla casa d'arrivo: niente en passant.
+		captured = ""
+		if p, _ := effects.PieceAt(r.Board.FEN, to); p != 0 {
+			captured = to
+		}
+	}
 	var graveyards []graveyardUpdate
 	var trig *runeTrigger
+	var ev eventLog
 	shieldAbsorbed := captured != "" && r.Tracker.HasShield(captured)
+	// Tentativo di cattura di un pezzo scudato (Riflesso, M45): conta sia che lo
+	// scudo assorba sia che si rompa.
+	attemptOnShield := shieldAbsorbed
+	attackerID, _, _ := r.Tracker.Info(from)
 	if shieldAbsorbed && effects.IsKingAttacked(effects.PassTurn(r.Board.FEN), effects.Color(senderColor)) {
 		shieldAbsorbed = false
 		logger.L.Info("Scudo rotto: la cattura risolve uno scacco",
@@ -490,11 +521,14 @@ func (r *Room) handleMove(sender *Client, move string) {
 	}
 
 	// Il tempo scorre in tempo reale in runTimer (keyato su match.ActivePlayer);
-	// qui aggiungiamo solo l'incremento per la mossa completata.
-	if senderColor == "white" {
-		r.WhiteTime += r.Increment
-	} else {
-		r.BlackTime += r.Increment
+	// qui aggiungiamo solo l'incremento per la mossa completata (una volta per
+	// turno: la seconda mossa di Fretta non lo raddoppia).
+	if !secondMove {
+		if senderColor == "white" {
+			r.WhiteTime += r.Increment
+		} else {
+			r.BlackTime += r.Increment
+		}
 	}
 
 	if shieldAbsorbed {
@@ -513,14 +547,23 @@ func (r *Room) handleMove(sender *Client, move string) {
 		}
 		fenBefore := r.Board.FEN
 		r.Board.Moves = append(r.Board.Moves, move)
-		// La FEN è la fonte di verità (le magie possono editarla fuori dalle mosse).
-		r.Board.FEN = engine.SF.ApplyMove(r.Board.FEN, move)
-		// Tieni allineata l'identità dei pezzi (gli effetti seguono il pezzo).
-		var promo byte
-		if len(move) >= 5 {
-			promo = move[4]
+		if special {
+			// Mossa speciale (M59): la FEN si aggiorna senza Stockfish, senza
+			// semantica di arrocco, en passant o promozione.
+			if next, err := effects.ApplySpecialMove(r.Board.FEN, move); err == nil {
+				r.Board.FEN = next
+			}
+			r.Tracker.Relocate(from, to)
+		} else {
+			// La FEN è la fonte di verità (le magie possono editarla fuori dalle mosse).
+			r.Board.FEN = engine.SF.ApplyMove(r.Board.FEN, move)
+			// Tieni allineata l'identità dei pezzi (gli effetti seguono il pezzo).
+			var promo byte
+			if len(move) >= 5 {
+				promo = move[4]
+			}
+			r.Tracker.MovePiece(from, to, promo)
 		}
-		r.Tracker.MovePiece(from, to, promo)
 		// Una runa dell'avversario sulla casa d'arrivo: l'esito della partita si
 		// calcola sulla posizione dopo la runa.
 		if trig = r.triggerRune(fenBefore, move, match.Player(senderColor)); trig != nil {
@@ -529,7 +572,15 @@ func (r *Room) handleMove(sender *Client, move string) {
 		if len(buried) > 0 {
 			graveyards = r.graveyardUpdates(buried)
 		}
+		// Ogni pezzo finito nel cimitero è un pezzo perso (Anima inquieta, M48).
+		for _, owner := range buried {
+			r.onPieceLost(&ev, owner, 1)
+		}
 	}
+	if attemptOnShield {
+		r.onCaptureAttempt(&ev, match.Player(senderColor), attackerID)
+	}
+	r.refreshAuras(&ev)
 	r.Board.Turn = sideToMove(r.Board.FEN)
 	r.recordPosition()
 
@@ -573,6 +624,13 @@ func (r *Room) handleMove(sender *Client, move string) {
 	case engine.StatusDraw:
 		end = r.finishLocked(models.ResultDraw, "draw", StatusDraw)
 	default:
+		if secondMove {
+			r.extra = nil // la seconda mossa di Fretta è stata giocata
+		} else if r.extraGranted(match.Player(senderColor)) && r.enterExtraMove(match.Player(senderColor)) {
+			// Fretta: si resta nella fase Move per la seconda mossa (M57).
+			r.persist()
+			break
+		}
 		// La mossa è l'unica azione della fase move: avanza a main2, poi
 		// auto-avanza (main2/draw/main1 si saltano da soli se non richiedono
 		// input). Snapshot dei passaggi sotto lock, broadcast dopo.
@@ -582,8 +640,11 @@ func (r *Room) handleMove(sender *Client, move string) {
 		if ticked != nil {
 			squares = ticked
 		}
+		r.tickTriggers(&ev, results)
 		r.persist()
 	}
+	r.sealEvents(&ev)
+	options := r.moveOptionViews()
 	r.mu.Unlock()
 
 	if shieldAbsorbed {
@@ -607,11 +668,13 @@ func (r *Room) handleMove(sender *Client, move string) {
 		r.Broadcast(models.MsgRuneTriggered, trig)
 	}
 	r.broadcastGraveyards(graveyards)
+	r.broadcastEvents(ev)
 	for _, res := range results {
 		r.applyAdvanceBroadcasts(res)
 	}
 	r.broadcastExpired(expired)
 	r.broadcastSquareEffects(squares)
+	r.sendMoveOptions(options)
 	r.announceEnd(end)
 }
 
@@ -632,7 +695,12 @@ func (r *Room) handlePassPhase(sender *Client) {
 		return
 	}
 
-	if !r.Match.Allows(phase.ActionPassPhase) {
+	if r.extraActive() && r.extra.Player == senderColor {
+		// Salta la seconda mossa di Fretta: torna la posizione dopo la prima (M57).
+		r.Board.FEN = r.extra.FENAfterFirst
+		r.Board.Turn = sideToMove(r.Board.FEN)
+		r.extra = nil
+	} else if !r.Match.Allows(phase.ActionPassPhase) {
 		r.mu.Unlock()
 		sender.sendErr(gameerr.Newf(gameerr.WrongPhase, "Non puoi passare nella fase %s", r.Match.CurrentPhase).
 			With("phase", r.Match.CurrentPhase))
@@ -642,10 +710,14 @@ func (r *Room) handlePassPhase(sender *Client) {
 	// Passa la fase, poi auto-avanza le fasi che non richiedono input.
 	results := append([]match.AdvanceResult{r.Match.Advance()}, r.Match.AutoAdvance()...)
 	expired, squares := r.tickEffectsOnNewTurn(results)
+	var ev eventLog
+	r.tickTriggers(&ev, results)
 	end := r.checkRolloverGameEnd(results)
 	if end == nil {
 		r.persist()
 	}
+	r.sealEvents(&ev)
+	options := r.moveOptionViews()
 
 	logger.L.Info("Fase passata",
 		zap.String("room", r.ID),
@@ -660,9 +732,11 @@ func (r *Room) handlePassPhase(sender *Client) {
 	}
 	r.broadcastExpired(expired)
 	r.broadcastSquareEffects(squares)
+	r.broadcastEvents(ev)
 	if end != nil {
 		r.broadcastState()
 	}
+	r.sendMoveOptions(options)
 	r.announceEnd(end)
 }
 
@@ -707,6 +781,8 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string,
 		castSquares = r.squareViewsNow()
 	}
 	expired, squares := r.tickEffectsOnNewTurn(autoResults)
+	ev := outcome.events
+	r.tickTriggers(&ev, autoResults)
 	// Se il cast chiude il turno, verifica la posizione del nuovo giocatore
 	// attivo (una magia può avergli tolto le mosse). Se invece chi lancia ha
 	// ancora il tratto (main1) e la scacchiera o le case sono cambiate, verifica
@@ -718,6 +794,8 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string,
 	if end == nil {
 		r.persist()
 	}
+	r.sealEvents(&ev)
+	options := r.moveOptionViews()
 
 	logger.L.Info("Magia giocata",
 		zap.String("room", r.ID),
@@ -779,6 +857,9 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string,
 	}
 	r.broadcastGraveyards(graveyards)
 	r.broadcastSquareEffects(castSquares)
+	// Reazioni del cast (pesche di Anima inquieta, aure, trigger nuovi) prima dei
+	// passaggi di fase: seguono la magia che le ha prodotte.
+	r.broadcastEvents(ev)
 	for _, ar := range autoResults {
 		r.applyAdvanceBroadcasts(ar)
 	}
@@ -787,6 +868,7 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string,
 	if end != nil && !boardChanged {
 		r.broadcastState()
 	}
+	r.sendMoveOptions(options)
 	r.announceEnd(end)
 }
 
@@ -821,6 +903,7 @@ type spellOutcome struct {
 	drawn   []match.DrawResult
 	graves  []match.Player
 	squares bool // gli stati delle case sono cambiati
+	events  eventLog // reazioni di trigger e aure (Step 5)
 }
 
 // applySpellEffects esegue gli effetti di una magia. Un errore annulla il cast
@@ -844,6 +927,8 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 		match.PlayerBlack: r.Match.Black.CopyGraveyard(),
 	}
 	gravesChanged := map[match.Player]bool{}
+	lost := map[match.Player]int{} // pezzi finiti nel cimitero, per Anima inquieta
+	var ev eventLog
 	changed, squaresChanged := false, false
 	applied := make([]interface{}, 0, len(def.Effects))
 	var deferred []func() // pesca e mana: dopo che la scacchiera è convalidata
@@ -877,6 +962,7 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 		owner := toMatchPlayer(effects.ColorOf(piece))
 		graves[owner] = append(graves[owner], spells.GraveEntry{Piece: spells.PieceKind(effects.PieceKindName(piece)), PieceID: id})
 		gravesChanged[owner] = true
+		lost[owner]++
 	}
 
 	for _, eff := range def.Effects {
@@ -1193,6 +1279,100 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 			tracker.Add(sq, pawn)
 			entry["target"], entry["piece"] = sq, "pawn"
 
+		case spells.EffectAddEffect:
+			sq, err := target()
+			if err != nil {
+				return spellOutcome{}, err
+			}
+			kind, _ := eff.Params["effect"].(string)
+			if kind != effects.KindPhasing {
+				return spellOutcome{}, gameerr.Newf(gameerr.Internal, "stato di movimento non supportato: %q (%s)", kind, def.ID)
+			}
+			duration := paramInt(eff.Params, "duration", 0)
+			if err := effects.AddMovementEffect(tracker, sq, kind, "", casterColor, duration, def.ID); err != nil {
+				return spellOutcome{}, err
+			}
+			entry["target"], entry["effect"], entry["remaining_turns"] = sq, kind, duration
+
+		case spells.EffectBorrowMovement:
+			sq, err := target()
+			if err != nil {
+				return spellOutcome{}, err
+			}
+			// I tipi ammessi presenti nel proprio cimitero; con uno solo la scelta si deduce (M55).
+			var available []string
+			for _, kind := range paramStrings(eff.Params, "from_graveyard") {
+				if graveHas(graves[caster], kind) {
+					available = append(available, kind)
+				}
+			}
+			if len(available) == 0 {
+				return spellOutcome{}, noEffect("empty_graveyard")
+			}
+			kind := string(choice.Piece)
+			if kind == "" {
+				if len(available) > 1 {
+					return spellOutcome{}, invalidChoice("missing")
+				}
+				kind = available[0]
+			}
+			if !containsString(available, kind) {
+				return spellOutcome{}, invalidChoice("not_allowed")
+			}
+			duration := paramInt(eff.Params, "duration", 0)
+			if err := effects.AddMovementEffect(tracker, sq, effects.KindBorrow, kind, casterColor, duration, def.ID); err != nil {
+				return spellOutcome{}, err
+			}
+			entry["target"], entry["piece"] = sq, kind
+
+		case spells.EffectExtraMove:
+			if r.extra != nil && r.extra.Player == caster && r.extra.Turn == r.Match.TurnNumber {
+				return spellOutcome{}, noEffect("already_granted")
+			}
+			var pieces []spells.PieceKind
+			for _, k := range paramStrings(eff.Params, "pieces") {
+				pieces = append(pieces, spells.PieceKind(k))
+			}
+			noCapture := paramBool(eff.Params, "no_capture")
+			entry["pieces"], entry["no_capture"] = pieces, noCapture
+			deferred = append(deferred, func() {
+				r.extra = &extraMove{Player: caster, Turn: r.Match.TurnNumber, Pieces: pieces, NoCapture: noCapture}
+			})
+
+		case spells.EffectAddTrigger:
+			on, _ := eff.Params["on"].(string)
+			do, _ := eff.Params["do"].(string)
+			hidden := paramBool(eff.Params, "hidden")
+			trigger := spells.Trigger{
+				On: on, Do: do, Amount: paramInt(eff.Params, "amount", 1),
+				RemainingTurns: paramInt(eff.Params, "duration", 1),
+				Hidden:         hidden, OneShot: paramBool(eff.Params, "one_shot"), SourceSpellID: def.ID,
+			}
+			entry["on"], entry["do"], entry["remaining_turns"] = on, do, trigger.RemainingTurns
+			deferred = append(deferred, func() {
+				ps := r.playerState(caster)
+				ps.Triggers = append(ps.Triggers, trigger)
+				ev.playerEffects = true
+			})
+
+		case spells.EffectAddAura:
+			grant, _ := eff.Params["grant"].(string)
+			if r.playerState(caster).HasAura(grant) {
+				return spellOutcome{}, noEffect("aura_present")
+			}
+			minPawns := 0
+			if cond, ok := eff.Params["condition"].(map[string]interface{}); ok {
+				minPawns = paramInt(cond, spells.AuraConditionOwnPawnsAtLeast, 0)
+			}
+			entry["grant"] = grant
+			deferred = append(deferred, func() {
+				active := r.ownPawns(caster) >= minPawns
+				ps := r.playerState(caster)
+				ps.Auras = append(ps.Auras, spells.Aura{Grant: grant, MinOwnPawns: minPawns, Active: active, SourceSpellID: def.ID})
+				entry["active"] = active
+				ev.playerEffects = true
+			})
+
 		default:
 			return spellOutcome{}, gameerr.Newf(gameerr.Internal, "effetto non supportato: %s", eff.Kind)
 		}
@@ -1218,7 +1398,13 @@ func (r *Room) applySpellEffects(def spells.Spell, targets []string, caster matc
 	for _, apply := range deferred {
 		apply()
 	}
-	return spellOutcome{applied: applied, changed: changed, drawn: drawn, graves: gravesOut, squares: squaresChanged}, nil
+	// Eventi del cast, dopo il commit: pezzi persi (Anima inquieta, anche il
+	// proprio Patto di sangue) e aure da ricalcolare sulla nuova scacchiera.
+	for _, p := range []match.Player{match.PlayerWhite, match.PlayerBlack} {
+		r.onPieceLost(&ev, p, lost[p])
+	}
+	r.refreshAuras(&ev)
+	return spellOutcome{applied: applied, changed: changed, drawn: drawn, graves: gravesOut, squares: squaresChanged, events: ev}, nil
 }
 
 // hiddenSpellCast è lo spell_cast di una magia nascosta visto dall'avversario di
@@ -1581,7 +1767,8 @@ func (r *Room) tickEffectsOnNewTurn(results []match.AdvanceResult) ([]effects.Ex
 // regole degli scacchi (re sotto scacco = matto, altrimenti stallo). Va
 // invocata con r.mu tenuto.
 func (r *Room) gameStatus() engine.GameStatus {
-	return engine.SF.GetGameStatusFiltered(r.Board.FEN, r.isPlayable)
+	// Le mosse speciali contano come giocabili (M60): il passo di lato vale anche a inizio turno.
+	return engine.SF.GetGameStatusWith(r.Board.FEN, r.isPlayable, len(r.specialMoves()))
 }
 
 // isPlayable indica se una mossa legale per gli scacchi è ammessa dagli stati
@@ -2106,6 +2293,8 @@ type playerInfo struct {
 func (r *Room) publicState(viewer match.Player) map[string]interface{} {
 	board := *r.Board
 	board.Moves = append([]string{}, r.Board.Moves...)
+	effectsView := r.playerEffectsFor(viewer)
+	options := r.moveOptionsFor(viewer)
 	return map[string]interface{}{
 		"board":        board,
 		"white_player": playerInfo{ID: r.White.UserID, Username: r.White.Username},
@@ -2131,6 +2320,10 @@ func (r *Room) publicState(viewer match.Player) map[string]interface{} {
 		"white_graveyard": r.Match.White.GraveyardKinds(),
 		"black_graveyard": r.Match.Black.GraveyardKinds(),
 		"square_effects":  r.squareEffects(viewer),
+		"triggers":        effectsView.Triggers,
+		"auras":           effectsView.Auras,
+		"special_moves":   options.SpecialMoves,
+		"extra_move":      options.ExtraMove,
 	}
 }
 

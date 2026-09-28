@@ -22,6 +22,12 @@ export interface BoardContext {
   readonly frozen: ReadonlySet<Square>;
   /** Stati delle case (`square_effects`): le mosse che muri e santuari vietano non si evidenziano (ASSUMPTIONS M27). */
   readonly squareStates: readonly SquareEffects[];
+  /**
+   * Mosse speciali già valide dal server (`special_moves`, Step 6) e se è la seconda mossa di Fretta: in quel caso i
+   * bersagli sono solo queste (ASSUMPTIONS M60). Filtri di presentazione: il server resta l'autorità.
+   */
+  readonly specialMoves: readonly string[];
+  readonly extraMove: boolean;
   /** Partita in corso e socket aperto. */
   readonly canAct: boolean;
 }
@@ -48,8 +54,9 @@ export function pickupRefusal(ctx: BoardContext, square: Square): PickupRefusal 
 function pickup(ctx: BoardContext, square: Square): BoardOutcome {
   const refusal = pickupRefusal(ctx, square);
   if (refusal !== null) return { kind: 'refused', reason: refusal };
-  const targets = legalTargets(ctx.fen, square).filter((to) => !blockedMove(ctx.fen, ctx.squareStates, square, to));
-  return { kind: 'selection', selection: { from: square, targets } };
+  const special = ctx.specialMoves.filter((move) => move.startsWith(square)).map((move) => move.slice(2, 4) as Square);
+  const chess = ctx.extraMove ? [] : legalTargets(ctx.fen, square).filter((to) => !blockedMove(ctx.fen, ctx.squareStates, square, to));
+  return { kind: 'selection', selection: { from: square, targets: [...new Set([...chess, ...special])] } };
 }
 
 function moveTo(ctx: BoardContext, from: Square, to: Square): BoardOutcome {

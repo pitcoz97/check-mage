@@ -236,3 +236,31 @@ Verifica: `go build ./... && go vet ./... && go test ./...` sulla VM.
 
 Verifica: `go build ./... && go vet ./... && go test ./...` (i test delle rune che passano da una mossa usano
 Stockfish e si saltano dove non è installato).
+
+## 13. Catalogo magie — Step 5 (trigger e aure)
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | 3 magie nuove: `restless_soul`, `reflection` (nascosta), `banner`. Catalogo di 29; lo Stendardo non è nella ricetta del mazzo finché il passo di lato non arriva (Step 6) | Nomi e testi i18n per id |
+| 2 | `game_state` porta `triggers` e `auras` (per destinatario: i trigger nascosti dell'avversario non ci sono) | Etichette nella riga del giocatore |
+| 3 | Eventi nuovi: `player_effects_changed {triggers, auras}` (liste per destinatario), `trigger_fired {player, on, do, source_spell_id, result}`, `aura_changed {player, grant, active}` | Avvisi; sostituire le liste |
+| 4 | Anima inquieta pesca per ogni proprio pezzo perso, dal lancio alla fine del turno avversario, anche per un proprio sacrificio; la carta arriva solo al proprietario | — |
+| 5 | Riflesso congela chi prova a catturare un pezzo scudato del proprietario (scudo che assorbe o si rompe), una volta; il re mai | Lampeggio della casa |
+| 6 | `effects_applied`: `add_trigger {on, do, remaining_turns}`, `add_aura {grant, active}`; `no_effect` ha il nuovo `reason: aura_present` | Registry, messaggio |
+| 7 | Snapshot: trigger e aure stanno nel `PlayerState` (`triggers`, `auras`, assenti negli snapshot precedenti) | — |
+
+Verifica: `go build ./... && go vet ./... && go test ./...` (i test che passano da una mossa usano Stockfish).
+
+## 14. Catalogo magie — Step 6 (mosse speciali)
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | 3 magie nuove, solo in main1: `phase_step` (su un proprio alfiere), `echo_of_fallen` (con `choice`), `haste` (leggendaria). Catalogo completo a 32; lo Stendardo entra nel mazzo | Nomi e testi i18n per id |
+| 2 | Mosse speciali generate e validate dal server (phasing, movimento preso in prestito, passo di lato): `game_state.special_moves` e il nuovo evento privato `move_options {special_moves, extra_move}` per il giocatore di turno nella fase Move | Evidenziarle e mandarle col normale `move` |
+| 3 | Fretta: seconda mossa facoltativa di pedone senza cattura; `extra_move` non null, `special_moves` = mosse ammesse, `pass_phase` la salta | CTA "Salta la seconda mossa" |
+| 4 | Stati del pezzo nuovi in `active_effects`: `phasing` e `borrow_movement` (con `borrow_as`), durata 0 | Badge |
+| 5 | `effects_applied`: `add_effect {target, effect, remaining_turns}`, `borrow_movement {target, piece}`, `extra_move {pieces, no_capture}`; `no_effect` ha il nuovo `reason: already_granted` | Registry, messaggio |
+| 6 | Matto e stallo contano le mosse speciali | — |
+| 7 | Snapshot: `extra_move` e gli stati di movimento | — |
+
+Verifica: `go build ./... && go vet ./... && go test ./...` (i test che passano da una mossa usano Stockfish).

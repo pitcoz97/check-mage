@@ -147,6 +147,13 @@ func (e *Engine) legalMoves(fen string) []string {
 	return moves
 }
 
+// LegalMoves elenca le mosse legali (UCI) del lato al tratto nella FEN.
+func (e *Engine) LegalMoves(fen string) []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.legalMoves(fen)
+}
+
 // BestMove ritorna la mossa migliore nella posizione data dalla FEN.
 // depth = profondità di analisi (1-20, più alto = più forte ma più lento)
 func (e *Engine) BestMove(fen string, depth int) string {
@@ -206,16 +213,28 @@ func (e *Engine) GetGameStatus(fen string) GameStatus {
 // giocabili valgono le regole degli scacchi: re sotto scacco = matto, altrimenti
 // stallo.
 func (e *Engine) GetGameStatusFiltered(fen string, playable func(move string) bool) GameStatus {
+	return e.GetGameStatusWith(fen, playable, 0)
+}
+
+// GetGameStatusWith è GetGameStatusFiltered con extra mosse speciali giocabili
+// (Step 6: mosse che Stockfish non conosce, già validate dal chiamante): se ce
+// n'è almeno una il giocatore non è né matto né in stallo.
+func (e *Engine) GetGameStatusWith(fen string, playable func(move string) bool, extra int) GameStatus {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return classify(fen, e.legalMoves(fen), playable, func() bool { return e.isInCheck(fen) })
+	return classifyWith(fen, e.legalMoves(fen), playable, extra, func() bool { return e.isInCheck(fen) })
 }
 
 // classify decide l'esito della posizione date le mosse legali: senza mosse
 // giocabili è matto (re sotto scacco) o stallo; altrimenti patta per regola o
 // partita in corso. È pura, così la regola si testa senza Stockfish.
 func classify(fen string, legal []string, playable func(move string) bool, inCheck func() bool) GameStatus {
-	playableMoves := 0
+	return classifyWith(fen, legal, playable, 0, inCheck)
+}
+
+// classifyWith è classify contando anche extra mosse speciali giocabili.
+func classifyWith(fen string, legal []string, playable func(move string) bool, extra int, inCheck func() bool) GameStatus {
+	playableMoves := extra
 	for _, m := range legal {
 		if playable == nil || playable(m) {
 			playableMoves++

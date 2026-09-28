@@ -200,6 +200,7 @@ export const it = {
         refused: 'Non consentito',
         draw: 'Patta',
         rune: 'Runa',
+        effect: 'Effetto',
       },
     },
     mana: {
@@ -232,12 +233,14 @@ export const it = {
       nextPhase: 'Passa alla fase {{phase}}',
       endTurn: 'Fine del turno',
       mustMove: 'Muovi un pezzo',
+      skipExtraMove: 'Salta la seconda mossa',
       waitOpponent: 'Turno dell’avversario',
       short: {
         main1: 'Mossa',
         main2: 'Fine turno',
         draw: 'Magie',
         move: 'Muovi',
+        skipExtra: 'Salta',
         wait: 'Attendi',
       },
       offerDraw: '½ Offri patta',
@@ -298,6 +301,8 @@ export const it = {
         empty_graveyard: 'Nel tuo cimitero non c’è nessun pezzo da riportare.',
         no_castling: 'Non ci sono arrocchi da ripristinare: re o torri non sono al loro posto.',
         no_runes: 'Non hai rune da far esplodere.',
+        aura_present: 'Quell’aura è già attiva.',
+        already_granted: 'Hai già una seconda mossa in questo turno.',
       },
       choice: {
         missing: 'Scegli il pezzo prima di lanciare la magia.',
@@ -383,6 +388,32 @@ export const it = {
     hiddenCastByOpponent: 'L’avversario ha lanciato una magia nascosta.',
     /** Nome nel registro di una magia nascosta dell'avversario. */
     hiddenSpell: 'Magia nascosta',
+    /** Trigger e aure (Step 5): etichette nella riga del giocatore e avvisi. */
+    playerEffects: {
+      label: 'Effetti del giocatore',
+      triggerOne: '{{name}}, ancora 1 turno',
+      triggerMany: '{{name}}, ancora {{count}} turni',
+      triggerPermanent: '{{name}}',
+      hidden: '{{label}} (visibile solo a te)',
+      auraActive: '{{name}}: attivo',
+      auraInactive: '{{name}}: inattivo, servono {{count}} pedoni',
+      aura: { pawn_sidestep: 'Stendardo' },
+    },
+    triggerFired: {
+      drawMine: '{{name}}: peschi {{count}} carta.',
+      drawMineMany: '{{name}}: peschi {{count}} carte.',
+      drawTheirs: '{{name}} dell’avversario: pesca {{count}} carta.',
+      drawTheirsMany: '{{name}} dell’avversario: pesca {{count}} carte.',
+      freezeMine: '{{name}}: hai congelato {{piece}} in {{square}}.',
+      freezeTheirs: '{{name}} dell’avversario: {{piece}} in {{square}} è congelato.',
+      unknown: '{{name}} è scattato.',
+    },
+    auraChanged: {
+      activeMine: '{{name}}: attivo.',
+      inactiveMine: '{{name}}: non più attivo.',
+      activeTheirs: '{{name}} dell’avversario: attivo.',
+      inactiveTheirs: '{{name}} dell’avversario: non più attivo.',
+    },
     /** Avviso di una runa scattata: la runa si chiama per quello che fa (ASSUMPTIONS S11). */
     runeTriggered: {
       freeze_piece: 'La {{rune}} in {{square}} ha congelato {{piece}}.',
@@ -458,6 +489,32 @@ export const it = {
         textMany: 'Fa esplodere le tue rune: i pezzi nemici attorno, non il re, sono congelati per {{count}} turni.',
       },
       hidden_effect: { label: 'Effetto nascosto', text: 'Un effetto che l’avversario non vede.' },
+      add_trigger: {
+        label: 'Reazione',
+        text: 'Una reazione che scatta durante la partita.',
+        pieceLostDrawOne: 'Fino alla fine del prossimo turno avversario, ogni tuo pezzo perso ti fa pescare una carta.',
+        pieceLostDrawMany: 'Per {{count}} turni avversari, ogni tuo pezzo perso ti fa pescare una carta.',
+        shieldedFreeze: 'Trappola nascosta: il primo pezzo nemico che prova a catturare un tuo pezzo scudato viene congelato.',
+      },
+      add_aura: {
+        label: 'Aura',
+        text: 'Un effetto permanente, attivo finché vale la sua condizione.',
+        pawnSidestep: 'Con {{count}} o più pedoni, i tuoi pedoni possono muovere di una casa di lato.',
+      },
+      add_effect: {
+        label: 'Passo sfasato',
+        phasing: 'In questa mossa l’alfiere attraversa i pezzi fino a una casa vuota, senza catturare.',
+        text: 'Uno stato di movimento sul pezzo, per questo turno.',
+      },
+      borrow_movement: {
+        label: 'Eco',
+        text: 'In questo turno il pedone muove e cattura anche come un {{pieces}} del tuo cimitero, a scelta.',
+      },
+      extra_move: {
+        label: 'Seconda mossa',
+        pawnNoCapture: 'Dopo la tua mossa puoi muovere anche un pedone, senza catturare.',
+        text: 'Dopo la tua mossa ne hai un’altra.',
+      },
       orList: '{{head}} o {{last}}',
       unknown: { label: 'Effetto ignoto', text: 'Effetto che questo client non conosce ancora.' },
     },
@@ -466,6 +523,8 @@ export const it = {
       shield: 'Protetto',
       wall: 'Muro',
       no_capture: 'Santuario',
+      phasing: 'Sfasato',
+      borrow_movement: 'Eco del caduto',
       /** Le rune si chiamano per quello che fanno quando scattano (`on_enter`). */
       rune: {
         freeze_piece: 'Runa di stasi',
@@ -478,6 +537,7 @@ export const it = {
       runeEnemy: '{{rune}} dell’avversario',
       unknown: 'Effetto attivo',
       badgeOne: '{{state}}, ancora 1 turno',
+      badgeThisTurn: '{{state}}, fino a fine turno',
       badgeMany: '{{state}}, ancora {{count}} turni',
     },
     prompt: {
@@ -546,6 +606,18 @@ export const it = {
       },
       detonation: { name: 'Detonazione', text: 'Fa esplodere le tue rune: i pezzi nemici attorno a ciascuna, non il re, sono congelati per 1 turno.' },
       minefield: { name: 'Campo minato', text: 'Tre Rune di stasi nascoste su tre case vuote.' },
+      restless_soul: { name: 'Anima inquieta', text: 'Fino alla fine del prossimo turno avversario, ogni tuo pezzo perso ti fa pescare una carta.' },
+      reflection: {
+        name: 'Riflesso',
+        text: 'Trappola nascosta: il primo nemico che prova a catturare un tuo pezzo scudato viene congelato.',
+      },
+      banner: { name: 'Stendardo', text: 'Per sempre: con 6 o più pedoni, i tuoi pedoni possono muovere di una casa di lato.' },
+      phase_step: { name: 'Passo sfasato', text: 'Prima della mossa: il tuo alfiere, in questa mossa, attraversa i pezzi. Non cattura.' },
+      echo_of_fallen: {
+        name: 'Eco del caduto',
+        text: 'Prima della mossa: un tuo pedone, in questo turno, muove anche come un cavallo o un alfiere del tuo cimitero.',
+      },
+      haste: { name: 'Fretta', text: 'Prima della mossa: dopo la tua mossa puoi muovere anche un pedone, senza catturare.' },
     },
     /** Perché una carta non è giocabile ora: il motivo si vede sulla carta, non si indovina. */
     refusal: {

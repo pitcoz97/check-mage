@@ -3,13 +3,24 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Catalogo magie, Step 4 di 6 (`docs/BRIEFING-MAGIE.md`), in attesa di review e dei test Go sulla VM.** Fatto in una
-sessione cloud sul branch `claude/vibrant-tesla-ckfrp4`, partito da `feat/spell-catalog`. Decisioni e verifiche del
-brief in `docs/ASSUMPTIONS.md` §7 (M1–M44, S1–S11). Il redesign (R1–R6) è unito in `main`.
+**Catalogo magie, Step 6 di 6 (`docs/BRIEFING-MAGIE.md`), in attesa di review e dei test Go sulla VM: il catalogo è
+completo (32 magie).** Branch `feat/spell-catalog` (gli Step 1–4 sono in `main`, PR #1). Decisioni e verifiche del
+brief in `docs/ASSUMPTIONS.md` §7 (M1–M61, S1–S17). Il redesign (R1–R6) è unito in `main`.
 Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
 eseguibile).
 
 ## Completo
+- **Catalogo magie, Step 6:** mosse speciali. Server: `effects.SpecialMoves` (phasing dell'alfiere, movimento preso in
+  prestito del pedone, passo di lato dello Stendardo) validate fuori da Stockfish e contate per matto e stallo; Fretta
+  con la seconda mossa facoltativa; `special_moves`/`extra_move` in `game_state` e nel nuovo `move_options`. Passo
+  sfasato, Eco del caduto, Fretta: catalogo a 32, Stendardo nel mazzo. Mock allineato (il bot salta la seconda mossa).
+  Client: le mosse speciali del server fra gli evidenziati, "Salta la seconda mossa", stati sfasato ed eco sul pezzo.
+- **Catalogo magie, Step 5:** trigger e aure. Server: `PlayerState.Triggers`/`Auras`, bus di eventi (`game/events.go`:
+  pezzo perso, tentativo di cattura su uno scudato, aure dopo ogni cambio della scacchiera, durate), Anima inquieta,
+  Riflesso (nascosto, una volta), Stendardo (aura; passo di lato allo Step 6, fuori dal mazzo); `trigger_fired`,
+  `aura_changed`, `player_effects_changed` per destinatario (29 magie). Mock allineato; nello scenario `runes` il bot apre
+  con un Riflesso. Client: pillole di trigger e aure nella riga del giocatore, avvisi, lampeggio del gelo di Riflesso.
+  569 test, e2e 11/11 (nuovo: nessun trigger nascosto del bot nei frame).
 - **Catalogo magie, Step 4:** rune. Server: stato `rune` sulle case (una per giocatore per casa, permanente, `hidden`),
   Rivelazione, Runa di stasi, di respinta, esplosiva, Detonazione, Campo minato (26 magie, ricetta nei limiti di copie);
   la runa scatta dopo una mossa (`triggerRune`, M34–M36, M40, M44), `rune_triggered`; `game_state` e
@@ -48,11 +59,9 @@ eseguibile).
   iniziale 554 kB (172 kB gzip), partita 82 kB a richiesta.
 
 ## Prossima azione concreta
-Tu: review dello Step 4 e della decisione M44 (il gelo di una runa non conta il turno in cui scatta), poi
-`go build ./... && go vet ./... && go test ./...` sulla VM. Nella sessione cloud sono già passati, anche con Stockfish
-16 (i test delle rune che passano da una mossa lo usano e senza Stockfish si saltano). Poi il merge in
-`feat/spell-catalog` e il deploy sulla VM.
-Dopo: piano dello Step 5 (eventi, trigger e aure: `add_trigger`, `add_aura`, Anima inquieta, Riflesso, Stendardo).
+Tu: `go build ./... && go vet ./... && go test ./...` sulla VM (branch `feat/spell-catalog`; i test che passano da una
+mossa usano Stockfish) e review dello Step 6, con la ricetta M61 da rivedere in bilanciamento. Poi il merge in `main`:
+la roadmap del brief è finita.
 
 ## Decisioni prese
 - Redesign: `REDESIGN_PLAN.md` §10 (D1–D22). Il design vince su colori, tipografia, spaziature e layout; testi e

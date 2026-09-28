@@ -37,14 +37,19 @@ import {
   type HandCard,
   type MatchPlayers,
   type PerColor,
+  type MoveOptions,
   type PieceKind,
   type PlayedMove,
+  type PlayerAura,
+  type PlayerEffects,
+  type PlayerTrigger,
   type ProtocolErrorCode,
   type ProtocolErrorInfo,
   type RuneResult,
   type Square,
   type SquareEffects,
   type TimeControl,
+  type TriggerResult,
 } from '../game/model';
 import { spellSchema, type Spell } from '../spells/schema';
 import {
@@ -191,6 +196,8 @@ const wireActiveEffectSchema = z.object({
   // Solo per le rune (Step 4): `hidden` manca quando è falsa, `rune` porta cosa fa quando scatta.
   hidden: loose,
   rune: loose,
+  // Solo per borrow_movement (Step 6): il tipo preso in prestito.
+  borrow_as: loose,
 });
 const wireRuneSpecSchema = z.object({ on_enter: nonEmptyString });
 
@@ -203,6 +210,9 @@ function decodeActiveEffect(ctx: Ctx, effect: z.infer<typeof wireActiveEffectSch
     remainingTurns,
     sourceSpellId: effect.source_spell_id !== undefined && effect.source_spell_id !== '' ? effect.source_spell_id : null,
   };
+  if (effect.kind === 'borrow_movement') {
+    return isOneOf(PIECE_NAMES, effect.borrow_as) ? { ...base, borrowAs: effect.borrow_as } : base;
+  }
   if (effect.kind !== 'rune') return base;
   const spec = parseWith(wireRuneSpecSchema, effect.rune);
   if (!spec.ok) warn(ctx, 'active_effect_malformed', `rune: ${spec.issues.join('; ')}`);
@@ -294,6 +304,11 @@ const APPLIED_EFFECT_SCHEMAS = {
   place_rune: z.object({ targets: z.array(squareSchema), on_enter: nonEmptyString }),
   reveal_runes: z.object({ side: colorSchema }),
   detonate_runes: z.object({ runes: z.array(squareSchema), targets: z.array(squareSchema), remaining_turns: count }),
+  add_trigger: z.object({ on: nonEmptyString, do: nonEmptyString, remaining_turns: z.number().int() }),
+  add_aura: z.object({ grant: nonEmptyString, active: z.boolean() }),
+  add_effect: z.object({ target: squareSchema, effect: nonEmptyString, remaining_turns: count }),
+  borrow_movement: z.object({ target: squareSchema, piece: loose }),
+  extra_move: z.object({ pieces: z.array(z.string()), no_capture: z.boolean() }),
 } as const;
 
 function decodeAppliedEffect(ctx: Ctx, raw: unknown, index: number): AppliedEffect {
@@ -377,6 +392,29 @@ function decodeAppliedEffect(ctx: Ctx, raw: unknown, index: number): AppliedEffe
     }
     case 'hidden_effect':
       return { kind };
+    case 'add_trigger': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.add_trigger, raw);
+      return p.ok ? { kind, on: p.data.on, do: p.data.do, remainingTurns: p.data.remaining_turns } : unknown(p.issues.join('; '));
+    }
+    case 'add_aura': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.add_aura, raw);
+      return p.ok ? { kind, grant: p.data.grant, active: p.data.active } : unknown(p.issues.join('; '));
+    }
+    case 'add_effect': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.add_effect, raw);
+      return p.ok ? { kind, target: p.data.target, effect: p.data.effect, remainingTurns: p.data.remaining_turns } : unknown(p.issues.join('; '));
+    }
+    case 'borrow_movement': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.borrow_movement, raw);
+      if (!p.ok) return unknown(p.issues.join('; '));
+      const piece = p.data.piece;
+      return { kind, target: p.data.target, piece: isOneOf(PIECE_NAMES, piece) ? piece : readEnum(ctx, piece, PIECE_NAMES, 'piece') };
+    }
+    case 'extra_move': {
+      const p = parseWith(APPLIED_EFFECT_SCHEMAS.extra_move, raw);
+      if (!p.ok) return unknown(p.issues.join('; '));
+      return { kind, pieces: p.data.pieces.filter((x): x is PieceKind => isOneOf(PIECE_NAMES, x)), noCapture: p.data.no_capture };
+    }
     case 'summon_pawn':
     case 'transform_piece':
     case 'promote_piece':
@@ -459,6 +497,10 @@ const gameStateSchema = z.object({
   white_graveyard: loose,
   black_graveyard: loose,
   square_effects: loose,
+  triggers: loose,
+  auras: loose,
+  special_moves: loose,
+  extra_move: loose,
   reconnected: loose,
   white_player: loose,
   black_player: loose,
@@ -490,6 +532,10 @@ const decodeGameState: Decoder<'game_state'> = (payload, ctx) =>
         graveyards: perColor(decodeGraveyard(ctx, core.white_graveyard, 'white_graveyard'), decodeGraveyard(ctx, core.black_graveyard, 'black_graveyard')),
         // Assente nei server precedenti allo Step 3 del catalogo: nessuno stato sulle case (ASSUMPTIONS S7).
         squareStates: decodeActiveEffects(ctx, core.square_effects, 'square_effects'),
+        // Assenti nei server precedenti allo Step 5: nessun trigger né aura (ASSUMPTIONS S12).
+        playerEffects: decodePlayerEffects(ctx, core.triggers, core.auras),
+        // Assenti nei server precedenti allo Step 6: nessuna mossa speciale (ASSUMPTIONS S15).
+        moveOptions: decodeMoveOptions(ctx, core.special_moves, core.extra_move),
         reconnected: core.reconnected === true,
         players: decodePlayers(ctx, core.white_player, core.black_player),
         timeControl: decodeTimeControl(ctx, core.time_control),
@@ -512,6 +558,156 @@ const decodeGraveyardChanged: Decoder<'graveyard_changed'> = (payload, ctx) =>
     type: 'graveyard_changed',
     player: core.player,
     graveyard: decodeGraveyard(ctx, core.graveyard, 'graveyard'),
+  }));
+
+// --- Trigger e aure (`game/events.go`, Step 5) -----------------------------------------------------
+
+const wireTriggerSchema = z.object({
+  player: colorSchema,
+  on: nonEmptyString,
+  do: nonEmptyString,
+  remaining_turns: z.number().int(),
+  source_spell_id: z.string().optional(),
+  hidden: z.boolean().optional(),
+});
+const wireAuraSchema = z.object({
+  player: colorSchema,
+  grant: nonEmptyString,
+  active: z.boolean(),
+  min_own_pawns: count.optional(),
+  source_spell_id: z.string().optional(),
+});
+
+/** Una lista di voci: quelle malformate si scartano una per una con un warning, mai l'evento intero. */
+function decodeList<T>(ctx: Ctx, raw: unknown, field: string, decodeOne: (item: unknown, index: number) => T | null): T[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    warn(ctx, 'value_invalid', field);
+    return [];
+  }
+  return raw.flatMap((item: unknown, index) => {
+    const one = decodeOne(item, index);
+    return one === null ? [] : [one];
+  });
+}
+
+const spellIdOrNull = (id: string | undefined) => (id !== undefined && id !== '' ? id : null);
+
+function decodePlayerEffects(ctx: Ctx, triggers: unknown, auras: unknown): PlayerEffects {
+  return {
+    triggers: decodeList(ctx, triggers, 'triggers', (item, index): PlayerTrigger | null => {
+      const p = parseWith(wireTriggerSchema, item);
+      if (!p.ok) {
+        warn(ctx, 'value_invalid', `triggers[${index}]: ${p.issues.join('; ')}`);
+        return null;
+      }
+      return {
+        player: p.data.player,
+        on: p.data.on,
+        do: p.data.do,
+        // -1 = permanente (come per gli stati, S9); gli altri negativi portati a 0.
+        remainingTurns: p.data.remaining_turns === PERMANENT_TURNS ? PERMANENT_TURNS : clampNonNegative(ctx, p.data.remaining_turns, 'remaining_turns'),
+        sourceSpellId: spellIdOrNull(p.data.source_spell_id),
+        hidden: p.data.hidden === true,
+      };
+    }),
+    auras: decodeList(ctx, auras, 'auras', (item, index): PlayerAura | null => {
+      const p = parseWith(wireAuraSchema, item);
+      if (!p.ok) {
+        warn(ctx, 'value_invalid', `auras[${index}]: ${p.issues.join('; ')}`);
+        return null;
+      }
+      return {
+        player: p.data.player,
+        grant: p.data.grant,
+        active: p.data.active,
+        minOwnPawns: p.data.min_own_pawns ?? 0,
+        sourceSpellId: spellIdOrNull(p.data.source_spell_id),
+      };
+    }),
+  };
+}
+
+// --- Opzioni di mossa (`game/special.go`, Step 6) ------------------------------------------------
+
+const uciSchema = z.string().regex(/^[a-h][1-8][a-h][1-8][nbrq]?$/);
+const wireExtraMoveSchema = z.object({ pieces: z.array(z.string()), no_capture: z.boolean() });
+
+function decodeMoveOptions(ctx: Ctx, specialMoves: unknown, extraMove: unknown): MoveOptions {
+  const moves = decodeList(ctx, specialMoves, 'special_moves', (item, index) => {
+    const p = parseWith(uciSchema, item);
+    if (!p.ok) warn(ctx, 'value_invalid', `special_moves[${index}]`);
+    return p.ok ? p.data : null;
+  });
+  if (extraMove === undefined || extraMove === null) return { specialMoves: moves, extraMove: null };
+  const extra = parseWith(wireExtraMoveSchema, extraMove);
+  if (!extra.ok) {
+    warn(ctx, 'value_invalid', `extra_move: ${extra.issues.join('; ')}`);
+    return { specialMoves: moves, extraMove: null };
+  }
+  return {
+    specialMoves: moves,
+    extraMove: { pieces: extra.data.pieces.filter((x): x is PieceKind => isOneOf(PIECE_NAMES, x)), noCapture: extra.data.no_capture },
+  };
+}
+
+const decodeMoveOptionsEvent: Decoder<'move_options'> = (payload, ctx) =>
+  withCore(z.object({ special_moves: loose, extra_move: loose }), payload, (core) => ({
+    type: 'move_options',
+    moveOptions: decodeMoveOptions(ctx, core.special_moves, core.extra_move),
+  }));
+
+const decodePlayerEffectsChanged: Decoder<'player_effects_changed'> = (payload, ctx) =>
+  withCore(z.object({ triggers: loose, auras: loose }), payload, (core) => ({
+    type: 'player_effects_changed',
+    playerEffects: decodePlayerEffects(ctx, core.triggers, core.auras),
+  }));
+
+const TRIGGER_RESULT_SCHEMAS = {
+  draw_card: z.object({ count }),
+  freeze_piece: z.object({ target: squareSchema, remaining_turns: count }),
+} as const;
+
+function decodeTriggerResult(ctx: Ctx, raw: unknown): TriggerResult {
+  const kind = isRecord(raw) && typeof raw['kind'] === 'string' ? raw['kind'] : '';
+  const unknown = (detail: string): TriggerResult => {
+    warn(ctx, 'effect_unknown', `trigger_fired.result: ${detail}`);
+    return { kind: 'unknown', rawKind: kind };
+  };
+  switch (kind) {
+    case 'draw_card': {
+      const p = parseWith(TRIGGER_RESULT_SCHEMAS.draw_card, raw);
+      return p.ok ? { kind, count: p.data.count } : unknown(p.issues.join('; '));
+    }
+    case 'freeze_piece': {
+      const p = parseWith(TRIGGER_RESULT_SCHEMAS.freeze_piece, raw);
+      return p.ok ? { kind, target: p.data.target, remainingTurns: p.data.remaining_turns } : unknown(p.issues.join('; '));
+    }
+    default:
+      return unknown(`kind ${JSON.stringify(kind)}`);
+  }
+}
+
+const decodeTriggerFired: Decoder<'trigger_fired'> = (payload, ctx) =>
+  withCore(
+    z.object({ player: colorSchema, on: nonEmptyString, do: nonEmptyString, source_spell_id: z.string().optional(), result: loose }),
+    payload,
+    (core) => ({
+      type: 'trigger_fired',
+      player: core.player,
+      on: core.on,
+      do: core.do,
+      sourceSpellId: spellIdOrNull(core.source_spell_id),
+      result: decodeTriggerResult(ctx, core.result),
+    }),
+  );
+
+const decodeAuraChanged: Decoder<'aura_changed'> = (payload) =>
+  withCore(z.object({ player: colorSchema, grant: nonEmptyString, active: z.boolean() }), payload, (core) => ({
+    type: 'aura_changed',
+    player: core.player,
+    grant: core.grant,
+    active: core.active,
   }));
 
 const decodeSquareEffectsChanged: Decoder<'square_effects_changed'> = (payload, ctx) =>
@@ -707,6 +903,10 @@ const DECODERS: { readonly [K in ServerMessageType]: Decoder<K> } = {
   graveyard_changed: decodeGraveyardChanged,
   square_effects_changed: decodeSquareEffectsChanged,
   rune_triggered: decodeRuneTriggered,
+  player_effects_changed: decodePlayerEffectsChanged,
+  trigger_fired: decodeTriggerFired,
+  aura_changed: decodeAuraChanged,
+  move_options: decodeMoveOptionsEvent,
   timer_update: decodeTimerUpdate,
   game_over: decodeGameOver,
   error: decodeError,

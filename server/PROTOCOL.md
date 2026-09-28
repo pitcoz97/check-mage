@@ -84,6 +84,10 @@ Dopo `game_over` ogni azione riceve `error` con `code: "game_over"`.
 | `spell_cast` | `{ player, spell_id, targets, effects_applied:[...] }`; per una magia nascosta l'avversario riceve `{ player, hidden: true, effects_applied: [{ kind: "hidden_effect" }] }` | entrambi |
 | `graveyard_changed` | `{ player, graveyard: ["pawn", …] }`: il cimitero di un giocatore, in ordine | entrambi |
 | `square_effects_changed` | `{ square_effects: [...] }`: la lista completa degli stati delle case (stessa forma di `game_state.square_effects`), quando uno viene creato, rivelato, consumato o scade | entrambi, ciascuno la sua lista (rune nascoste dell'avversario tolte) |
+| `player_effects_changed` | `{ triggers, auras }`: le liste complete di trigger e aure dei due giocatori (stessa forma di `game_state`), quando qualcosa nasce, scatta, scade o si accende | entrambi, ciascuno la sua lista (trigger nascosti dell'avversario tolti) |
+| `trigger_fired` | `{ player, on, do, source_spell_id, result }`: un trigger ha reagito (vedi "Trigger e aure") | entrambi |
+| `move_options` | `{ special_moves: [uci…], extra_move: {pieces, no_capture} \| null }`: le mosse fuori dagli scacchi del destinatario nella sua fase Move (vedi "Mosse speciali"); liste vuote se non è il suo turno | ciascuno la sua |
+| `aura_changed` | `{ player, grant, active }`: un'aura si è accesa o spenta | entrambi |
 | `rune_triggered` | `{ square, owner, on_enter, result }`: una runa è scattata (vedi "Rune") | entrambi |
 | `effect_expired` | scadenza: `{ square, effect_kind, piece_id }`; scudo consumato: `{ square, effect_kind: "shield", reason: "shield_absorbed" }` | entrambi |
 | `game_over` | `{ result, reason, winner? }` | entrambi |
@@ -121,6 +125,9 @@ scacchiera, alla riconnessione (con `reconnected: true`) e subito **prima** di
     { "square": "d6", "effects": [ { "kind": "rune", "remaining_turns": -1, "source_spell_id": "stasis_rune", "caster": "black",
                                      "hidden": true, "rune": { "on_enter": "freeze_piece", "duration": 2 } } ] }
   ],
+  "triggers": [ { "player": "white", "on": "own_piece_lost", "do": "draw_card", "remaining_turns": 1, "source_spell_id": "restless_soul" } ],
+  "auras": [ { "player": "black", "grant": "pawn_sidestep", "active": false, "min_own_pawns": 6, "source_spell_id": "banner" } ],
+  "special_moves": ["c1f4", "c1h6"], "extra_move": null,
   "reconnected": true
 }
 ```
@@ -173,6 +180,9 @@ relativo, dove il client manda solo il pezzo); `summon_pawn` → `target`, `piec
 `no_capture`), `remaining_turns` (la lista aggiornata arriva con
 `square_effects_changed`); `place_rune` → `targets` (le case), `on_enter`;
 `reveal_runes` → `side` (il giocatore le cui rune diventano visibili);
+`add_trigger` → `on`, `do`, `remaining_turns`; `add_aura` → `grant`, `active`;
+`add_effect` → `target`, `effect` (`phasing`), `remaining_turns`; `borrow_movement` → `target`, `piece`;
+`extra_move` → `pieces`, `no_capture`;
 `detonate_runes` → `runes` (le case delle rune consumate), `targets` (i pezzi
 congelati), `remaining_turns`; `hidden_effect` → nessun campo (lo riceve solo
 l'avversario di chi lancia una magia nascosta).
@@ -219,7 +229,8 @@ come bersaglio non valido generico.
 
 `no_effect` (la magia non avrebbe effetto, cast rifiutato a costo zero) ha
 `reason` ∈ `no_pieces`, `empty_graveyard`, `no_castling`, `no_runes`
-(Detonazione senza rune proprie); `invalid_choice` ha
+(Detonazione senza rune proprie), `aura_present` (un secondo Stendardo),
+`already_granted` (una seconda Fretta nello stesso turno); `invalid_choice` ha
 `reason` ∈ `missing`, `not_allowed`.
 
 ## Anti-cheat
@@ -286,6 +297,50 @@ come bersaglio non valido generico.
     esistono in quel momento; quelle piazzate dopo sono di nuovo nascoste.
     **Detonazione** consuma le proprie rune e congela i pezzi nemici entro 1
     casa da ciascuna (non il re).
+- **Trigger e aure** (Step 5): vivono sul giocatore, in `game_state.triggers` e
+  `game_state.auras` (liste per destinatario, mancanti nei server precedenti).
+  - `triggers[]`: `{player, on, do, remaining_turns, source_spell_id, hidden?}`;
+    la durata segue le regole degli stati (turni dell'avversario del
+    proprietario). `hidden` compare solo al proprietario: all'avversario un
+    trigger nascosto non arriva, e il suo cast arriva come magia nascosta.
+  - **Anima inquieta** (`own_piece_lost` → `draw_card`): dal lancio alla fine del
+    prossimo turno avversario, ogni proprio pezzo che finisce nel cimitero (anche
+    per un proprio sacrificio) fa pescare 1 carta al proprietario
+    (`card_drawn` solo a lui, `hand_size_changed` a entrambi). La cattura
+    assorbita da uno scudo non conta.
+  - **Riflesso** (`shielded_piece_attacked` → `freeze_attacker`, nascosto, una
+    volta sola): quando un pezzo nemico prova a catturare un pezzo scudato del
+    proprietario (lo scudo assorba o si rompa), l'attaccante viene congelato
+    per il suo turno successivo e il trigger si consuma. Il re non viene mai
+    congelato.
+  - `trigger_fired.result`: `{kind: "draw_card", count}` oppure
+    `{kind: "freeze_piece", target, remaining_turns}`.
+  - `auras[]`: `{player, grant, active, min_own_pawns, source_spell_id}`.
+    **Stendardo** (`pawn_sidestep`) è attiva finché il giocatore ha almeno
+    `min_own_pawns` pedoni; si ricalcola dopo ogni cambio della scacchiera e
+    ogni cambio arriva con `aura_changed`; il passo di lato è una mossa speciale
+    (vedi sotto).
+- **Mosse speciali** (Step 6): mosse che Stockfish non conosce, generate e
+  validate dal server. Il giocatore di turno nella fase Move le riceve già
+  valide in `special_moves` (`game_state` per destinatario e `move_options`) e
+  le manda con il normale `move`.
+  - **Phasing** (Passo sfasato, solo su un proprio alfiere): in questa Move
+    l'alfiere scivola in diagonale attraverso i pezzi fino a una casa vuota, senza
+    catturare; i muri lo fermano.
+  - **Movimento preso in prestito** (Eco del caduto): per questo turno il pedone
+    muove e cattura anche come il cavallo o l'alfiere scelto (`cast_spell.choice`
+    fra i tipi del proprio cimitero); mai in 1ª o 8ª traversa.
+  - **Passo di lato** (Stendardo attivo): un pedone va di una casa a destra o a
+    sinistra, su una casa vuota.
+  - Ogni mossa speciale rispetta gelo, muri e santuari, fa scattare le rune e
+    non lascia il proprio re sotto scacco (altrimenti `illegal_move`). Matto e
+    stallo le contano. La FEN resta standard: la mossa successiva
+    dell'avversario è validata da Stockfish.
+  - **Fretta**: dopo la prima mossa del turno si resta nella fase Move per una
+    seconda mossa facoltativa, di pedone e senza cattura: `extra_move` non è
+    null e `special_moves` elenca proprio le mosse ammesse. `board.turn` resta
+    di chi muove. `pass_phase` la salta. Se la prima mossa dà scacco, la seconda
+    non c'è.
 - **Bersagli.** Ogni magia dichiara in `targets` una lista di `TargetSpec`
   (vedi sotto); il cast manda una casella per elemento, nello stesso ordine. Le
   caselle devono essere distinte e il re non è mai un bersaglio (salvo un
@@ -315,8 +370,8 @@ come bersaglio non valido generico.
 
 ## Catalogo magie
 
-Il catalogo segue `docs/BRIEFING-MAGIE.md` e cresce per step: oggi contiene le 26
-magie degli Step 1–4. Disponibile via `GET /spells`:
+Il catalogo segue `docs/BRIEFING-MAGIE.md` e cresce per step: contiene le 32
+magie del brief (Step 1–6). Disponibile via `GET /spells`:
 
 ```json
 { "id": "blink", "name": "Blink", "mana_cost": 4, "phases": ["main1", "main2"],
@@ -361,6 +416,12 @@ magie degli Step 1–4. Disponibile via `GET /spells`:
 | `explosive_rune` | Runa esplosiva | 3 | casa vuota | `place_rune`: distrugge pedone o pezzo minore, congela 1 turno torre e regina (nascosta) |
 | `detonation` | Detonazione | 4 | — | `detonate_runes`: consuma le proprie rune e congela 1 turno i nemici attorno |
 | `minefield` | Campo minato (leggendaria) | 7 | tre case vuote | `place_rune`: tre Rune di stasi (nascosta) |
+| `restless_soul` | Anima inquieta | 2 | — | `add_trigger`: ogni proprio pezzo perso = pesca 1, per 1 turno |
+| `reflection` | Riflesso | 3 | — | `add_trigger`: chi prova a catturare un proprio pezzo scudato è congelato (nascosta, una volta) |
+| `banner` | Stendardo | 2 | — | `add_aura`: con 6+ pedoni, passo di lato dei pedoni |
+| `phase_step` | Passo sfasato | 2, solo main1 | proprio alfiere | `add_effect` `phasing` per questo turno |
+| `echo_of_fallen` | Eco del caduto | 4, solo main1 | proprio pedone | `borrow_movement` da cavallo o alfiere del cimitero (`choice`) |
+| `haste` | Fretta (leggendaria) | 6, solo main1 | — | `extra_move`: seconda mossa di pedone senza cattura |
 
 **Cimitero.** Ogni pezzo tolto dalla scacchiera (cattura, anche en passant, o
 magia) va nel cimitero del proprietario con il tipo che aveva; la cattura

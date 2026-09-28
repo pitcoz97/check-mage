@@ -165,6 +165,25 @@ describe('schermata di partita', () => {
     await waitFor(() => expect(square('e3').getAttribute('aria-label')).toBe('e3'));
   });
 
+  it('mosse speciali: le case del server si evidenziano e la mossa parte; la seconda mossa di Fretta si salta', async () => {
+    const { receive, expectSent } = await setup();
+    receive(gameState({ special_moves: ['c1f4', 'c1h6'] }));
+    fireEvent.click(square('c1'));
+    await waitFor(() =>
+      expect([...document.querySelectorAll('[data-target="true"]')].map((b) => b.getAttribute('data-square')).sort()).toEqual(['f4', 'h6']),
+    );
+    fireEvent.click(square('f4'));
+    await expectSent({ type: 'move', payload: { move: 'c1f4' } });
+
+    receive(gameState({ special_moves: ['e2e3', 'e2e4'], extra_move: { pieces: ['pawn'], no_capture: true } }));
+    await waitFor(() => expect(passButton().textContent).toContain('Salta la seconda mossa'));
+    expect(passButton().disabled).toBe(false);
+    fireEvent.click(square('g1'));
+    expect(document.querySelectorAll('[data-target="true"]')).toHaveLength(0);
+    fireEvent.click(passButton());
+    await expectSent({ type: 'pass_phase', payload: {} });
+  });
+
   it('il rifiuto deciso dal client non disturba il server', async () => {
     const { sent, receive } = await setup();
     receive(gameState({ phase: 'main1' }));
@@ -228,6 +247,39 @@ describe('schermata di partita', () => {
     expect(document.querySelector('[data-graveyard="white"]')).toBeNull();
     receive({ type: 'graveyard_changed', payload: { player: 'white', graveyard: ['rook'] } });
     await waitFor(() => expect(document.querySelector('[data-graveyard="white"]')?.getAttribute('aria-label')).toBe('Cimitero: torre × 1'));
+  });
+
+  it('trigger e aure nella riga: il proprio Riflesso tratteggiato, lo Stendardo avversario spento; avvisi dei trigger', async () => {
+    const { receive } = await setup();
+    receive(
+      gameState({
+        triggers: [
+          { player: 'white', on: 'shielded_piece_attacked', do: 'freeze_attacker', remaining_turns: 1, source_spell_id: 'reflection', hidden: true },
+        ],
+        auras: [{ player: 'black', grant: 'pawn_sidestep', active: false, min_own_pawns: 6, source_spell_id: 'banner' }],
+      }),
+    );
+    const mine = await waitFor(() => document.querySelector('[data-player-effects="white"] [data-trigger]') as HTMLElement);
+    expect(mine.getAttribute('aria-label')).toBe('Riflesso, ancora 1 turno (visibile solo a te)');
+    expect(mine.dataset['hidden']).toBe('true');
+    const aura = document.querySelector('[data-player-effects="black"] [data-aura]') as HTMLElement;
+    expect(aura.getAttribute('aria-label')).toBe('Stendardo: inattivo, servono 6 pedoni');
+
+    receive({ type: 'aura_changed', payload: { player: 'black', grant: 'pawn_sidestep', active: true } });
+    await waitFor(() => expect(hint()).toContain('Stendardo dell’avversario: attivo.'));
+    receive({
+      type: 'trigger_fired',
+      payload: {
+        player: 'black',
+        on: 'own_piece_lost',
+        do: 'draw_card',
+        source_spell_id: 'restless_soul',
+        result: { kind: 'draw_card', count: 1 },
+      },
+    });
+    await waitFor(() => expect(hint()).toContain('Anima inquieta dell’avversario: pesca 1 carta.'));
+    receive({ type: 'player_effects_changed', payload: { triggers: [], auras: [] } });
+    await waitFor(() => expect(document.querySelector('[data-player-effects]')).toBeNull());
   });
 
   it('il targeting si annulla con Esc o con un secondo tocco sulla carta, senza disturbare il server', async () => {

@@ -133,6 +133,9 @@ export const WS = {
   cannotFreezeOwn: (square: string) => e('invalid_target', `non puoi congelare un tuo pezzo (${square})`), // :180
   nothingToShield: (square: string) => e('invalid_target', `nessun pezzo da proteggere in ${square}`), // :189
   shieldOnlyOwn: (square: string) => e('invalid_target', `puoi proteggere solo i tuoi pezzi (${square})`), // :192
+  // effects/special.go
+  movementOnlyOwn: (square: string) => e('invalid_target', `puoi farlo solo sui tuoi pezzi (${square})`),
+  unsupportedMovement: (kind: string, id: string) => e('internal_error', `stato di movimento non supportato: ${quoted(kind)} (${id})`),
 } as const;
 
 /** Messaggi informativi (mai mostrati dal client). */
@@ -243,6 +246,8 @@ export function wsErrorSamples(): GameError[] {
     WS.cannotFreezeOwn('e2'),
     WS.nothingToShield('e5'),
     WS.shieldOnlyOwn('e7'),
+    WS.movementOnlyOwn('e7'),
+    WS.unsupportedMovement('flight', 'phase_step'),
     WS.moveBlocked('a1a6', 'a4', 'wall'),
     WS.sanctuaryDestroy('d5'),
     WS.wallAhead('e3'),

@@ -25,10 +25,13 @@ import type {
   PrivateHand,
   ProtocolErrorInfo,
   PublicGameState,
+  MoveOptions,
+  PlayerEffects,
   RuneResult,
   SpellId,
   Square,
   SquareEffects,
+  TriggerResult,
   UciMove,
   Username,
 } from '../game/model';
@@ -71,6 +74,10 @@ export const SERVER_MESSAGE_TYPES = [
   'graveyard_changed',
   'square_effects_changed',
   'rune_triggered',
+  'player_effects_changed',
+  'trigger_fired',
+  'aura_changed',
+  'move_options',
   'timer_update',
   'game_over',
   'error',
@@ -125,6 +132,20 @@ export type ServerEvent =
   | { readonly type: 'square_effects_changed'; readonly squareStates: readonly SquareEffects[] }
   /** Una runa è scattata; lo stato aggiornato arriva con `game_state` e `square_effects_changed`. */
   | { readonly type: 'rune_triggered'; readonly square: Square; readonly owner: Color; readonly onEnter: string; readonly result: RuneResult }
+  /** Trigger e aure dei due giocatori sono cambiati: le liste intere, già filtrate per chi guarda. */
+  | { readonly type: 'player_effects_changed'; readonly playerEffects: PlayerEffects }
+  /** Un trigger ha reagito: lo stato (carte, gelo, liste) arriva con gli eventi vicini; qui solo cosa è successo. */
+  | {
+      readonly type: 'trigger_fired';
+      readonly player: Color;
+      readonly on: string;
+      readonly do: string;
+      readonly sourceSpellId: SpellId | null;
+      readonly result: TriggerResult;
+    }
+  | { readonly type: 'aura_changed'; readonly player: Color; readonly grant: string; readonly active: boolean }
+  /** Le mosse fuori dagli scacchi di chi riceve, nella sua fase Move (vuote se non è il suo turno). */
+  | { readonly type: 'move_options'; readonly moveOptions: MoveOptions }
   /** `turn` = giocatore di cui scorre il tempo, non il tratto scacchistico (`game/room.go:1331-1340`). */
   | { readonly type: 'timer_update'; readonly clocks: Clocks; readonly turn: Color | 'unknown' }
   | {

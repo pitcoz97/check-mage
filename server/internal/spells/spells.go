@@ -106,14 +106,24 @@ const (
 	EffectPlaceRune     = "place_rune"     // runa nascosta su ogni casa bersaglio
 	EffectRevealRunes   = "reveal_runes"   // rende visibili le rune di un lato
 	EffectDetonateRunes = "detonate_runes" // consuma le proprie rune con un effetto attorno a ciascuna
+
+	EffectAddTrigger = "add_trigger" // registra un trigger sul lanciatore
+	EffectAddAura    = "add_aura"    // registra un'aura condizionale sul lanciatore
+
+	EffectAddEffect      = "add_effect"      // stato di movimento su un pezzo (phasing)
+	EffectBorrowMovement = "borrow_movement" // il pedone muove anche come un pezzo del cimitero
+	EffectExtraMove      = "extra_move"      // seconda mossa vincolata nella fase Move
 )
 
 // HiddenFromOpponent indica se il cast va nascosto all'avversario (M42): chi lo
 // riceve non vede né la carta né i bersagli. Oggi vale per le magie che
-// piazzano rune.
+// piazzano rune e per i trigger nascosti (Riflesso).
 func (s Spell) HiddenFromOpponent() bool {
 	for _, e := range s.Effects {
 		if e.Kind == EffectPlaceRune {
+			return true
+		}
+		if hidden, _ := e.Params["hidden"].(bool); e.Kind == EffectAddTrigger && hidden {
 			return true
 		}
 	}
@@ -176,6 +186,9 @@ type PlayerState struct {
 	CastsThisTurn map[string]int `json:"casts_this_turn,omitempty"`
 	// Cimitero: i pezzi del giocatore tolti dalla scacchiera, in ordine.
 	Graveyard []GraveEntry `json:"graveyard,omitempty"`
+	// Trigger e aure del giocatore (player_effects.go).
+	Triggers []Trigger `json:"triggers,omitempty"`
+	Auras    []Aura    `json:"auras,omitempty"`
 }
 
 // GraveyardKinds restituisce i tipi dei pezzi nel cimitero, in ordine (la vista
