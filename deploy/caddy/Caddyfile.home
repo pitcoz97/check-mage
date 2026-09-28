@@ -1,0 +1,30 @@
+# Variante "server a casa" (docker-compose.home.yml): davanti c'è Cloudflare, che fa l'HTTPS.
+# Caddy riceve le richieste in chiaro da cloudflared, sulla rete interna di Docker.
+{
+	auto_https off
+	servers {
+		# cloudflared sta sulla rete privata di Docker: Caddy conserva l'X-Forwarded-For che arriva da Cloudflare,
+		# così il server vede l'IP vero di chi gioca (rate limit per IP).
+		trusted_proxies static private_ranges
+	}
+}
+
+# Il sito: i file del client. Ogni percorso che non è un file (/decks, /collection…) apre index.html.
+http://{$APP_DOMAIN} {
+	encode zstd gzip
+	root * /srv/client
+
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	@pages not path /assets/*
+	header @pages Cache-Control "no-cache"
+
+	try_files {path} /index.html
+	file_server
+}
+
+# Il server: REST e WebSocket.
+http://{$API_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy server:8080
+}

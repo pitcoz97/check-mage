@@ -1,0 +1,23 @@
+# Variante "server a casa": si aggiunge a docker-compose.yml, non lo sostituisce.
+# Niente porte aperte sul router: il sito esce su internet attraverso un Cloudflare Tunnel, e l'HTTPS lo fa Cloudflare.
+# Si attiva scrivendo in deploy/.env:   COMPOSE_FILE=docker-compose.yml:docker-compose.home.yml
+# Guida: docs/DEPLOY-CASA.md.
+
+services:
+  caddy:
+    # Nessuna porta pubblicata: ci arriva solo cloudflared, dalla rete interna.
+    ports: !reset []
+    volumes:
+      - ./caddy/Caddyfile.home:/etc/caddy/Caddyfile:ro
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Manca CLOUDFLARE_TUNNEL_TOKEN in deploy/.env}
+    depends_on:
+      - caddy
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
