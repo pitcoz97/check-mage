@@ -122,6 +122,8 @@ export interface PublicGameState {
   readonly activeEffects: readonly SquareEffects[];
   /** Stati delle case (muri, santuari): restano sulla casa, qualunque pezzo ci sia (ASSUMPTIONS §7 M25–M31). */
   readonly squareStates: readonly SquareEffects[];
+  /** Trigger e aure dei due giocatori (Step 5), già filtrati dal server per chi guarda (ASSUMPTIONS M51). */
+  readonly playerEffects: PlayerEffects;
   /** Pezzi persi da ciascun giocatore, in ordine (cimitero pubblico, ASSUMPTIONS §7 M19). */
   readonly graveyards: PerColor<readonly PieceKind[]>;
   /** `true` solo nel `game_state` inviato a chi si riconnette (`game/room.go:1136`). */
@@ -178,7 +180,43 @@ export type AppliedEffect =
     }
   /** L'unico effetto di una magia nascosta vista dall'avversario (ASSUMPTIONS M42). */
   | { readonly kind: 'hidden_effect' }
+  /** Trigger e aure (Step 5): registrati sul giocatore che lancia. */
+  | { readonly kind: 'add_trigger'; readonly on: string; readonly do: string; readonly remainingTurns: number }
+  | { readonly kind: 'add_aura'; readonly grant: string; readonly active: boolean }
   /** Effetto sconosciuto o malformato: si mostra neutro, non blocca il resto (§5.1.6). */
+  | { readonly kind: 'unknown'; readonly rawKind: string };
+
+/**
+ * Trigger di un giocatore (`game_state.triggers`): reagisce a un evento (`on`) con un'azione (`do`). `hidden` = il
+ * proprio trigger, ancora nascosto all'avversario; quelli nascosti dell'avversario non arrivano mai.
+ */
+export interface PlayerTrigger {
+  readonly player: Color;
+  readonly on: string;
+  readonly do: string;
+  readonly remainingTurns: number;
+  readonly sourceSpellId: SpellId | null;
+  readonly hidden: boolean;
+}
+
+/** Aura di un giocatore (`game_state.auras`): attiva finché ha almeno `minOwnPawns` pedoni. */
+export interface PlayerAura {
+  readonly player: Color;
+  readonly grant: string;
+  readonly active: boolean;
+  readonly minOwnPawns: number;
+  readonly sourceSpellId: SpellId | null;
+}
+
+export interface PlayerEffects {
+  readonly triggers: readonly PlayerTrigger[];
+  readonly auras: readonly PlayerAura[];
+}
+
+/** Cosa ha fatto un trigger (`trigger_fired.result`, `game/events.go`). */
+export type TriggerResult =
+  | { readonly kind: 'draw_card'; readonly count: number }
+  | { readonly kind: 'freeze_piece'; readonly target: Square; readonly remainingTurns: number }
   | { readonly kind: 'unknown'; readonly rawKind: string };
 
 /** Cosa ha fatto una runa scattata (`rune_triggered.result`, `game/room.go` triggerRune). */

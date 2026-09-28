@@ -4,7 +4,17 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import type { ActiveEffect } from '../game/model';
 import { initI18n } from '../i18n';
 import { createWebStorage } from '../lib/storage';
-import { effectPresentation, effectStatePresentation, runeName, spellRulesText, stateLabel, statePresentation } from './effects.registry';
+import {
+  auraIcon,
+  auraName,
+  effectPresentation,
+  effectStatePresentation,
+  runeName,
+  spellRulesText,
+  stateLabel,
+  statePresentation,
+  triggerIcon,
+} from './effects.registry';
 
 let t: TFunction;
 beforeAll(async () => {
@@ -45,6 +55,25 @@ describe('registry degli stati: rune', () => {
     expect(stateLabel(t, rune({ hidden: false }), 'white')).toBe('Runa di stasi tua');
     expect(stateLabel(t, rune({ owner: 'black', hidden: false, onEnter: 'return_to_origin' }), 'white')).toBe('Runa di respinta dell’avversario');
     expect(stateLabel(t, { kind: 'freeze', remainingTurns: 2, sourceSpellId: null }, 'white')).toBe('Congelato, ancora 2 turni');
+  });
+});
+
+describe('registry degli effetti: trigger e aure', () => {
+  it('testi delle carte da on/do/grant, icone da do/grant, valori ignoti neutri', () => {
+    expect(spellRulesText(t, [{ kind: 'add_trigger', params: { on: 'own_piece_lost', do: 'draw_card', amount: 1, duration: 1 } }])).toEqual([
+      'Fino alla fine del prossimo turno avversario, ogni tuo pezzo perso ti fa pescare una carta.',
+    ]);
+    expect(spellRulesText(t, [{ kind: 'add_trigger', params: { on: 'shielded_piece_attacked', do: 'freeze_attacker' } }])[0]).toContain(
+      'Trappola nascosta',
+    );
+    expect(spellRulesText(t, [{ kind: 'add_trigger', params: { on: 'moon', do: 'howl' } }])).toEqual(['Una reazione che scatta durante la partita.']);
+    expect(spellRulesText(t, [{ kind: 'add_aura', params: { condition: { own_pawns_gte: 6 }, grant: 'pawn_sidestep', duration: -1 } }])).toEqual([
+      'Con 6 o più pedoni, i tuoi pedoni possono muovere di una casa di lato.',
+    ]);
+    expect([triggerIcon('draw_card'), triggerIcon('freeze_attacker'), triggerIcon('howl')]).toEqual(['card', 'frost', 'question']);
+    expect([auraIcon('pawn_sidestep'), auraIcon('flight')]).toEqual(['arrow', 'question']);
+    expect(auraName(t, 'pawn_sidestep')).toBe('Stendardo');
+    expect(auraName(t, 'flight')).toBe('Effetti del giocatore');
   });
 });
 

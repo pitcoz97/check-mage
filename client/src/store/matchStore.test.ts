@@ -23,6 +23,7 @@ function publicState(overrides: Partial<PublicGameState> = {}): PublicGameState 
     activeEffects: [],
     graveyards: { white: [], black: [] },
     squareStates: [],
+    playerEffects: { triggers: [], auras: [] },
     reconnected: false,
     players: { white: { id: '1', username: 'mario' }, black: { id: '2', username: 'luigi' } },
     timeControl: { baseMs: 600_000, incrementMs: 5_000 },
@@ -120,6 +121,23 @@ describe('applyServerEvent: aggiornamenti puntuali', () => {
       { square: 'b2', effects: [{ kind: 'freeze', remainingTurns: 1, sourceSpellId: 'eternal_winter' }] },
     ]);
     expect(state.game?.graveyards).toEqual({ white: ['pawn'], black: [] });
+  });
+
+  it('player_effects_changed sostituisce trigger e aure; trigger_fired e aura_changed restano per gli avvisi', () => {
+    const lists = {
+      triggers: [{ player: 'white' as const, on: 'own_piece_lost', do: 'draw_card', remainingTurns: 1, sourceSpellId: 'restless_soul', hidden: false }],
+      auras: [],
+    };
+    const state = run([
+      ...START,
+      { type: 'player_effects_changed', playerEffects: lists },
+      { type: 'trigger_fired', player: 'white', on: 'own_piece_lost', do: 'draw_card', sourceSpellId: 'restless_soul', result: { kind: 'draw_card', count: 1 } },
+      { type: 'aura_changed', player: 'black', grant: 'pawn_sidestep', active: true },
+    ]);
+    expect(state.game?.playerEffects).toEqual(lists);
+    expect(state.lastTrigger).toMatchObject({ player: 'white', result: { kind: 'draw_card', count: 1 } });
+    expect(state.lastAura).toMatchObject({ player: 'black', grant: 'pawn_sidestep', active: true });
+    expect(state.hand).toEqual(run(START).hand);
   });
 
   it('square_effects_changed sostituisce gli stati delle case; il cast che li crea non li tocca da sé', () => {

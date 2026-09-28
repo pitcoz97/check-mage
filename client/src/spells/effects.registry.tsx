@@ -96,6 +96,8 @@ export const EFFECT_KINDS = [
   'reveal_runes',
   'detonate_runes',
   'hidden_effect',
+  'add_trigger',
+  'add_aura',
 ] as const;
 export type KnownEffectKind = (typeof EFFECT_KINDS)[number];
 
@@ -282,7 +284,57 @@ const EFFECTS: Record<KnownEffectKind, EffectPresentation> = {
     label: (t) => t('spells.effect.hidden_effect.label'),
     describe: (t) => t('spells.effect.hidden_effect.text'),
   },
+  // Trigger e aure (Step 5): il testo viene da on/do/grant, come per shield_area; icone provvisorie.
+  add_trigger: {
+    icon: 'spark',
+    art: ART.doom,
+    label: (t) => t('spells.effect.add_trigger.label'),
+    describe: (t, params) => {
+      const count = intParam(params, 'duration', 1);
+      if (params['on'] === 'own_piece_lost' && params['do'] === 'draw_card') {
+        return t(count === 1 ? 'spells.effect.add_trigger.pieceLostDrawOne' : 'spells.effect.add_trigger.pieceLostDrawMany', { count });
+      }
+      if (params['on'] === 'shielded_piece_attacked' && params['do'] === 'freeze_attacker') {
+        return t('spells.effect.add_trigger.shieldedFreeze');
+      }
+      return t('spells.effect.add_trigger.text');
+    },
+  },
+  add_aura: {
+    icon: 'arrow',
+    art: ART.gold,
+    label: (t) => t('spells.effect.add_aura.label'),
+    describe: (t, params) => {
+      const condition = params['condition'];
+      const min = typeof condition === 'object' && condition !== null ? intParam(condition as Record<string, unknown>, 'own_pawns_gte', 0) : 0;
+      return params['grant'] === 'pawn_sidestep' ? t('spells.effect.add_aura.pawnSidestep', { count: min }) : t('spells.effect.add_aura.text');
+    },
+  },
 };
+
+/**
+ * Trigger e aure nella riga del giocatore: icona per quello che fanno (`do`, `grant`), senza guardare la magia. Un
+ * valore che il client non conosce prende l'icona neutra.
+ */
+const TRIGGER_ICONS: Readonly<Record<string, EffectIconName>> = { draw_card: 'card', freeze_attacker: 'frost' };
+const AURA_ICONS: Readonly<Record<string, EffectIconName>> = { pawn_sidestep: 'arrow' };
+
+export function triggerIcon(action: string): EffectIconName {
+  return Object.hasOwn(TRIGGER_ICONS, action) ? (TRIGGER_ICONS[action] as EffectIconName) : 'question';
+}
+
+/** Nome di un'aura dal suo `grant` ("Stendardo"); il valore grezzo non si mostra mai. */
+const AURA_NAMES: Readonly<Record<string, (t: TFunction) => string>> = {
+  pawn_sidestep: (t) => t('spells.playerEffects.aura.pawn_sidestep'),
+};
+
+export function auraName(t: TFunction, grant: string): string {
+  return Object.hasOwn(AURA_NAMES, grant) ? (AURA_NAMES[grant] as (t: TFunction) => string)(t) : t('spells.playerEffects.label');
+}
+
+export function auraIcon(grant: string): EffectIconName {
+  return Object.hasOwn(AURA_ICONS, grant) ? (AURA_ICONS[grant] as EffectIconName) : 'question';
+}
 
 /** Pezzi fra cui scegliere per questa magia, o `null` se non c'è nulla da scegliere. */
 export function spellChoiceOptions(effects: readonly SpellEffect[], ctx: ChoiceContext): readonly PieceKind[] | null {

@@ -127,7 +127,8 @@ export async function startDevSession({
   // Magie dello Step 2: cimiteri non vuoti nelle righe dei giocatori e carte che chiedono la scelta del pezzo
   // (Promozione anticipata sul pedone in b7, Resurrezione con due tipi nel cimitero). Dello Step 3: un muro e un
   // santuario sulle case. Dello Step 4: una propria runa nascosta in e6, una runa nemica rivelata in a3, carte di rune
-  // in mano e l'avviso di una magia nascosta dell'avversario; con `rune` anche l'avviso di una runa scattata.
+  // in mano e l'avviso di una magia nascosta dell'avversario; con `rune` anche l'avviso di una runa scattata. Dello
+  // Step 5: trigger e aure nelle righe dei giocatori, Anima inquieta e Riflesso in mano.
   if (scenario === 'spells' || scenario === 'rune') {
     socket.receive(
       gameState(MOVES, [], {
@@ -151,12 +152,18 @@ export async function startDevSession({
               effects: [{ kind: 'rune', remaining_turns: -1, source_spell_id: 'repel_rune', caster: 'black', rune: { on_enter: 'return_to_origin' } }],
             },
           ],
+          // Step 5: un proprio Riflesso nascosto e uno Stendardo attivo; l'Anima inquieta dell'avversario.
+          triggers: [
+            { player: 'white', on: 'shielded_piece_attacked', do: 'freeze_attacker', remaining_turns: 1, source_spell_id: 'reflection', hidden: true },
+            { player: 'black', on: 'own_piece_lost', do: 'draw_card', remaining_turns: 1, source_spell_id: 'restless_soul' },
+          ],
+          auras: [{ player: 'white', grant: 'pawn_sidestep', active: true, min_own_pawns: 6, source_spell_id: 'banner' }],
         },
       }),
     );
     socket.receive({
       type: 'hand',
-      payload: { hand: ['early_promotion', 'ice_wall', 'stasis_rune', 'detonation', 'minefield'], mana: 10, max_mana: 10, deck_size: 18 },
+      payload: { hand: ['early_promotion', 'restless_soul', 'reflection', 'stasis_rune', 'banner'], mana: 10, max_mana: 10, deck_size: 18 },
     });
     socket.receive({ type: 'spell_cast', payload: { player: 'black', hidden: true, effects_applied: [{ kind: 'hidden_effect' }] } });
   }

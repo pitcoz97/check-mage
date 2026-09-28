@@ -93,8 +93,12 @@ function OutcomePanel({ outcome }: { outcome: GameOutcome }) {
 function useSpellFlash(): readonly Square[] {
   const lastCast = useMatch((s) => s.lastCast);
   const lastRune = useMatch((s) => s.lastRune);
+  const lastTrigger = useMatch((s) => s.lastTrigger);
   const runeIsLatest = lastRune !== null && lastRune.seq > (lastCast?.seq ?? 0);
-  const seq = runeIsLatest ? lastRune.seq : (lastCast?.seq ?? 0);
+  // Un trigger che congela (Riflesso) fa lampeggiare la casa del pezzo, se è l'ultimo evento.
+  const frozenByTrigger = lastTrigger !== null && lastTrigger.result.kind === 'freeze_piece' ? lastTrigger : null;
+  const triggerIsLatest = frozenByTrigger !== null && frozenByTrigger.seq > Math.max(lastCast?.seq ?? 0, lastRune?.seq ?? 0);
+  const seq = triggerIsLatest ? frozenByTrigger.seq : runeIsLatest ? lastRune.seq : (lastCast?.seq ?? 0);
   /** Progressivo della magia il cui lampeggio è già finito. */
   const [faded, setFaded] = useState(0);
 
@@ -105,6 +109,7 @@ function useSpellFlash(): readonly Square[] {
   }, [seq, faded]);
 
   if (faded === seq) return [];
+  if (triggerIsLatest && frozenByTrigger.result.kind === 'freeze_piece') return [frozenByTrigger.result.target];
   if (runeIsLatest) return [lastRune.square];
   if (lastCast === null) return [];
   return [...lastCast.targets, ...lastCast.effects.flatMap(effectSquares)];

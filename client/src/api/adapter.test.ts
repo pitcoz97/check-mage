@@ -120,6 +120,7 @@ describe('game_state', () => {
         activeEffects: [{ square: 'e7', effects: [{ kind: 'freeze', remainingTurns: 2, sourceSpellId: 'frostbolt' }] }],
         graveyards: { white: [], black: [] },
         squareStates: [],
+        playerEffects: { triggers: [], auras: [] },
         reconnected: false,
         players: { white: { id: '42', username: 'mario' }, black: { id: '7', username: 'luigi' } },
         timeControl: { baseMs: 600000, incrementMs: 5000 },
@@ -311,6 +312,70 @@ describe('magie ed effetti', () => {
     const changed = decodeOk(frame('graveyard_changed', { player: 'black', graveyard: ['rook', 'dragon'] }));
     expect(changed.event).toEqual({ type: 'graveyard_changed', player: 'black', graveyard: ['rook'] });
     expect(changed.codes.length).toBe(1);
+  });
+
+  it('trigger e aure: nel game_state (assenti = nessuno), nei tre eventi nuovi e negli effetti; voci malformate scartate', () => {
+    const triggers = [
+      { player: 'white', on: 'own_piece_lost', do: 'draw_card', remaining_turns: 1, source_spell_id: 'restless_soul' },
+      { player: 'white', on: 'shielded_piece_attacked', do: 'freeze_attacker', remaining_turns: 1, source_spell_id: 'reflection', hidden: true },
+      { player: 'purple', on: 'x', do: 'y', remaining_turns: 1 },
+    ];
+    const auras = [{ player: 'black', grant: 'pawn_sidestep', active: false, min_own_pawns: 6, source_spell_id: 'banner' }];
+    const { event, codes } = decodeOk(frame('game_state', publicState({ triggers, auras })));
+    expect(codes).toEqual(['value_invalid']);
+    expect(event.type === 'game_state' && event.state.playerEffects).toEqual({
+      triggers: [
+        { player: 'white', on: 'own_piece_lost', do: 'draw_card', remainingTurns: 1, sourceSpellId: 'restless_soul', hidden: false },
+        { player: 'white', on: 'shielded_piece_attacked', do: 'freeze_attacker', remainingTurns: 1, sourceSpellId: 'reflection', hidden: true },
+      ],
+      auras: [{ player: 'black', grant: 'pawn_sidestep', active: false, minOwnPawns: 6, sourceSpellId: 'banner' }],
+    });
+    const legacy = decodeOk(frame('game_state', publicState())).event;
+    expect(legacy.type === 'game_state' && legacy.state.playerEffects).toEqual({ triggers: [], auras: [] });
+
+    expect(decodeOk(frame('player_effects_changed', { triggers: [], auras: [] })).event).toEqual({
+      type: 'player_effects_changed',
+      playerEffects: { triggers: [], auras: [] },
+    });
+    expect(
+      decodeOk(
+        frame('trigger_fired', {
+          player: 'black',
+          on: 'shielded_piece_attacked',
+          do: 'freeze_attacker',
+          source_spell_id: 'reflection',
+          result: { kind: 'freeze_piece', target: 'd5', remaining_turns: 2 },
+        }),
+      ).event,
+    ).toEqual({
+      type: 'trigger_fired',
+      player: 'black',
+      on: 'shielded_piece_attacked',
+      do: 'freeze_attacker',
+      sourceSpellId: 'reflection',
+      result: { kind: 'freeze_piece', target: 'd5', remainingTurns: 2 },
+    });
+    expect(decodeOk(frame('aura_changed', { player: 'white', grant: 'pawn_sidestep', active: true })).event).toEqual({
+      type: 'aura_changed',
+      player: 'white',
+      grant: 'pawn_sidestep',
+      active: true,
+    });
+    const cast = decodeOk(
+      frame('spell_cast', {
+        player: 'white',
+        spell_id: 'x',
+        targets: [],
+        effects_applied: [
+          { kind: 'add_trigger', on: 'own_piece_lost', do: 'draw_card', remaining_turns: 1 },
+          { kind: 'add_aura', grant: 'pawn_sidestep', active: true },
+        ],
+      }),
+    ).event;
+    expect(cast.type === 'spell_cast' && cast.effects).toEqual([
+      { kind: 'add_trigger', on: 'own_piece_lost', do: 'draw_card', remainingTurns: 1 },
+      { kind: 'add_aura', grant: 'pawn_sidestep', active: true },
+    ]);
   });
 
   it('stati delle case: nel game_state (assente = nessuno), in square_effects_changed e nei nuovi effetti', () => {
@@ -653,10 +718,10 @@ describe('REST', () => {
 });
 
 describe('catalogo', () => {
-  it('fallback.json: le 26 magie degli step 1–4 (spells/catalog.go), tutte valide', () => {
+  it('fallback.json: le 29 magie degli step 1–5 (spells/catalog.go), tutte valide', () => {
     const { spells, warnings } = normalizeSpellCatalog(fallbackCatalog);
     expect(warnings).toEqual([]);
-    expect(spells).toHaveLength(26);
+    expect(spells).toHaveLength(29);
     expect(spells.find((s) => s.id === 'blink')).toEqual({
       id: 'blink',
       name: 'Blink',
