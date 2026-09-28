@@ -226,19 +226,6 @@ func TestBanner_Aura(t *testing.T) {
 	}
 }
 
-// Lo Stendardo è nel catalogo ma fuori dalla ricetta finché il passo di lato
-// non arriva (M50).
-func TestBanner_NotInRecipe(t *testing.T) {
-	if _, ok := spells.Catalog["banner"]; !ok {
-		t.Fatal("lo Stendardo è nel catalogo")
-	}
-	for _, id := range spells.BuildDeck() {
-		if id == "banner" {
-			t.Fatal("lo Stendardo non deve essere nel mazzo")
-		}
-	}
-}
-
 // Trigger e aure sopravvivono a salvataggio e ripristino.
 func TestPlayerEffects_Snapshot(t *testing.T) {
 	r := richRoom(startFEN)

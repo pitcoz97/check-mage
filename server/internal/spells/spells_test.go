@@ -99,6 +99,7 @@ func TestCatalog_WellFormed(t *testing.T) {
 		EffectCreateWall: true, EffectCreateSquareEffect: true,
 		EffectPlaceRune: true, EffectRevealRunes: true, EffectDetonateRunes: true,
 		EffectAddTrigger: true, EffectAddAura: true,
+		EffectAddEffect: true, EffectBorrowMovement: true, EffectExtraMove: true,
 	}
 	targetTypes := map[TargetType]bool{TargetSquare: true, TargetOwnPiece: true, TargetEnemyPiece: true}
 	pieces := map[PieceKind]bool{Pawn: true, Knight: true, Bishop: true, Rook: true, Queen: true}

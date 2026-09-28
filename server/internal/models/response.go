@@ -49,6 +49,8 @@ const (
 	MsgTriggerFired = "trigger_fired"
 	// server→client: un'aura si è accesa o spenta (broadcast)
 	MsgAuraChanged = "aura_changed"
+	// server→client: mosse speciali e seconda mossa di Fretta del destinatario (Step 6)
+	MsgMoveOptions = "move_options"
 	// server→client: una runa è scattata (broadcast)
 	MsgRuneTriggered = "rune_triggered"
 

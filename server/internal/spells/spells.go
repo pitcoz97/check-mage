@@ -109,6 +109,10 @@ const (
 
 	EffectAddTrigger = "add_trigger" // registra un trigger sul lanciatore
 	EffectAddAura    = "add_aura"    // registra un'aura condizionale sul lanciatore
+
+	EffectAddEffect      = "add_effect"      // stato di movimento su un pezzo (phasing)
+	EffectBorrowMovement = "borrow_movement" // il pedone muove anche come un pezzo del cimitero
+	EffectExtraMove      = "extra_move"      // seconda mossa vincolata nella fase Move
 )
 
 // HiddenFromOpponent indica se il cast va nascosto all'avversario (M42): chi lo
