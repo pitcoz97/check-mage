@@ -332,3 +332,23 @@ I riferimenti sono al server di quel branch.
 | S12 | Un `game_state` senza `triggers`/`auras` (server precedente allo Step 5) vale come liste vuote; `player_effects_changed` sostituisce entrambe. | Come S6 e S7. | `adapter.ts` §2 |
 | S13 | Il nome di un trigger o di un'aura nella riga e negli avvisi è quello della magia che l'ha registrato (`source_spell_id`, i18n per id); l'icona viene da `do`/`grant` (registry), mai da uno `switch` sulla magia. Un'aura notificata da `aura_changed` (che non porta la magia) prende il nome dal `grant`. | `trigger_fired` porta `source_spell_id`, `aura_changed` no. | `effects.registry.tsx`, `useNotice.ts` |
 | S14 | Su Android, quando nella propria riga ci sono trigger o aure, il numero del mana ("10/10") lascia il posto alle pillole: restano i rombi e l'etichetta accessibile. A 390 px le due cose non stanno insieme. | Spazio. | `PlayerRow.tsx` |
+
+### Step 6 (mosse speciali): decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| M53 | Passo sfasato prende solo un proprio alfiere (sul cavallo non farebbe nulla). | tu |
+| M54 | Phasing: in questa Move l'alfiere scivola in diagonale attraverso i pezzi fino a una casa vuota, senza cattura; i muri lo fermano. Durata 0 (fine del turno di chi lancia). | brief + derivata |
+| M55 | Eco del caduto: il pedone ha in più le mosse e le catture del cavallo o dell'alfiere scelto fra i tipi del proprio cimitero (`choice`, dedotta se ce n'è uno solo); senza minori nel cimitero `no_effect {reason: empty_graveyard}`. | tu |
+| M56 | Con le mosse prese in prestito il pedone non arriva in 1ª o 8ª traversa. | tu |
+| M57 | Fretta: dopo la prima mossa, una seconda mossa facoltativa di pedone senza cattura (`pass_phase` la salta); niente seconda mossa se la prima dà scacco. Una seconda Fretta nello stesso turno: `no_effect {reason: already_granted}`. | tu |
+| M58 | Passo di lato (Stendardo attivo): una casa a destra o a sinistra, vuota, senza cattura. | brief |
+| M59 | Ogni mossa speciale è una mossa: gelo, muri, santuari, rune, ripetizione, cimitero; FEN aggiornata senza Stockfish; rifiutata (`illegal_move`) se lascia il proprio re sotto scacco. | brief + derivata |
+| M60 | Il server manda al giocatore di turno nella fase Move le sue mosse speciali già valide (`special_moves`, in `game_state` e nel nuovo `move_options`) e `extra_move` durante la seconda mossa di Fretta; matto e stallo le contano. | derivata |
+| M61 | Ricetta a 40 su 32 magie: 5 leggendarie a 1, 8 comuni a 2 (Brina, Frantumare, Patto di sangue, Scudo, Leva militare, Muro di ghiaccio, Runa di stasi, Santuario), le altre 19 a 1. | derivata, da rivedere in bilanciamento |
+
+### Step 6: assunzioni del client
+| # | Assunzione | Motivo | Dove |
+|---|---|---|---|
+| S15 | Un `game_state` senza `special_moves`/`extra_move` (server precedente allo Step 6) vale come nessuna mossa speciale; `move_options` sostituisce entrambe. | Come S6, S7, S12. | `adapter.ts` §2 |
+| S16 | I bersagli di un pezzo sono quelli di chess.js più le `special_moves` che partono da quella casa; con `extra_move` solo le `special_moves`. Nessuna mossa speciale è calcolata nel client. | Il server è autoritativo (M60). | `selection.ts` |
+| S17 | Uno stato con `remaining_turns: 0` vale fino alla fine del turno di chi l'ha lanciato: nessun numero sul badge, etichetta "fino a fine turno". | M9; oggi solo phasing e movimento preso in prestito. | `effects.registry.tsx`, `BoardSquare.tsx` |

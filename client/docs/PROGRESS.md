@@ -3,13 +3,18 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Catalogo magie, Step 5 di 6 (`docs/BRIEFING-MAGIE.md`), in attesa di review e dei test Go sulla VM.** Branch
-`feat/spell-catalog` (gli Step 1–4 sono in `main`, PR #1). Decisioni e verifiche del brief in `docs/ASSUMPTIONS.md`
-§7 (M1–M52, S1–S14). Il redesign (R1–R6) è unito in `main`.
+**Catalogo magie, Step 6 di 6 (`docs/BRIEFING-MAGIE.md`), in attesa di review e dei test Go sulla VM: il catalogo è
+completo (32 magie).** Branch `feat/spell-catalog` (gli Step 1–4 sono in `main`, PR #1). Decisioni e verifiche del
+brief in `docs/ASSUMPTIONS.md` §7 (M1–M61, S1–S17). Il redesign (R1–R6) è unito in `main`.
 Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
 eseguibile).
 
 ## Completo
+- **Catalogo magie, Step 6:** mosse speciali. Server: `effects.SpecialMoves` (phasing dell'alfiere, movimento preso in
+  prestito del pedone, passo di lato dello Stendardo) validate fuori da Stockfish e contate per matto e stallo; Fretta
+  con la seconda mossa facoltativa; `special_moves`/`extra_move` in `game_state` e nel nuovo `move_options`. Passo
+  sfasato, Eco del caduto, Fretta: catalogo a 32, Stendardo nel mazzo. Mock allineato (il bot salta la seconda mossa).
+  Client: le mosse speciali del server fra gli evidenziati, "Salta la seconda mossa", stati sfasato ed eco sul pezzo.
 - **Catalogo magie, Step 5:** trigger e aure. Server: `PlayerState.Triggers`/`Auras`, bus di eventi (`game/events.go`:
   pezzo perso, tentativo di cattura su uno scudato, aure dopo ogni cambio della scacchiera, durate), Anima inquieta,
   Riflesso (nascosto, una volta), Stendardo (aura; passo di lato allo Step 6, fuori dal mazzo); `trigger_fired`,
@@ -55,9 +60,8 @@ eseguibile).
 
 ## Prossima azione concreta
 Tu: `go build ./... && go vet ./... && go test ./...` sulla VM (branch `feat/spell-catalog`; i test che passano da una
-mossa usano Stockfish) e review dello Step 5, con la ricetta M52 da rivedere in bilanciamento.
-Dopo: piano dello Step 6 (mosse speciali: `add_effect` phasing, `borrow_movement`, `extra_move`, passo di lato dello
-Stendardo, generazione delle mosse fuori da Stockfish).
+mossa usano Stockfish) e review dello Step 6, con la ricetta M61 da rivedere in bilanciamento. Poi il merge in `main`:
+la roadmap del brief è finita.
 
 ## Decisioni prese
 - Redesign: `REDESIGN_PLAN.md` §10 (D1–D22). Il design vince su colori, tipografia, spaziature e layout; testi e
