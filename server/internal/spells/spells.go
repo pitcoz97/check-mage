@@ -66,6 +66,7 @@ type Rarity string
 
 const (
 	Common    Rarity = "common"    // massimo 2 copie
+	Rare      Rarity = "rare"      // massimo 2 copie
 	Legendary Rarity = "legendary" // massimo 1 copia
 )
 
