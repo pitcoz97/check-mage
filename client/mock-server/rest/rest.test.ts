@@ -153,6 +153,70 @@ describe('rotte (api/router.go)', () => {
     expect((await call(server, 'GET', '/me/collection', { token: tokens.access_token })).body.data).toEqual(view);
   });
 
+  it('mazzi: mazzo iniziale, bozza, limiti, attivazione, eliminazione (handlers/decks.go)', async () => {
+    const server = await start({ rateLimits: false });
+    expect((await call(server, 'GET', '/me/decks')).status).toBe(401);
+    const { access_token: token } = await login(server, 'deck_user');
+    type Deck = { id: number; name: string; size: number; valid: boolean; active: boolean; cards: { spell_id: string; copies: number }[] };
+    type List = { decks: Deck[]; max_decks: number; deck_size: number };
+    const list = async () => (await call(server, 'GET', '/me/decks', { token })).body.data as List;
+
+    const first = await list();
+    expect(first.max_decks).toBe(10);
+    expect(first.deck_size).toBe(40);
+    expect(first.decks).toHaveLength(1);
+    const starter = first.decks[0] as Deck;
+    expect(starter).toMatchObject({ name: 'Mazzo iniziale', size: 40, valid: true, active: true });
+    expect((await list()).decks).toHaveLength(1);
+
+    const created = await call(server, 'POST', '/me/decks', { token, body: { name: ' Gelo ', cards: [{ spell_id: 'frost', copies: 2 }] } });
+    expect(created.status).toBe(201);
+    const draft = created.body.data as Deck;
+    expect(draft).toMatchObject({ name: 'Gelo', size: 2, valid: false, active: false });
+
+    const errors: [unknown, string][] = [
+      [{ name: 'X', cards: [{ spell_id: 'haste', copies: 1 }] }, 'Copie non possedute'],
+      [{ name: 'X', cards: [{ spell_id: 'frost', copies: 3 }] }, 'Troppe copie di una carta'],
+      [{ name: 'X', cards: [{ spell_id: 'nope', copies: 1 }] }, 'Carta non presente nel catalogo'],
+      [{ name: ' ', cards: [] }, 'Nome del mazzo non valido'],
+    ];
+    for (const [body, error] of errors) {
+      expect(await call(server, 'PUT', `/me/decks/${draft.id}`, { token, body })).toEqual({ status: 400, body: { success: false, error } });
+    }
+    expect((await call(server, 'POST', `/me/decks/${draft.id}/activate`, { token })).body.error).toBe('Il mazzo non è valido');
+
+    const full = await call(server, 'PUT', `/me/decks/${draft.id}`, { token, body: { name: 'Gelo', cards: starter.cards } });
+    expect(full.body.data).toMatchObject({ size: 40, valid: true });
+    const activated = (await call(server, 'POST', `/me/decks/${draft.id}/activate`, { token })).body.data as List;
+    expect(activated.decks.filter((d) => d.active).map((d) => d.id)).toEqual([draft.id]);
+    expect((await call(server, 'PUT', `/me/decks/${draft.id}`, { token, body: { name: 'Gelo', cards: [] } })).body.error).toBe('Il mazzo non è valido');
+
+    const afterDelete = (await call(server, 'DELETE', `/me/decks/${draft.id}`, { token })).body.data as List;
+    expect(afterDelete.decks.map((d) => [d.id, d.active])).toEqual([[starter.id, true]]);
+    expect((await call(server, 'DELETE', `/me/decks/${starter.id}`, { token })).body.error).toBe("Non puoi eliminare l'ultimo mazzo");
+    expect((await call(server, 'DELETE', '/me/decks/999', { token })).status).toBe(404);
+
+    for (let i = 1; i < 10; i++) expect((await call(server, 'POST', '/me/decks', { token, body: { name: 'M', cards: [] } })).status).toBe(201);
+    expect((await call(server, 'POST', '/me/decks', { token, body: { name: 'M', cards: [] } })).body.error).toBe('Hai già il numero massimo di mazzi');
+  });
+
+  it('mazzo attivo non valido: errore deck_invalid e chiusura 4002, niente coda', async () => {
+    const server = await start({ scenario: 'pvp' });
+    const { access_token: token } = await login(server, 'deck_bad');
+    const me = (await call(server, 'GET', '/me', { token })).body.data as { id: number };
+    server.decks.forceActiveCards(me.id, new Map([['frost', 2]]));
+    const outcome = await new Promise<{ code: number; errors: string[] }>((resolve) => {
+      const ws = new WebSocket(`${server.wsUrl}?token=${token}`);
+      const errors: string[] = [];
+      ws.on('message', (data) => {
+        const frame = JSON.parse(data.toString()) as { type: string; payload: { code?: string } };
+        if (frame.type === 'error') errors.push(frame.payload.code ?? '');
+      });
+      ws.on('close', (code) => resolve({ code, errors }));
+    });
+    expect(outcome).toEqual({ code: 4002, errors: ['deck_invalid'] });
+  });
+
   it('GET /auth/password-policy', async () => {
     const server = await start();
     expect((await call(server, 'GET', '/auth/password-policy')).body.data).toEqual({

@@ -9,6 +9,16 @@ import { PERMANENT, Tracker } from './tracker';
 
 /** Porting dei casi di `match/match_test.go`, `effects/effects_test.go`, `effects/tracker_test.go`. */
 
+describe('mazzi dei giocatori (match.NewWithDecks)', () => {
+  it('ognuno gioca col suo mazzo; senza, la ricetta condivisa', () => {
+    const white = Array.from({ length: 40 }, () => 'frost');
+    const state = new MatchState(createRng(3), {}, { white });
+    expect([...state.white.hand, ...state.white.deck].every((id) => id === 'frost')).toBe(true);
+    expect(state.white.hand.length + state.white.deck.length).toBe(40);
+    expect(state.black.deck.some((id) => id !== 'frost')).toBe(true);
+  });
+});
+
 describe('MatchState (match/match.go)', () => {
   it('New: bianco, turno 1, draw, mani da 4, mazzi da 36, mana 1', () => {
     const m = new MatchState(createRng(1));

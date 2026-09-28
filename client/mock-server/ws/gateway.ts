@@ -4,7 +4,7 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
 import { isScenarioName, type MockConfig } from '../config';
-import { CLOSE_REPLACED, Room, type GameClient, type GameResult } from '../game/room';
+import { CLOSE_DECK_INVALID, CLOSE_REPLACED, Room, type GameClient, type GameResult } from '../game/room';
 import { createRateLimiter } from '../rest/rateLimit';
 import type { RequestGate } from '../rest/app';
 import { Bot } from '../scenarios/bot';
@@ -12,6 +12,7 @@ import { hostileSender } from '../scenarios/hostile';
 import { setupScenario } from '../scenarios/index';
 import type { ScenarioName } from '../scenarios/names';
 import { HTTP, WS, type GameError } from '../serverTexts';
+import type { DeckStore } from '../store/decks';
 import type { UserStore } from '../store/users';
 import { createRng, type Logger } from '../util';
 import type { WireServerMessage } from '../wire';
@@ -26,6 +27,7 @@ export interface GatewayDeps {
   users: UserStore;
   gate: RequestGate;
   log: Logger;
+  decks: DeckStore;
 }
 
 /** Il `Client` di Go con la sua connessione. */
@@ -34,6 +36,9 @@ interface Connection extends GameClient {
   ws: WebSocket;
   /** Chiuso dalla simulazione di riavvio: il processo "muore", quindi nessun `Leave`. */
   killed: boolean;
+  /** Mazzo attivo letto all'apertura (`handlers/ws.go`, D6), e se è valido. */
+  deck: readonly string[];
+  deckValid: boolean;
 }
 
 const BOT = { username: 'mock_bot', email: 'bot@mock.local' };
@@ -53,7 +58,7 @@ function rejectUpgrade(socket: Duplex, status: number, reason: string, body: str
 
 const envelopeError = (message: string) => JSON.stringify({ success: false, error: message });
 
-export function createGateway({ config, users, gate, log }: GatewayDeps) {
+export function createGateway({ config, users, gate, log, decks }: GatewayDeps) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
   const rooms = new Map<string, Room>();
   const userRooms = new Map<number, string>();
@@ -82,7 +87,7 @@ export function createGateway({ config, users, gate, log }: GatewayDeps) {
     }
   }
 
-  function newRoom(white: GameClient, black: GameClient, scenario: ScenarioName): Room {
+  function newRoom(white: GameClient, black: GameClient, scenario: ScenarioName, deckOf: (c: GameClient) => readonly string[]): Room {
     roomCounter++;
     const setup = setupScenario(scenario, config);
     const room = new Room({
@@ -94,6 +99,7 @@ export function createGateway({ config, users, gate, log }: GatewayDeps) {
       incrementMs: config.incrementMs,
       reconnectTimeoutMs: config.reconnectTimeoutMs,
       ...(setup.overrides === undefined ? {} : { overrides: setup.overrides }),
+      decks: { white: deckOf(white), black: deckOf(black) },
       onEnded,
     });
     rooms.set(room.id, room);
@@ -135,6 +141,13 @@ export function createGateway({ config, users, gate, log }: GatewayDeps) {
       userRooms.delete(client.userId);
     }
 
+    // Mazzo attivo non valido: niente coda, errore e chiusura (`manager.go`, D6).
+    if (!client.deckValid) {
+      client.send(errorMessage(WS.deckInvalid));
+      client.close?.(CLOSE_DECK_INVALID, 'deck_invalid');
+      return false;
+    }
+
     if (scenario !== 'pvp') {
       startWithBot(client, scenario);
       return false;
@@ -158,7 +171,7 @@ export function createGateway({ config, users, gate, log }: GatewayDeps) {
     }
     const opponent = waiting;
     waiting = null;
-    const room = newRoom(opponent, client, 'pvp');
+    const room = newRoom(opponent, client, 'pvp', (c) => (c === opponent ? opponent.deck : client.deck));
     opponent.room = room;
     client.room = room;
     log.info(`${room.id} creata: ${opponent.username} (bianco) vs ${client.username} (nero)`);
@@ -170,7 +183,8 @@ export function createGateway({ config, users, gate, log }: GatewayDeps) {
     const setup = setupScenario(scenario, config);
     const bot = new Bot(botUserId(), BOT.username, 'black', setup.bot ?? {}, config.botDelayMs, { restart });
     bots.add(bot);
-    const room = newRoom(client, bot.gameClient, scenario);
+    // Il bot gioca col suo mazzo iniziale.
+    const room = newRoom(client, bot.gameClient, scenario, (c) => (c === client ? client.deck : decks.activeDeck(bot.gameClient.userId).cards));
     bot.attach(room);
     client.room = room;
     log.info(`${room.id} scenario "${scenario}": ${client.username} vs bot`);
@@ -223,12 +237,15 @@ export function createGateway({ config, users, gate, log }: GatewayDeps) {
     };
     const plainSend = (message: WireServerMessage) => sendRaw(JSON.stringify(message));
     const setup = setupScenario(scenario, config);
+    const active = decks.activeDeck(userId);
     const client: Connection = {
       userId,
       username,
       room: null,
       ws,
       killed: false,
+      deck: active.cards,
+      deckValid: active.valid,
       send: setup.hostile === true ? hostileSender(sendRaw) : plainSend,
       close(code, reason) {
         setTimeout(() => {

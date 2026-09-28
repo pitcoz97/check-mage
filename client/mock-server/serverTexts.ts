@@ -12,6 +12,7 @@ export const GAME_ERROR_CODES = [
   'rate_limited',
   'game_over',
   'replaced_by_new_connection',
+  'deck_invalid',
   'not_your_turn',
   'wrong_phase',
   'illegal_move',
@@ -54,6 +55,7 @@ export const WS = {
   // game/manager.go, game/room.go: connessione sostituita
   replacedInQueue: e('replaced_by_new_connection', "Sei entrato in coda da un'altra connessione"), // manager.go:56
   replacedInGame: e('replaced_by_new_connection', "La partita è stata ripresa da un'altra connessione"), // room.go:1117
+  deckInvalid: e('deck_invalid', 'Il mazzo attivo non è valido'), // manager.go (D6)
   // game/room.go
   gameOver: e('game_over', 'La partita è terminata'), // :361
   malformedMove: e('invalid_payload', 'Formato mossa non valido'), // :373
@@ -177,6 +179,15 @@ export const HTTP = {
   userNotFound: t('Utente non trovato', 'user_not_found'), // handlers/auth.go:236; handlers/stats.go:134
   profileError: t('Errore recupero profilo', 'internal_error'), // handlers/auth.go:288
   collectionError: t('Errore recupero collezione', 'internal_error'), // handlers/collection.go
+  // handlers/decks.go
+  deckLimit: t('Hai già il numero massimo di mazzi', 'deck_limit'),
+  deckName: t('Nome del mazzo non valido', 'deck_name_invalid'),
+  deckUnknown: t('Carta non presente nel catalogo', 'deck_unknown_spell'),
+  deckCopies: t('Troppe copie di una carta', 'deck_too_many_copies'),
+  deckNotOwned: t('Copie non possedute', 'deck_not_owned'),
+  deckNotValid: t('Il mazzo non è valido', 'deck_not_valid'),
+  deckLast: t("Non puoi eliminare l'ultimo mazzo", 'deck_last'),
+  deckNotFound: t('Mazzo non trovato', 'deck_not_found'),
   tokenMissing: t('Token mancante', 'token_missing'), // middleware/auth.go:36
   tokenInvalid: t('Token non valido o scaduto', 'token_invalid_or_expired'), // middleware/auth.go:42
   ticketInvalid: t('Ticket non valido o scaduto', 'ticket_invalid'), // middleware/wsticket.go:88
@@ -195,6 +206,7 @@ export function wsErrorSamples(): GameError[] {
     WS.malformedEnvelope,
     WS.replacedInQueue,
     WS.replacedInGame,
+    WS.deckInvalid,
     WS.gameOver,
     WS.malformedMove,
     WS.malformedCast,

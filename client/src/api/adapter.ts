@@ -1064,7 +1064,15 @@ function matchErrorText<C extends string>(rules: readonly ErrorTextRule<C>[], me
 
 /** Testi esatti degli errori REST: la REST non ha codici (P1-3 applicata solo al WebSocket, ASSUMPTIONS C4). */
 export const HTTP_ERROR_TEXTS: readonly ErrorTextRule<HttpErrorCode>[] = [
-  { pattern: /^Dati non validi$/, code: 'invalid_request' }, // handlers/auth.go:27,98,197
+  { pattern: /^Dati non validi$/, code: 'invalid_request' }, // handlers/auth.go:27,98,197; handlers/decks.go
+  { pattern: /^Hai già il numero massimo di mazzi$/, code: 'deck_limit' }, // handlers/decks.go
+  { pattern: /^Nome del mazzo non valido$/, code: 'deck_name_invalid' },
+  { pattern: /^Carta non presente nel catalogo$/, code: 'deck_unknown_spell' },
+  { pattern: /^Troppe copie di una carta$/, code: 'deck_too_many_copies' },
+  { pattern: /^Copie non possedute$/, code: 'deck_not_owned' },
+  { pattern: /^Il mazzo non è valido$/, code: 'deck_not_valid' },
+  { pattern: /^Non puoi eliminare l'ultimo mazzo$/, code: 'deck_last' },
+  { pattern: /^Mazzo non trovato$/, code: 'deck_not_found' },
   { pattern: /^Username, email e password sono obbligatori$/, code: 'missing_fields' }, // handlers/auth.go:37
   { pattern: /^username deve avere almeno \d+ caratteri$/, code: 'username_too_short' }, // validation/validation.go:64
   { pattern: /^username non può superare \d+ caratteri$/, code: 'username_too_long' }, // validation/validation.go:67

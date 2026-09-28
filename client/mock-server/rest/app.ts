@@ -4,7 +4,8 @@ import type { AccessClaims, JwtService } from '../auth/jwt';
 import type { TicketStore } from '../auth/tickets';
 import type { MockConfig } from '../config';
 import { HTTP, type ServerText } from '../serverTexts';
-import { createCollectionStore, type CollectionSpell } from '../store/collection';
+import type { CollectionSpell, CollectionStore } from '../store/collection';
+import type { DeckResult, DeckStore } from '../store/decks';
 import { PASSWORD_POLICY, validateRegister, type User, type UserStore } from '../store/users';
 import { clientKey, createRateLimiter } from './rateLimit';
 
@@ -20,6 +21,8 @@ export interface RestDeps {
   readonly tickets: TicketStore;
   /** Catalogo grezzo di `spells.json`, servito da `GET /spells`. */
   readonly catalog: readonly CollectionSpell[];
+  readonly collections: CollectionStore;
+  readonly decks: DeckStore;
 }
 
 type AuthedRequest = Request & { claims?: AccessClaims };
@@ -97,6 +100,9 @@ const ROUTES: readonly { readonly pattern: RegExp; readonly methods: readonly st
   { pattern: /^\/spells$/, methods: ['GET'] },
   { pattern: /^\/me$/, methods: ['GET'] },
   { pattern: /^\/me\/collection$/, methods: ['GET'] },
+  { pattern: /^\/me\/decks$/, methods: ['GET', 'POST'] },
+  { pattern: /^\/me\/decks\/[^/]+$/, methods: ['PUT', 'DELETE'] },
+  { pattern: /^\/me\/decks\/[^/]+\/activate$/, methods: ['POST'] },
   { pattern: /^\/ws(\/ticket)?$/, methods: ['GET'] },
 ];
 
@@ -107,7 +113,7 @@ function isAllowedOrigin(origin: string): boolean {
 
 export function createRestApp(deps: RestDeps, gate: RequestGate) {
   const { users, jwt, tickets } = deps;
-  const collections = createCollectionStore(deps.catalog);
+  const { collections, decks } = deps;
   const app = express();
   app.disable('x-powered-by');
   app.disable('etag');
@@ -243,6 +249,36 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
   app.get('/me/collection', requireAuth, (req: AuthedRequest, res) => {
     if (req.claims === undefined) return fail(res, 500, HTTP.collectionError);
     ok(res, collections.load(req.claims.user_id));
+  });
+
+  // handlers/decks.go (D1–D6)
+  const reply = <T>(res: Response, result: DeckResult<T>) => (result.ok ? ok(res, result.data, result.status) : fail(res, result.status, result.error));
+  const deckId = (req: Request) => (/^-?\d+$/.test(String(req.params['id'])) ? Number(req.params['id']) : Number.NaN);
+  app.get('/me/decks', requireAuth, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    reply(res, decks.list(req.claims.user_id));
+  });
+  app.post('/me/decks', requireAuth, readJson, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    reply(res, decks.create(req.claims.user_id, decodeBody(req)));
+  });
+  app.put('/me/decks/:id', requireAuth, readJson, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    const id = deckId(req);
+    if (Number.isNaN(id)) return fail(res, 404, HTTP.deckNotFound);
+    reply(res, decks.update(req.claims.user_id, id, decodeBody(req)));
+  });
+  app.delete('/me/decks/:id', requireAuth, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    const id = deckId(req);
+    if (Number.isNaN(id)) return fail(res, 404, HTTP.deckNotFound);
+    reply(res, decks.remove(req.claims.user_id, id));
+  });
+  app.post('/me/decks/:id/activate', requireAuth, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    const id = deckId(req);
+    if (Number.isNaN(id)) return fail(res, 404, HTTP.deckNotFound);
+    reply(res, decks.activate(req.claims.user_id, id));
   });
 
   // handlers/stats.go:54-108: `[]` se vuota (B8)

@@ -260,6 +260,7 @@ export const PROTOCOL_ERROR_CODES = [
   'rate_limited',
   'game_over',
   'replaced_by_new_connection',
+  'deck_invalid',
   'not_your_turn',
   'wrong_phase',
   'illegal_move',

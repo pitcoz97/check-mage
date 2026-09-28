@@ -128,6 +128,15 @@ export const HTTP_ERROR_CODES = [
   'not_found',
   'method_not_allowed',
   'service_unavailable',
+  // Mazzi (handlers/decks.go)
+  'deck_limit',
+  'deck_name_invalid',
+  'deck_unknown_spell',
+  'deck_too_many_copies',
+  'deck_not_owned',
+  'deck_not_valid',
+  'deck_last',
+  'deck_not_found',
   // Codici generati dal client, non dal server:
   /** Server irraggiungibile (fetch fallita, timeout, offline). */
   'network_error',

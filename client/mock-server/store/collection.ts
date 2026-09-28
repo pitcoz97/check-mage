@@ -55,15 +55,19 @@ export function collectionView(catalog: readonly CollectionSpell[], owned: Reado
 
 export function createCollectionStore(catalog: readonly CollectionSpell[]) {
   const byUser = new Map<number, Map<string, number>>();
+  /** `LoadCollection`: assegna il set iniziale se l'utente non ha ancora righe, poi legge. */
+  const owned = (userId: number): ReadonlyMap<string, number> => {
+    let current = byUser.get(userId);
+    if (current === undefined) {
+      current = starterSet(catalog);
+      byUser.set(userId, current);
+    }
+    return current;
+  };
   return {
-    /** `LoadCollection`: assegna il set iniziale se l'utente non ha ancora righe, poi legge. */
+    owned,
     load(userId: number): CollectionView {
-      let owned = byUser.get(userId);
-      if (owned === undefined) {
-        owned = starterSet(catalog);
-        byUser.set(userId, owned);
-      }
-      return collectionView(catalog, owned);
+      return collectionView(catalog, owned(userId));
     },
   };
 }
