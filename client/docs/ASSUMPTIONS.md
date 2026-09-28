@@ -367,6 +367,10 @@ I riferimenti sono al server di quel branch.
 | C7 | Il contatore è copie possedute su copie possibili (Σ `max_copies`); i rombi di una carta sono tanti quanti il suo massimo, non 3 fissi. | derivata |
 | C8 | Mazzi e "Aggiungi a un mazzo" della tavola non ci sono (i mazzi personali non esistono); al loro posto le fasi in cui la magia si lancia. Per una carta non posseduta solo "Non hai ancora questa carta": il "come si ottiene" arriverà con le ricompense. Il mazzo di partita resta quello condiviso. | tu + derivata |
 
+| C9 | Card Collezione della home desktop: numero grande e barra sono `owned` / `total` di `GET /me/collection`, come il contatore della pagina. | derivata |
+| C10 | Le tre righe della card sono le copie possedute per rarità, prese dal catalogo (le voci del server non hanno la rarità): Comuni, Rare, Leggendarie («Mitiche» nella tavola). | derivata |
+| C11 | Titolo e «Sfoglia le carte» portano a `/collection`; in caricamento lo spinner, in errore un testo breve senza «Riprova», come la card Classifica. Su Android la card non c'è, come nella tavola: la riga resta montata e nascosta, quindi la richiesta parte comunque. | tu + derivata |
+
 ### Assunzioni del client
 | # | Assunzione | Motivo | Dove |
 |---|---|---|---|

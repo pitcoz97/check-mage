@@ -4,7 +4,7 @@
 
 ## Step corrente
 **Collezione, in attesa di review e dei test Go sulla VM.** Branch `feat/collection` da `main` (il catalogo magie,
-Step 1–6, è in `main`). Decisioni in `docs/ASSUMPTIONS.md` §8 (C1–C8, S18–S21). Il redesign (R1–R6) è unito in
+Step 1–6, è in `main`). Decisioni in `docs/ASSUMPTIONS.md` §8 (C1–C11, S18–S21). Il redesign (R1–R6) è unito in
 `main`.
 Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
 eseguibile).
@@ -14,7 +14,8 @@ eseguibile).
   iniziale alla prima lettura (comuni 2, rare 1, leggendarie 0: 45 / 59), `GET /me/collection`. Mock allineato.
   Client: pagina `/collection` (voce di navigazione attiva) con contatore, ricerca, filtri di rarità, costo e possesso,
   ordinamento, rombi delle copie, carte bloccate, pannello di dettaglio su desktop e foglio su Android;
-  `/dev/home/collection`. 599 test, e2e 11/11.
+  `/dev/home/collection`. Nella home desktop la card Collezione della tavola con i dati veri (copie possedute, per
+  rarità, link alla pagina) al posto di «Presto». 601 test, e2e 11/11.
 - **Catalogo magie, Step 6:** mosse speciali. Server: `effects.SpecialMoves` (phasing dell'alfiere, movimento preso in
   prestito del pedone, passo di lato dello Stendardo) validate fuori da Stockfish e contate per matto e stallo; Fretta
   con la seconda mossa facoltativa; `special_moves`/`extra_move` in `game_state` e nel nuovo `move_options`. Passo
