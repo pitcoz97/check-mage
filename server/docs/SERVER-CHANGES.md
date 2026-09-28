@@ -285,3 +285,12 @@ Verifica: `go build ./... && go vet ./... && go test ./...`; col DB vero, una pr
 | 4 | In partita ognuno gioca col proprio mazzo attivo; se non è valido: `error deck_invalid` e chiusura `4002`, niente coda | Messaggio e link ai Mazzi |
 
 Verifica: `go build ./... && go vet ./... && go test ./...`; col DB vero, una prima `GET /me/decks` crea la tabella e il mazzo iniziale.
+
+## 17. Tutte le carte sbloccate (temporaneo)
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | `spells.UnlockAllCards` (acceso): `GET /me/collection` dà ogni magia a `max_copies` (59 / 59) e le regole dei mazzi (validazione, mazzo iniziale, mazzo attivo in partita) usano la collezione piena; le righe `user_cards` non cambiano | Nessuna: il client legge ciò che manda il server |
+| 2 | I mazzi iniziali creati d'ora in poi sono la ricetta condivisa intera (leggendarie comprese) | — |
+
+Verifica: `go build ./... && go vet ./... && go test ./...`. Per tornare alle copie vere: `UnlockAllCards = false` in `internal/spells/collection.go`.

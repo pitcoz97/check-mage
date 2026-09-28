@@ -3,13 +3,16 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Mazzi personali, in attesa di review e dei test Go sulla VM.** Branch `feat/decks` da `main` (catalogo magie e
-collezione sono in `main`). Decisioni in `docs/ASSUMPTIONS.md` §9 (D1–D12, S22–S26). Il redesign (R1–R6) è unito
+**Tutte le carte sbloccate (temporaneo), in attesa di review e dei test Go sulla VM.** Branch `feat/unlock-all` da
+`main` (catalogo, collezione e mazzi sono in `main`). Decisione C12 in `docs/ASSUMPTIONS.md` §8; mazzi in §9 (D1–D12,
+S22–S26). Il redesign (R1–R6) è unito
 in `main`.
 Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
 eseguibile).
 
 ## Completo
+- **Tutte le carte sbloccate (temporaneo):** interruttore `spells.UnlockAllCards` sul server e `unlockAllCards` nel mock,
+  accesi: collezione 59/59 e mazzi con qualsiasi carta; il set iniziale resta nel DB (C12).
 - **Mazzi personali:** tavole "Mazzi · desktop/Android". Server: `user_decks`, `/me/decks` (lista, crea, modifica,
   elimina, attiva), regole in `spells/decks.go` (40 carte, limiti di rarità e di possesso, bozze, massimo 10), mazzo
   iniziale alla prima lettura, in partita il mazzo attivo di ciascuno (`deck_invalid` + chiusura 4002). Mock
@@ -72,8 +75,8 @@ eseguibile).
   iniziale 554 kB (172 kB gzip), partita 82 kB a richiesta.
 
 ## Prossima azione concreta
-Tu: `go build ./... && go vet ./... && go test ./...` sulla VM (branch `feat/decks`), poi col server vero: apri i Mazzi
-(crea `user_decks` e il mazzo iniziale) e gioca una partita col mazzo attivo. Review delle parti non disegnate (D11).
+Tu: `go build ./... && go vet ./... && go test ./...` sulla VM (branch `feat/unlock-all`), poi col server vero: la
+Collezione mostra 59/59 e i Mazzi accettano ogni carta.
 Dopo: come si ottengono le carte (ricompense, buste).
 
 ## Decisioni prese

@@ -369,6 +369,7 @@ I riferimenti sono al server di quel branch.
 
 | C9 | Card Collezione della home desktop: numero grande e barra sono `owned` / `total` di `GET /me/collection`, come il contatore della pagina. | derivata |
 | C10 | Le tre righe della card sono le copie possedute per rarità, prese dal catalogo (le voci del server non hanno la rarità): Comuni, Rare, Leggendarie («Mitiche» nella tavola). | derivata |
+| C12 | Per ora tutte le carte sono sbloccate: il server (`spells.UnlockAllCards`, acceso) e il mock (`unlockAllCards`) danno a ogni utente ogni carta al massimo di copie, nella Collezione e nei mazzi. Il set iniziale resta salvato e torna spegnendo l'interruttore. Il client non cambia; l'anteprima di sviluppo usa la collezione piena. | tu |
 | C11 | Titolo e «Sfoglia le carte» portano a `/collection`; in caricamento lo spinner, in errore un testo breve senza «Riprova», come la card Classifica. Su Android la card non c'è, come nella tavola: la riga resta montata e nascosta, quindi la richiesta parte comunque. | tu + derivata |
 
 ### Assunzioni del client

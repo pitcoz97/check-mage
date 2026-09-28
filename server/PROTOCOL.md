@@ -450,6 +450,11 @@ riceve il set iniziale: le comuni al massimo, le rare a 1 copia, le leggendarie
 a 0. Una magia aggiunta al catalogo dopo vale 0 copie. Per ora le carte non si
 ottengono in altri modi.
 
+**Per ora tutte le carte sono sbloccate** (`spells.UnlockAllCards`, acceso di
+default): la risposta mostra ogni magia a `max_copies` e i mazzi usano quella
+collezione piena. Le copie salvate (il set iniziale) restano nel DB e tornano
+valide spegnendo l'interruttore.
+
 ## Mazzi
 
 Rotte autenticate (`Authorization: Bearer <access_token>`):
