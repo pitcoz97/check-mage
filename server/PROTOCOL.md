@@ -385,42 +385,42 @@ magie del brief (Step 1–6). Disponibile via `GET /spells`:
 (ammessi; assente = tutti tranne il re), `require_effect` (stato richiesto, es.
 `freeze`), `empty_square`, `max_distance` (Chebyshev dal bersaglio precedente),
 `own_ranks` e `min_rank` (traverse relative a chi lancia, 1 = la sua prima).
-`targets` vuoto = nessun bersaglio. `rarity` ∈ `common`/`legendary`; `limits`
+`targets` vuoto = nessun bersaglio. `rarity` ∈ `common`/`rare`/`legendary`; `limits`
 (opzionale) = `{ "per_turn": n }`.
 
 | ID | Nome | Costo | Bersagli | Effetto |
 |----|------|-------|----------|---------|
 | `frost` | Brina | 1 | pedone nemico | `freeze_piece` 1 |
 | `ice_chain` | Catena di ghiaccio | 3 | cavallo o alfiere nemico | `freeze_piece` 1 |
-| `shatter` | Frantumare | 4 | pezzo nemico congelato, non regina | `destroy_piece` |
+| `shatter` | Frantumare (rara) | 4 | pezzo nemico congelato, non regina | `destroy_piece` |
 | `blood_pact` | Patto di sangue | 0 | proprio pedone | `destroy_piece` + `gain_mana` 2 (cap 10), 1 per turno |
-| `blink` | Blink | 4 | proprio pezzo minore + casa vuota entro 2 | `move_piece` |
+| `blink` | Blink (rara) | 4 | proprio pezzo minore + casa vuota entro 2 | `move_piece` |
 | `shield` | Scudo | 2 | proprio pezzo, non regina né re | `shield_piece` 1 |
-| `royal_shield` | Scudo reale | 4 | propria regina | `shield_piece` 1 |
+| `royal_shield` | Scudo reale (rara) | 4 | propria regina | `shield_piece` 1 |
 | `forced_march` | Marcia forzata | 1 | proprio pedone | `move_piece` avanti di 1, senza cattura né promozione |
 | `conscription` | Leva militare | 4 | casa vuota della propria 2ª traversa | `summon_pawn` (massimo 8 pedoni) |
 | `eternal_winter` | Inverno eterno (leggendaria) | 7 | — | `freeze_all` sui pedoni nemici, 1 |
 | `recall` | Richiamo | 3 | casa vuota della propria 2ª traversa | `revive_piece` di un pedone |
 | `resurrection` | Resurrezione (leggendaria) | 8 | casa vuota della propria 1ª traversa | `revive_piece` di cavallo, alfiere o torre (`choice`) |
-| `swap` | Scambio | 3 | due propri pezzi, non il re | `swap_pieces` |
-| `metamorphosis` | Metamorfosi | 5 | proprio cavallo o alfiere | `transform_piece` cavallo ↔ alfiere |
+| `swap` | Scambio (rara) | 3 | due propri pezzi, non il re | `swap_pieces` |
+| `metamorphosis` | Metamorfosi (rara) | 5 | proprio cavallo o alfiere | `transform_piece` cavallo ↔ alfiere |
 | `royal_guard` | Guardia reale | 3 | — | `shield_area` ai propri pezzi attorno al re, 1 |
-| `divine_castling` | Arrocco divino | 4, solo main1 | — | `restore_castling_rights` |
+| `divine_castling` | Arrocco divino (rara) | 4, solo main1 | — | `restore_castling_rights` |
 | `phalanx` | Falange | 3 | — | `shield_area` ai propri pedoni con un pedone accanto sulla traversa, 1 |
 | `early_promotion` | Promozione anticipata (leggendaria) | 6 | proprio pedone dalla 6ª traversa | `promote_piece` (`choice`) |
 | `ice_wall` | Muro di ghiaccio | 2 | casa vuota | `create_wall` 2 |
-| `sanctuary` | Santuario | 5 | una casa qualsiasi | `create_square_effect` `no_capture` 3 |
+| `sanctuary` | Santuario (rara) | 5 | una casa qualsiasi | `create_square_effect` `no_capture` 3 |
 | `revelation` | Rivelazione | 1 | — | `reveal_runes` sulle rune nemiche + `draw_card` 1 |
 | `stasis_rune` | Runa di stasi | 2 | casa vuota | `place_rune`: congela 2 turni chi entra (nascosta) |
 | `repel_rune` | Runa di respinta | 2 | casa vuota | `place_rune`: chi entra torna alla casa di partenza (nascosta) |
 | `explosive_rune` | Runa esplosiva | 3 | casa vuota | `place_rune`: distrugge pedone o pezzo minore, congela 1 turno torre e regina (nascosta) |
-| `detonation` | Detonazione | 4 | — | `detonate_runes`: consuma le proprie rune e congela 1 turno i nemici attorno |
+| `detonation` | Detonazione (rara) | 4 | — | `detonate_runes`: consuma le proprie rune e congela 1 turno i nemici attorno |
 | `minefield` | Campo minato (leggendaria) | 7 | tre case vuote | `place_rune`: tre Rune di stasi (nascosta) |
 | `restless_soul` | Anima inquieta | 2 | — | `add_trigger`: ogni proprio pezzo perso = pesca 1, per 1 turno |
 | `reflection` | Riflesso | 3 | — | `add_trigger`: chi prova a catturare un proprio pezzo scudato è congelato (nascosta, una volta) |
 | `banner` | Stendardo | 2 | — | `add_aura`: con 6+ pedoni, passo di lato dei pedoni |
 | `phase_step` | Passo sfasato | 2, solo main1 | proprio alfiere | `add_effect` `phasing` per questo turno |
-| `echo_of_fallen` | Eco del caduto | 4, solo main1 | proprio pedone | `borrow_movement` da cavallo o alfiere del cimitero (`choice`) |
+| `echo_of_fallen` | Eco del caduto (rara) | 4, solo main1 | proprio pedone | `borrow_movement` da cavallo o alfiere del cimitero (`choice`) |
 | `haste` | Fretta (leggendaria) | 6, solo main1 | — | `extra_move`: seconda mossa di pedone senza cattura |
 
 **Cimitero.** Ogni pezzo tolto dalla scacchiera (cattura, anche en passant, o
@@ -432,7 +432,23 @@ occorrenza del tipo riportato, che torna con un id nuovo e senza effetti.
 iniziali; arroccare attraverso case attaccate resta vietato.
 
 Mazzo: 40 carte, identico per i due giocatori, nei limiti di copie della
-rarità (2 per le comuni, 1 per le leggendarie).
+rarità (2 per comuni e rare, 1 per le leggendarie).
+
+## Collezione
+
+`GET /me/collection` (con `Authorization: Bearer <access_token>`): le copie che
+l'utente possiede di ogni magia del catalogo, nell'ordine di `GET /spells`.
+
+```json
+{ "cards": [ { "spell_id": "blood_pact", "copies": 2, "max_copies": 2 } ],
+  "owned": 55, "total": 64 }
+```
+
+`copies` va da 0 a `max_copies` (il limite di copie della rarità); `owned` e
+`total` sono le somme di `copies` e `max_copies`. Alla prima lettura l'utente
+riceve il set iniziale: le comuni al massimo, le rare a 1 copia, le leggendarie
+a 0. Una magia aggiunta al catalogo dopo vale 0 copie. Per ora le carte non si
+ottengono in altri modi, e il mazzo di partita resta quello condiviso.
 
 ## Limiti noti
 
