@@ -91,7 +91,7 @@ export const CATALOG: ReadonlyMap<string, Spell> = loadCatalog(rawCatalog);
 /** Il catalogo come lo serializza `GET /spells` (stessi oggetti di `spells.json`). */
 export const RAW_CATALOG: readonly Spell[] = [...CATALOG.values()];
 
-/** `spells/catalog.go` (`deckRecipe`): 40 carte nei limiti di copie della rarità (M43). */
+/** `spells/catalog.go` (`deckRecipe`): 40 carte sulle 32 magie, nei limiti di copie della rarità (M61). */
 export const DECK_RECIPE: readonly (readonly [string, number])[] = [
   ['frost', 2],
   ['ice_wall', 2],
@@ -101,25 +101,29 @@ export const DECK_RECIPE: readonly (readonly [string, number])[] = [
   ['blood_pact', 2],
   ['restless_soul', 1],
   ['recall', 1],
+  ['echo_of_fallen', 1],
   ['resurrection', 1],
+  ['phase_step', 1],
   ['blink', 1],
   ['swap', 1],
   ['metamorphosis', 1],
+  ['haste', 1],
   ['shield', 2],
-  ['royal_shield', 2],
+  ['royal_shield', 1],
   ['royal_guard', 1],
   ['divine_castling', 1],
   ['sanctuary', 2],
   ['reflection', 1],
   ['revelation', 1],
   ['stasis_rune', 2],
-  ['repel_rune', 2],
-  ['explosive_rune', 2],
-  ['detonation', 2],
+  ['repel_rune', 1],
+  ['explosive_rune', 1],
+  ['detonation', 1],
   ['minefield', 1],
   ['forced_march', 1],
   ['conscription', 2],
   ['phalanx', 1],
+  ['banner', 1],
   ['early_promotion', 1],
 ];
 

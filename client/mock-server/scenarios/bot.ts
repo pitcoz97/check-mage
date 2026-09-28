@@ -124,9 +124,11 @@ export class Bot {
   }
 
   private playMove(room: Room): void {
+    // La seconda mossa di Fretta il bot la salta sempre.
+    if (room.awaitingExtraMove(this.color)) return this.send('pass_phase');
     // Solo le mosse giocabili: niente pezzi congelati, muri o catture su un santuario. Le rune non bloccano le mosse e
     // il bot non le guarda: quelle nascoste dell'avversario non sono nello stato che riceverebbe un client.
-    const legal = legalMoves(room.board.fen).filter((m) => room.isPlayable(m));
+    const legal = [...legalMoves(room.board.fen).filter((m) => room.isPlayable(m)), ...room.specialMoves()];
     const scripted = this.behavior.script?.[this.movesMade];
     const move = scripted !== undefined && legal.includes(scripted) ? scripted : legal[0];
     if (move === undefined) return;

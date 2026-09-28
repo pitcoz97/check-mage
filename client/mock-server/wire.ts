@@ -41,6 +41,7 @@ export type WireServerType =
   | 'player_effects_changed'
   | 'trigger_fired'
   | 'aura_changed'
+  | 'move_options'
   | 'rune_triggered'
   | 'timer_update'
   | 'game_over'

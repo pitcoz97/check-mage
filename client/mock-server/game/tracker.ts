@@ -22,6 +22,8 @@ export interface ActiveEffect {
   hidden?: boolean;
   /** Solo per le rune: cosa fa quando scatta, copiato dai params al lancio. */
   rune?: RuneSpec;
+  /** Solo per borrow_movement (`special.go`): il tipo preso in prestito. */
+  borrow_as?: string;
 }
 
 /** `RuneSpec` (`effects/runes.go`): i campi vuoti mancano (omitempty). */
@@ -351,6 +353,23 @@ export class Tracker {
     return [...this.squares]
       .map(([square, effects]) => ({ square, effects: effects.map((e) => ({ ...e })) }))
       .sort((a, b) => (a.square < b.square ? -1 : a.square > b.square ? 1 : 0));
+  }
+
+  /** `AddMovementEffect` (`special.go`): uno stato di movimento su un PROPRIO pezzo; `borrowAs` per borrow_movement. */
+  addMovementEffect(square: string, kind: string, borrowAs: string, caster: Color, turns: number, source: string): void {
+    const color = this.colorAt(square);
+    if (color === null) throw new EffectError(WS.nothingAt(square));
+    if (color !== caster) throw new EffectError(WS.movementOnlyOwn(square));
+    this.addEffect(square, kind, turns, source, caster);
+    const effect = (this.pieces.get(this.bySquare.get(square) as number) as PieceState).effects.find((e) => e.kind === kind);
+    if (effect !== undefined && borrowAs !== '') effect.borrow_as = borrowAs;
+  }
+
+  /** `BorrowedAs`: il tipo preso in prestito dal pezzo nella casa, o `''`. */
+  borrowedAs(square: string): string {
+    const id = this.bySquare.get(square);
+    if (id === undefined) return '';
+    return (this.pieces.get(id) as PieceState).effects.find((e) => e.kind === 'borrow_movement')?.borrow_as ?? '';
   }
 
   /** `Tracker.SquareOf`: la casa del pezzo con quell'id, se è ancora in gioco. */

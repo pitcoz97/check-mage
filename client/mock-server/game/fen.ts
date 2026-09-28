@@ -311,6 +311,50 @@ export function sideToMove(fen: string): Color {
   return fields(fen)[1] === 'b' ? 'black' : 'white';
 }
 
+/**
+ * `ApplySpecialMove` (`effects/special.go`): sposta il pezzo (catturando quello d'arrivo), passa il tratto, azzera
+ * l'en passant, aggiorna contatori e arrocchi. Non promuove mai. `null` se la mossa non è leggibile.
+ */
+export function applySpecialMove(fen: string, move: string): string | null {
+  if (move.length < 4) return null;
+  let fr: number, fc: number, tr: number, tc: number;
+  let grid: Grid;
+  try {
+    [fr, fc] = parseSquare(move.slice(0, 2));
+    [tr, tc] = parseSquare(move.slice(2, 4));
+    grid = parsePlacement(fen);
+  } catch {
+    return null;
+  }
+  const piece = grid[fr]?.[fc] ?? null;
+  const captured = grid[tr]?.[tc] ?? null;
+  if (piece === null) return null;
+  (grid[tr] as (string | null)[])[tc] = piece;
+  (grid[fr] as (string | null)[])[fc] = null;
+  let next = clearCastlingForMovedPiece(replacePlacement(fen, encodePlacement(grid)), move.slice(0, 2), piece);
+  if (captured === 'R' || captured === 'r') next = clearCastlingForRook(next, move.slice(2, 4), captured);
+  const f = fields(next);
+  if (f.length < 6) return next;
+  if (f[1] === 'w') f[1] = 'b';
+  else {
+    f[1] = 'w';
+    const full = Number(f[5]);
+    if (Number.isInteger(full)) f[5] = String(full + 1);
+  }
+  f[3] = '-';
+  const half = Number(f[4]);
+  f[4] = piece.toLowerCase() === 'p' || captured !== null ? '0' : Number.isInteger(half) ? String(half + 1) : (f[4] as string);
+  return f.join(' ');
+}
+
+/** `withoutEnPassant` (`game/special.go`): azzera la casa en passant. */
+export function withoutEnPassant(fen: string): string {
+  const f = fields(fen);
+  if (f.length < 4) return fen;
+  f[3] = '-';
+  return f.join(' ');
+}
+
 function clearCastling(fen: string, rights: string): string {
   const f = fields(fen);
   if (f.length < 3 || f[2] === '-') return fen;

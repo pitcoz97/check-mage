@@ -58,7 +58,7 @@ export function isInCheck(fen: string): boolean {
  * `GetGameStatusFiltered` / `classify` (`stockfish.go`): conta solo le mosse legali che `playable` accetta. Senza
  * mosse giocabili valgono le regole degli scacchi: re sotto scacco = matto, altrimenti stallo.
  */
-export function getGameStatus(fen: string, playable?: (move: string) => boolean): GameStatus {
+export function getGameStatus(fen: string, playable?: (move: string) => boolean, extra = 0): GameStatus {
   let chess: Chess;
   try {
     chess = load(fen);
@@ -66,7 +66,8 @@ export function getGameStatus(fen: string, playable?: (move: string) => boolean)
     return 'ongoing';
   }
   const moves = chess.moves({ verbose: true }).filter((m) => playable === undefined || playable(m.lan));
-  if (moves.length === 0) return chess.inCheck() ? 'checkmate' : 'stalemate';
+  // `GetGameStatusWith`: le mosse speciali (Step 6) contano come giocabili.
+  if (moves.length + extra === 0) return chess.inCheck() ? 'checkmate' : 'stalemate';
   if (isDrawByRule(fen)) return 'draw';
   return 'ongoing';
 }

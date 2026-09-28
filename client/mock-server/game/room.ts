@@ -2,8 +2,9 @@ import { INFO, WS, type GameError } from '../serverTexts';
 import type { Rng } from '../util';
 import type { WireServerMessage, WireServerType } from '../wire';
 import { paramBool, paramInt, paramStringMap, paramStrings, type Spell } from './catalog';
-import { getGameStatus, isMoveLegal, applyMove as engineApplyMove } from './engine';
+import { getGameStatus, isMoveLegal, legalMoves, applyMove as engineApplyMove } from './engine';
 import {
+  applySpecialMove,
   aroundKing,
   clearStaleEnPassant,
   countPieces,
@@ -27,6 +28,8 @@ import {
   setPiece,
   sideToMove,
   swapPieces,
+  withoutEnPassant,
+  withSideToMove,
   type Color,
 } from './fen';
 import {
@@ -51,6 +54,7 @@ import {
   type Trigger,
 } from './playerEffects';
 import { aroundSquares, RUNE_DESTROY, RUNE_FREEZE, RUNE_RETURN, runeEntry, runeStrike } from './runes';
+import { KIND_BORROW, KIND_PHASING, specialMoves } from './special';
 import { captureSquare, KIND_NO_CAPTURE, KIND_WALL, moveBlock } from './squares';
 import { validateTargets } from './targets';
 import { KIND_SHIELD, Tracker, type ExpiredEffect, type PieceEffectInfo, type RuneSpec } from './tracker';
@@ -185,6 +189,16 @@ function moveEndpoints(fen: string, params: Record<string, unknown> | undefined,
   return [from, to];
 }
 
+/** `extraMove` (`game/special.go`): la seconda mossa concessa da Fretta (M57). */
+interface ExtraMove {
+  player: Color;
+  turn: number;
+  pieces: string[];
+  noCapture: boolean;
+  active: boolean;
+  fenAfterFirst: string;
+}
+
 export class Room {
   readonly id: string;
   white: GameClient;
@@ -195,6 +209,8 @@ export class Room {
   whiteTime: number;
   blackTime: number;
   private drawOfferer: GameClient | null = null;
+  /** Seconda mossa di Fretta del turno (`game/special.go`, `extraMove`). */
+  private extra: ExtraMove | null = null;
   private readonly disconnectedTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private readonly posCounts = new Map<string, number>();
   private timers: ReturnType<typeof setInterval>[] = [];
@@ -272,18 +288,28 @@ export class Room {
     const senderColor = this.getColor(sender);
     if (senderColor !== this.board.turn) return this.sendError(sender, WS.notYourTurn);
     if (this.match.currentPhase !== 'move') return this.sendError(sender, WS.cannotMoveInPhase(this.match.currentPhase));
-    if (move.length < 4 || !isMoveLegal(this.board.fen, move)) return this.sendError(sender, WS.illegalMove(move));
+    // Legalità (M57, M59): prima gli scacchi, poi le mosse speciali; nella seconda mossa di Fretta solo extraMoves.
+    const secondMove = this.extra?.active === true;
+    let special = false;
+    let legal = move.length >= 4 && isMoveLegal(this.board.fen, move);
+    if (secondMove) legal = this.extraMoves().includes(move);
+    else if (!legal && move.length >= 4) {
+      special = this.specialMoves().includes(move);
+      legal = special;
+    }
+    if (!legal) return this.sendError(sender, WS.illegalMove(move));
 
     const from = move.slice(0, 2);
     const to = move.slice(2, 4);
     if (this.tracker.isFrozen(from)) return this.sendError(sender, WS.frozen(from));
-    // Stati delle case, prima dello scudo: una mossa bloccata non lo consuma.
-    const blocked = moveBlock(this.board.fen, this.tracker, move);
+    // Stati delle case, prima dello scudo: una mossa bloccata non lo consuma. Le speciali escono già filtrate.
+    const blocked = special ? null : moveBlock(this.board.fen, this.tracker, move);
     if (blocked !== null) return this.sendError(sender, WS.moveBlocked(move, blocked.square, blocked.reason));
 
     // Lo scudo assorbe la cattura (anche en passant), salvo che la mossa nulla lasci in scacco chi muove:
     // la cattura era l'unico modo di uscire dallo scacco, quindi lo scudo si rompe (`room.go:461-473`).
-    const captured = captureSquare(this.board.fen, from, to);
+    // Una mossa speciale cattura solo sulla casa d'arrivo: niente en passant.
+    const captured = special ? (pieceAt(this.board.fen, to) === null ? null : to) : captureSquare(this.board.fen, from, to);
     const graveOwners: Color[] = [];
     let shieldAbsorbed = captured !== null && this.tracker.hasShield(captured);
     let trig: RuneTrigger | null = null;
@@ -293,8 +319,11 @@ export class Room {
     const attackerId = this.tracker.info(from)?.id ?? 0;
     if (shieldAbsorbed && isKingAttacked(passTurn(this.board.fen), senderColor)) shieldAbsorbed = false;
 
-    if (senderColor === 'white') this.whiteTime += this.options.incrementMs;
-    else this.blackTime += this.options.incrementMs;
+    // L'incremento vale una volta per turno: la seconda mossa di Fretta non lo raddoppia.
+    if (!secondMove) {
+      if (senderColor === 'white') this.whiteTime += this.options.incrementMs;
+      else this.blackTime += this.options.incrementMs;
+    }
 
     if (shieldAbsorbed && captured !== null) {
       this.tracker.consumeShield(captured);
@@ -306,8 +335,14 @@ export class Room {
       if (owner !== null) graveOwners.push(owner);
       const fenBefore = this.board.fen;
       this.board.moves.push(move);
-      this.board.fen = engineApplyMove(this.board.fen, move);
-      this.tracker.movePiece(from, to, move.length >= 5 ? (move[4] as string) : null);
+      if (special) {
+        // Mossa speciale (M59): FEN aggiornata senza motore, niente arrocco, en passant o promozione.
+        this.board.fen = applySpecialMove(this.board.fen, move) ?? this.board.fen;
+        this.tracker.relocate(from, to);
+      } else {
+        this.board.fen = engineApplyMove(this.board.fen, move);
+        this.tracker.movePiece(from, to, move.length >= 5 ? (move[4] as string) : null);
+      }
       // Una runa dell'avversario sulla casa d'arrivo: l'esito si calcola sulla posizione dopo la runa.
       trig = this.triggerRune(fenBefore, move, senderColor);
       if (trig !== null) graveOwners.push(...trig.graves);
@@ -345,6 +380,8 @@ export class Room {
         end = this.finish('1/2-1/2', 'draw', 'draw');
         break;
       case 'ongoing': {
+        if (secondMove) this.extra = null;
+        else if (this.extraGranted(senderColor) && this.enterExtraMove(senderColor)) break; // Fretta: resta la Move
         results = [this.match.advance(), ...this.match.autoAdvance()];
         let ticked: SquareViews | null;
         [expired, ticked] = this.tickEffectsOnNewTurn(results);
@@ -369,6 +406,7 @@ export class Room {
     for (const res of results) this.applyAdvanceBroadcasts(res);
     this.broadcastExpired(expired);
     this.broadcastSquareEffects(squares);
+    this.sendMoveOptions();
     this.announceEnd(end);
   }
 
@@ -377,7 +415,12 @@ export class Room {
     if (this.ended) return this.sendError(sender, WS.gameOver);
     const senderColor = this.getColor(sender);
     if (!this.match.isActive(senderColor)) return this.sendError(sender, WS.notYourTurn);
-    if (!this.match.allows('pass_phase')) return this.sendError(sender, WS.cannotPassInPhase(this.match.currentPhase));
+    if (this.extra?.active === true && this.extra.player === senderColor) {
+      // Salta la seconda mossa di Fretta: torna la posizione dopo la prima (M57).
+      this.board.fen = this.extra.fenAfterFirst;
+      this.board.turn = sideToMove(this.board.fen);
+      this.extra = null;
+    } else if (!this.match.allows('pass_phase')) return this.sendError(sender, WS.cannotPassInPhase(this.match.currentPhase));
 
     const results = [this.match.advance(), ...this.match.autoAdvance()];
     const [expired, squares] = this.tickEffectsOnNewTurn(results);
@@ -390,6 +433,7 @@ export class Room {
     this.broadcastSquareEffects(squares);
     this.broadcastEvents(ev);
     if (end !== null) this.broadcastState();
+    this.sendMoveOptions();
     this.announceEnd(end);
   }
 
@@ -455,6 +499,7 @@ export class Room {
     this.broadcastExpired(expired);
     this.broadcastSquareEffects(squares);
     if (end !== null && !boardChanged) this.broadcastState();
+    this.sendMoveOptions();
     this.announceEnd(end);
   }
 
@@ -710,6 +755,44 @@ export class Room {
           entry['piece'] = 'pawn';
           break;
         }
+        case 'add_effect': {
+          const square = target();
+          const kind = typeof eff.params?.['effect'] === 'string' ? eff.params['effect'] : '';
+          if (kind !== KIND_PHASING) throw new EffectError(WS.unsupportedMovement(kind, def.id));
+          const duration = paramInt(eff.params, 'duration', 0);
+          tracker.addMovementEffect(square, kind, '', caster, duration, def.id);
+          entry['target'] = square;
+          entry['effect'] = kind;
+          entry['remaining_turns'] = duration;
+          break;
+        }
+        case 'borrow_movement': {
+          const square = target();
+          // I tipi ammessi presenti nel proprio cimitero; con uno solo la scelta si deduce (M55).
+          const available = paramStrings(eff.params, 'from_graveyard').filter((kind) => graves[caster].some((g) => g.piece === kind));
+          if (available.length === 0) throw noEffect('empty_graveyard');
+          let kind = choice;
+          if (kind === '') {
+            if (available.length > 1) throw invalidChoice('missing');
+            kind = available[0] as string;
+          }
+          if (!available.includes(kind)) throw invalidChoice('not_allowed');
+          tracker.addMovementEffect(square, KIND_BORROW, kind, caster, paramInt(eff.params, 'duration', 0), def.id);
+          entry['target'] = square;
+          entry['piece'] = kind;
+          break;
+        }
+        case 'extra_move': {
+          if (this.extra !== null && this.extra.player === caster && this.extra.turn === this.match.turnNumber) throw noEffect('already_granted');
+          const pieces = paramStrings(eff.params, 'pieces');
+          const noCapture = paramBool(eff.params, 'no_capture');
+          entry['pieces'] = pieces;
+          entry['no_capture'] = noCapture;
+          deferred.push(() => {
+            this.extra = { player: caster, turn: this.match.turnNumber, pieces, noCapture, active: false, fenAfterFirst: '' };
+          });
+          break;
+        }
         case 'add_trigger': {
           const trigger: Trigger = {
             on: typeof eff.params?.['on'] === 'string' ? eff.params['on'] : '',
@@ -889,9 +972,78 @@ export class Room {
     return moveBlock(this.board.fen, this.tracker, move) === null;
   }
 
-  /** `gameStatus` (`room.go`): solo le mosse giocabili contano. */
+  /** `gameStatus` (`room.go`): solo le mosse giocabili contano, speciali comprese (M60). */
   private gameStatus() {
-    return getGameStatus(this.board.fen, (move) => this.isPlayable(move));
+    return getGameStatus(this.board.fen, (move) => this.isPlayable(move), this.specialMoves().length);
+  }
+
+  // --- Mosse speciali (`game/special.go`, Step 6) ---------------------------------------------------------
+
+  private sidestepActive(player: Color): boolean {
+    return (this.match.player(player).auras ?? []).some((a) => a.grant === 'pawn_sidestep' && a.active);
+  }
+
+  /** Per il bot del mock: si attende la seconda mossa di Fretta di `player`. */
+  awaitingExtraMove(player: Color): boolean {
+    return this.extra?.active === true && this.extra.player === player;
+  }
+
+  /** `specialMoves`: le mosse speciali del lato al tratto (pubblica per il bot del mock). */
+  specialMoves(): string[] {
+    return specialMoves(this.board.fen, this.tracker, this.sidestepActive(sideToMove(this.board.fen)));
+  }
+
+  private extraGranted(player: Color): boolean {
+    return this.extra !== null && !this.extra.active && this.extra.player === player && this.extra.turn === this.match.turnNumber;
+  }
+
+  /** `extraMoves`: seconde mosse di Fretta ammesse (legali, del tipo concesso, senza cattura se vietata, giocabili). */
+  private extraMoves(): string[] {
+    const extra = this.extra;
+    if (extra === null) return [];
+    return legalMoves(this.board.fen)
+      .filter((move) => this.isPlayable(move))
+      .filter((move) => {
+        const p = pieceAt(this.board.fen, move.slice(0, 2));
+        return p !== null && extra.pieces.includes(pieceName(p));
+      })
+      .filter((move) => !extra.noCapture || captureSquare(this.board.fen, move.slice(0, 2), move.slice(2, 4)) === null)
+      .sort();
+  }
+
+  /** `enterExtraMove`: apre la seconda mossa se l'avversario non è sotto scacco e c'è una mossa ammessa. */
+  private enterExtraMove(player: Color): boolean {
+    const extra = this.extra as ExtraMove;
+    if (isKingAttacked(this.board.fen, opponentOf(player))) {
+      this.extra = null; // la prima mossa ha dato scacco: la seconda salta (M57)
+      return false;
+    }
+    const after = this.board.fen;
+    extra.active = true;
+    extra.fenAfterFirst = after;
+    this.board.fen = withoutEnPassant(withSideToMove(after, player));
+    this.board.turn = player;
+    if (this.extraMoves().length === 0) {
+      this.board.fen = after;
+      this.board.turn = sideToMove(after);
+      this.extra = null;
+      return false;
+    }
+    return true;
+  }
+
+  /** `moveOptionsFor`: le mosse fuori dagli scacchi di `viewer` nella sua fase Move (M60). */
+  private moveOptionsFor(viewer: Color): { special_moves: string[]; extra_move: Record<string, unknown> | null } {
+    if (this.ended || this.match.currentPhase !== 'move' || this.match.activePlayer !== viewer) return { special_moves: [], extra_move: null };
+    if (this.extra?.active === true) {
+      return { special_moves: this.extraMoves(), extra_move: { pieces: this.extra.pieces, no_capture: this.extra.noCapture } };
+    }
+    return { special_moves: this.specialMoves(), extra_move: null };
+  }
+
+  private sendMoveOptions(): void {
+    if (this.ended) return; // nessun move_options dopo l'ultimo game_state
+    for (const color of ['white', 'black'] as const) this.clientOf(color).send(msg('move_options', this.moveOptionsFor(color)));
   }
 
   /** `checkRolloverGameEnd` (`room.go`). */
@@ -1236,6 +1388,7 @@ export class Room {
       square_effects: this.tracker.squareEffectsFor(viewer),
       triggers: effectsView.triggers,
       auras: effectsView.auras,
+      ...this.moveOptionsFor(viewer),
     };
   }
 

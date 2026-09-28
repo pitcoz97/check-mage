@@ -138,6 +138,7 @@ describe('mosse (room.go:423-570)', () => {
       'hand_size_changed',
       'phase_changed', // main1
       'phase_changed', // move
+      'move_options', // opzioni di mossa, a ciascuno le sue (Step 6)
     ]);
     expect(white.types()).not.toContain('card_drawn');
     expect(black.last('card_drawn')).toMatchObject({ deck_size: 35 });
@@ -218,7 +219,7 @@ describe('magie (room.go: handleCastSpell, applySpellEffects)', () => {
     black.clear();
     white.clear();
     send(white, 'cast_spell', { spell_id: 'blood_pact', targets: ['a2'] });
-    expect(black.types()).toEqual(['spell_cast', 'mana_changed', 'hand_size_changed', 'game_state', 'graveyard_changed']);
+    expect(black.types()).toEqual(['spell_cast', 'mana_changed', 'hand_size_changed', 'game_state', 'graveyard_changed', 'move_options']);
     expect(black.last('graveyard_changed')).toEqual({ player: 'white', graveyard: ['pawn'] });
     expect(black.messages[0]?.payload).toEqual({
       player: 'white',
@@ -754,9 +755,75 @@ describe('magie dello step 5: trigger e aure', () => {
     ]);
   });
 
-  it('lo Stendardo non è nel mazzo (M50)', () => {
+  it('dallo Step 6 lo Stendardo è nel mazzo', () => {
     const { room } = setup();
-    expect([...room.match.white.deck, ...room.match.white.hand]).not.toContain('banner');
+    expect([...room.match.white.deck, ...room.match.white.hand]).toContain('banner');
+  });
+});
+
+describe('magie dello step 6: mosse speciali', () => {
+  const FILLER = ['shatter', 'shatter'];
+  const rich = { white: 10 };
+
+  it('phasing: la mossa attraverso i pezzi è nelle opzioni, viene accettata e la risposta del nero passa dal motore', () => {
+    const { room, white, black, send } = setup();
+    room.tracker.addMovementEffect('c1', 'phasing', '', 'white', 0, 'phase_step');
+    expect(room.publicState('white')['special_moves']).toEqual(expect.arrayContaining(['c1f4', 'c1h6']));
+    expect(room.publicState('black')['special_moves']).toEqual([]);
+    send(white, 'move', { move: 'c1f4' });
+    expect(white.last('error')).toBeUndefined();
+    expect(room.board.fen.startsWith('rnbqkbnr/pppppppp/8/8/5B2/8/PPPPPPPP/RN1QKBNR b')).toBe(true);
+    send(black, 'move', { move: 'e7e5' });
+    expect(black.last('error')).toBeUndefined();
+  });
+
+  it('una mossa speciale che scopre il re è illegal_move', () => {
+    const { room, white, send } = setup({ fen: '4r1k1/8/8/8/8/8/4P3/4K3 w - - 0 1' });
+    room.match.white.auras = [{ grant: 'pawn_sidestep', min_own_pawns: 1, active: true, source_spell_id: 'banner' }];
+    send(white, 'move', { move: 'e2d2' });
+    expect(white.last('error')).toMatchObject({ code: 'illegal_move' });
+  });
+
+  it('Eco del caduto: il pedone salta da cavallo', () => {
+    const { room, white, send } = setup({ overrides: { hand: { white: ['echo_of_fallen', ...FILLER] }, manaFloor: rich } });
+    room.match.white.graveyard = [{ piece: 'knight', piece_id: 2 }];
+    send(white, 'cast_spell', { spell_id: 'echo_of_fallen', targets: ['e2'] });
+    expect(white.last('spell_cast')?.['effects_applied']).toEqual([{ kind: 'borrow_movement', target: 'e2', piece: 'knight' }]);
+    send(white, 'pass_phase');
+    expect(white.last('move_options')?.['special_moves']).toContain('e2d4');
+    send(white, 'move', { move: 'e2d4' });
+    expect(white.last('error')).toBeUndefined();
+  });
+
+  it('Fretta: seconda mossa solo di pedone senza cattura, saltabile; niente se la prima dà scacco', () => {
+    const { room, white, send } = setup({ overrides: { hand: { white: ['haste', ...FILLER] }, manaFloor: rich } });
+    send(white, 'cast_spell', { spell_id: 'haste', targets: [] });
+    send(white, 'pass_phase');
+    send(white, 'move', { move: 'g1f3' });
+    expect(room.match.currentPhase).toBe('move');
+    expect(room.board.turn).toBe('white');
+    expect(white.last('move_options')?.['extra_move']).toEqual({ pieces: ['pawn'], no_capture: true });
+    send(white, 'move', { move: 'b1c3' });
+    expect(white.last('error')).toMatchObject({ code: 'illegal_move' });
+    send(white, 'move', { move: 'e2e4' });
+    // Dopo la seconda mossa si va in main2 (il Bianco ha ancora carte), col tratto al Nero.
+    expect(room.match.currentPhase).toBe('main2');
+    expect(room.board.fen.split(' ')[1]).toBe('b');
+
+    const skip = setup({ overrides: { hand: { white: ['haste', ...FILLER] }, manaFloor: rich } });
+    skip.send(skip.white, 'cast_spell', { spell_id: 'haste', targets: [] });
+    skip.send(skip.white, 'pass_phase');
+    skip.send(skip.white, 'move', { move: 'g1f3' });
+    skip.send(skip.white, 'pass_phase');
+    expect(skip.room.board.fen.split(' ')[1]).toBe('b');
+    expect(skip.room.match.currentPhase).toBe('main2');
+
+    const check = setup({ fen: '4k3/8/8/8/8/8/3PP3/3QK3 w - - 0 1', overrides: { hand: { white: ['haste', ...FILLER] }, manaFloor: rich } });
+    check.send(check.white, 'cast_spell', { spell_id: 'haste', targets: [] });
+    check.send(check.white, 'pass_phase');
+    check.send(check.white, 'move', { move: 'd1a4' });
+    expect(check.room.match.currentPhase).toBe('main2');
+    expect(check.room.board.fen.split(' ')[1]).toBe('b');
   });
 });
 
