@@ -54,8 +54,9 @@ export function setupScenario(name: ScenarioName, config: MockConfig): ScenarioS
       return {
         bot: { castSpells: true },
         overrides: {
-          // Il client ha una runa sua, per vederla tratteggiata sulla propria scacchiera.
-          hand: { white: ['stasis_rune', 'shatter', 'shatter', 'shatter'], black: ['stasis_rune', 'explosive_rune', 'repel_rune', 'minefield'] },
+          // Il client ha una runa sua, per vederla tratteggiata sulla propria scacchiera. Il bot apre con un Riflesso
+          // (trigger nascosto, Step 5) e poi rune.
+          hand: { white: ['stasis_rune', 'shatter', 'shatter', 'shatter'], black: ['reflection', 'stasis_rune', 'explosive_rune', 'repel_rune'] },
           deckTop: { black: ['stasis_rune', 'repel_rune', 'explosive_rune'] },
           manaFloor: { white: 2, black: 10 },
         },

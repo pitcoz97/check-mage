@@ -151,7 +151,7 @@ const SCENARIOS: Record<string, Scenario> = {
     await white.refresh();
     report.expect((await white.me()).email === white.email, 'refresh del token e /me con il token nuovo');
     const catalog = await white.catalog();
-    report.expect(catalog.spells.length === 26, `catalogo: ${catalog.spells.length} magie da ${catalog.source}`);
+    report.expect(catalog.spells.length === 29, `catalogo: ${catalog.spells.length} magie da ${catalog.source}`);
     report.expect(catalog.source === 'server', 'catalogo da GET /spells');
 
     await white.connect('pvp');
@@ -300,7 +300,8 @@ const SCENARIOS: Record<string, Scenario> = {
   /**
    * Anti-cheat delle rune (docs/BRIEFING-MAGIE.md, Step 4): il bot lancia solo rune. Sui frame grezzi, prima
    * dell'adapter: nessuno `spell_cast` del bot porta la carta o i bersagli, e nessuna lista degli stati delle case
-   * contiene una runa del bot (non ci sono Rivelazioni, quindi sono tutte nascoste).
+   * contiene una runa del bot (non ci sono Rivelazioni, quindi sono tutte nascoste), né quella dei trigger il suo
+   * Riflesso.
    */
   async runes(ctx) {
     const c = await newPlayer(ctx.server, ctx.pacer, `franca`);
@@ -325,6 +326,11 @@ const SCENARIOS: Record<string, Scenario> = {
       if (frame.type === 'game_state' || frame.type === 'square_effects_changed') {
         const list = Array.isArray(payload['square_effects']) ? (payload['square_effects'] as { effects?: { kind?: string; caster?: string }[] }[]) : [];
         if (list.some((s) => (s.effects ?? []).some((e) => e.kind === 'rune' && e.caster === 'black'))) leaks.push(`${frame.type} con una runa del bot`);
+      }
+      // Il Riflesso del bot è un trigger nascosto: non deve comparire in nessuna lista (Step 5, M51).
+      if (frame.type === 'game_state' || frame.type === 'player_effects_changed') {
+        const triggers = Array.isArray(payload['triggers']) ? (payload['triggers'] as { player?: string }[]) : [];
+        if (triggers.some((x) => x.player === 'black')) leaks.push(`${frame.type} con un trigger nascosto del bot`);
       }
     }
     ctx.report.expect(leaks.length === 0, `nessuna runa nascosta né carta del bot nei frame: ${leaks.slice(0, 2).join(' | ')}`);
