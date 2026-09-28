@@ -3,13 +3,19 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Collezione, in attesa di review e dei test Go sulla VM.** Branch `feat/collection` da `main` (il catalogo magie,
-Step 1–6, è in `main`). Decisioni in `docs/ASSUMPTIONS.md` §8 (C1–C11, S18–S21). Il redesign (R1–R6) è unito in
-`main`.
+**Mazzi personali, in attesa di review e dei test Go sulla VM.** Branch `feat/decks` da `main` (catalogo magie e
+collezione sono in `main`). Decisioni in `docs/ASSUMPTIONS.md` §9 (D1–D12, S22–S26). Il redesign (R1–R6) è unito
+in `main`.
 Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
 eseguibile).
 
 ## Completo
+- **Mazzi personali:** tavole "Mazzi · desktop/Android". Server: `user_decks`, `/me/decks` (lista, crea, modifica,
+  elimina, attiva), regole in `spells/decks.go` (40 carte, limiti di rarità e di possesso, bozze, massimo 10), mazzo
+  iniziale alla prima lettura, in partita il mazzo attivo di ciascuno (`deck_invalid` + chiusura 4002). Mock
+  allineato. Client: pagina `/decks` (schede, «Le tue carte», pannello con curva, archetipi, Autocompleta, righe,
+  Salva, Usa in partita, Elimina; su Android lista e editor), conferma per le modifiche non salvate, card «Mazzi» e riga
+  «Mazzo attivo · Cambia» nella home. 630 test, e2e 11/11.
 - **Collezione:** tavole "Collezione · desktop/Android". Server: rarità `rare` (9 magie), tabella `user_cards` con il set
   iniziale alla prima lettura (comuni 2, rare 1, leggendarie 0: 45 / 59), `GET /me/collection`. Mock allineato.
   Client: pagina `/collection` (voce di navigazione attiva) con contatore, ricerca, filtri di rarità, costo e possesso,
@@ -60,15 +66,15 @@ eseguibile).
   - **R6** accesso, stati dell'app, coda, profilo, banner, patta ricevuta, resa, promozione, fine partita nel
     linguaggio del design; pulizia di token e testi morti.
   - Anteprime solo di sviluppo, senza account: `/dev/cards`, `/dev/board`, `/dev/match` (`?scenario=over|draw|
-    reconnecting|replaced|disconnected|promotion`), `/dev/home` (`?match=1`, `/leaderboard`, `/collection`, `/settings`,
-    `/profile`).
+    reconnecting|replaced|disconnected|promotion`), `/dev/home` (`?match=1`, `/leaderboard`, `/collection`, `/decks`,
+    `/settings`, `/profile`).
 - **Verifica finale:** typecheck, lint, build puliti; 457 test verdi; e2e 10/10; `cap sync android` pulito. JS
   iniziale 554 kB (172 kB gzip), partita 82 kB a richiesta.
 
 ## Prossima azione concreta
-Tu: `go build ./... && go vet ./... && go test ./...` sulla VM (branch `feat/collection`), poi una prima apertura della
-pagina col server vero (crea `user_cards` e il set iniziale). Review di rare (C3) e set iniziale (C4).
-Dopo: come si ottengono le carte (ricompense, buste) e i mazzi personali.
+Tu: `go build ./... && go vet ./... && go test ./...` sulla VM (branch `feat/decks`), poi col server vero: apri i Mazzi
+(crea `user_decks` e il mazzo iniziale) e gioca una partita col mazzo attivo. Review delle parti non disegnate (D11).
+Dopo: come si ottengono le carte (ricompense, buste).
 
 ## Decisioni prese
 - Redesign: `REDESIGN_PLAN.md` §10 (D1–D22). Il design vince su colori, tipografia, spaziature e layout; testi e

@@ -378,3 +378,30 @@ I riferimenti sono al server di quel branch.
 | S19 | Chip di costo `Tutti`, 0…6, `7+`: lo 0 in più rispetto alla tavola (Patto di sangue costa 0), `7+` comprende l'8. Su Android i chip stringono a 34px per starci in 390px. | Il catalogo va da 0 a 8. | `CollectionControls.tsx` |
 | S20 | Ricerca su nome e testo tradotti, senza maiuscole né accenti; ordinamento per nome secondo la lingua corrente. | Tavola + lingua. | `collectionView.ts` |
 | S21 | Su desktop la griglia è a colonne da 156px (cinque a 1440, come la tavola; di più o di meno su altri schermi) e il pannello di dettaglio arriva a 20px dal bordo. | La shell ha 40px di margine: con quello le cinque colonne non ci stanno. | `Collection.tsx` |
+
+## 9. Mazzi personali (`feat/decks`, tavole "Mazzi · desktop/Android")
+
+### Decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| D1 | Mazzo valido: 40 carte esatte, ognuna del catalogo, entro il massimo della rarità (2 comuni e rare, 1 leggendarie) ed entro le copie possedute. Le regole della tavola (20 carte, 3 copie) non valgono. | tu |
+| D2 | Al massimo 10 mazzi; nome 1–24 caratteri dopo il trim; nomi uguali ammessi. | tu + derivata |
+| D3 | Si salva anche un mazzo corto (bozza); solo un mazzo valido può essere attivo, e il mazzo attivo resta valido. Copie oltre possesso o massimo sempre rifiutate. | derivata |
+| D4 | Chi non ha mazzi riceve alla prima lettura "Mazzo iniziale", attivo: la ricetta condivisa limitata alle copie possedute, completata fino a 40 con le più economiche. | tu + derivata |
+| D5 | Eliminando l'attivo diventa attivo il valido modificato più di recente, o si ricrea il mazzo iniziale; l'ultimo mazzo non si elimina. | derivata |
+| D6 | In partita ognuno gioca col proprio mazzo attivo, letto all'apertura del WebSocket; se non è valido: `error deck_invalid`, chiusura 4002, niente coda (il client non riprova da solo). | tu + derivata |
+| D7 | «Autocompleta» e «Svuota» solo nel client; nulla è salvato fino a «Salva mazzo». | design |
+| D8 | Il sigillo del mazzo deriva dall'archetipo più presente: gelo, sacro → oro, necro → cremisi, gli altri → arcano. | derivata |
+| D9 | I chip dei tipi della tavola (Rapida, Incanto…) sono gli archetipi del catalogo; curva di mana da 0 a 7+. | derivata |
+| D10 | Uscire dall'editor con modifiche non salvate (altra pagina o altro mazzo) chiede conferma; alla chiusura della scheda l'avviso del browser. | derivata |
+| D11 | Non disegnati: «Elimina mazzo» (con conferma), la lista dei mazzi su Android, il menu «Usa in partita / Elimina» dell'editor Android, il link «‹ Mazzi». «Prova col bot» e «Codice» della tavola non ci sono. | tu + derivata |
+| D12 | Home: card «Mazzi» (quanti sono, i primi tre con prima l'attivo, «+ Nuovo mazzo») e in «Gioca» la riga «Mazzo attivo · Cambia» della tavola, anche su Android. | tu |
+
+### Assunzioni del client
+| # | Assunzione | Motivo | Dove |
+|---|---|---|---|
+| S22 | Gli errori REST dei mazzi arrivano solo come testo: ogni testo ha il suo codice (`deck_*`), come gli altri (C4). | Il REST non ha codici. | `adapter.ts` |
+| S23 | Un mazzo malformato nella lista si scarta con un warning (`deck_entry_invalid`); un mazzo creato o salvato sostituisce il suo nella lista senza rileggerla. | Come il catalogo (G10); niente attese prima di aprirlo. | `adapter.ts`, `useDecks.ts` |
+| S24 | La validità mostrata dall'editor (contatore, stato, pulsanti) è solo presentazione: decide il server. | Server autoritativo. | `deckEditor.ts` |
+| S25 | Desktop e Android hanno alberi diversi (lista + editor contro schede + pannello): la pagina sceglie con `matchMedia` (`useMediaQuery`), senza `matchMedia` vale Android. | Due tavole diverse, non solo classi. | `Decks.tsx` |
+| S26 | «+ Nuovo mazzo» crea subito una bozza vuota sul server ("Nuovo mazzo") e la apre. | Il server salva le bozze (D3). | `Decks.tsx`, `HomeCards.tsx` |
