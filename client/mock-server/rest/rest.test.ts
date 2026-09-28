@@ -140,7 +140,7 @@ describe('rotte (api/router.go)', () => {
   });
 
   it('GET /me/collection: set iniziale alla prima lettura, idempotente, 401 senza token', async () => {
-    const server = await start();
+    const server = await start({ unlockAllCards: false });
     expect((await call(server, 'GET', '/me/collection')).status).toBe(401);
     const tokens = await login(server, 'collector');
     const first = await call(server, 'GET', '/me/collection', { token: tokens.access_token });
@@ -154,7 +154,7 @@ describe('rotte (api/router.go)', () => {
   });
 
   it('mazzi: mazzo iniziale, bozza, limiti, attivazione, eliminazione (handlers/decks.go)', async () => {
-    const server = await start({ rateLimits: false });
+    const server = await start({ rateLimits: false, unlockAllCards: false });
     expect((await call(server, 'GET', '/me/decks')).status).toBe(401);
     const { access_token: token } = await login(server, 'deck_user');
     type Deck = { id: number; name: string; size: number; valid: boolean; active: boolean; cards: { spell_id: string; copies: number }[] };
@@ -198,6 +198,20 @@ describe('rotte (api/router.go)', () => {
 
     for (let i = 1; i < 10; i++) expect((await call(server, 'POST', '/me/decks', { token, body: { name: 'M', cards: [] } })).status).toBe(201);
     expect((await call(server, 'POST', '/me/decks', { token, body: { name: 'M', cards: [] } })).body.error).toBe('Hai già il numero massimo di mazzi');
+  });
+
+  it('collezione piena di default (C12): 59/59, mazzo iniziale con Fretta, una rara a 2 copie', async () => {
+    const server = await start({ rateLimits: false });
+    const { access_token: token } = await login(server, 'unlocked');
+    const view = (await call(server, 'GET', '/me/collection', { token })).body.data as { owned: number; total: number };
+    expect([view.owned, view.total]).toEqual([59, 59]);
+    const decks = (await call(server, 'GET', '/me/decks', { token })).body.data as { decks: { cards: { spell_id: string; copies: number }[] }[] };
+    const starter = decks.decks[0]?.cards ?? [];
+    expect(starter.find((c) => c.spell_id === 'haste')?.copies).toBe(1);
+    const cards = starter.map((c) => (c.spell_id === 'frost' ? { ...c, copies: c.copies - 1 } : c.spell_id === 'swap' ? { ...c, copies: 2 } : c));
+    const created = await call(server, 'POST', '/me/decks', { token, body: { name: 'Scambi', cards } });
+    expect(created.status).toBe(201);
+    expect(created.body.data).toMatchObject({ size: 40, valid: true });
   });
 
   it('mazzo attivo non valido: errore deck_invalid e chiusura 4002, niente coda', async () => {

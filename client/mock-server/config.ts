@@ -44,6 +44,8 @@ export interface MockConfig {
   /** Ritardo delle azioni dei bot, per rendere l'ordine dei messaggi realistico. */
   readonly botDelayMs: number;
   readonly quiet: boolean;
+  /** `spells.UnlockAllCards` (C12): ogni utente ha tutte le carte al massimo di copie. Il set iniziale resta sotto. */
+  readonly unlockAllCards: boolean;
 }
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -65,6 +67,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   heartbeat: { pingMs: 54_000, pongWaitMs: 60_000 },
   botDelayMs: 150,
   quiet: false,
+  unlockAllCards: true,
 };
 
 function intFromEnv(name: string, fallback: number): number {

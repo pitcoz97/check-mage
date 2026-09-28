@@ -32,7 +32,7 @@ export async function startMockServer(overrides: Partial<MockConfig> = {}): Prom
   const tickets = createTicketStore();
   const gate = createRequestGate(config, jwt, tickets);
 
-  const collections = createCollectionStore(RAW_CATALOG);
+  const collections = createCollectionStore(RAW_CATALOG, config.unlockAllCards);
   const decks = createDeckStore(collections);
   const app = createRestApp({ config, users, jwt, tickets, catalog: RAW_CATALOG, collections, decks }, gate);
   const gateway = createGateway({ config, users, gate, log, decks });

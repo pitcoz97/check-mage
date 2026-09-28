@@ -227,8 +227,17 @@ const SCENARIOS: Record<string, Scenario> = {
         const resumed = await c.event(from, isType('game_state'), 'game_state al rientro');
         const hand = await c.event(from, isType('hand'), 'hand al rientro');
         ctx.report.expect(resumed.state.reconnected && resumed.state.moves.some((m) => m.kind === 'move' && m.uci === 'e2e4'), 'G5: game_state con reconnected e mosse');
-        ctx.report.expect(c.hand.every((h, i) => h.instanceId === handIds[i]), 'mano riconciliata: stessi id d’istanza (C5)');
-        ctx.report.expect(JSON.stringify(hand.hand.cards.map((h) => h.spellId).sort()) === JSON.stringify(handBefore), 'G5: mano ripristinata');
+        // Mentre il client è fuori il bot può finire il suo turno: al rientro il Bianco ha già pescato la carta del
+        // turno nuovo. Le carte di prima restano, con i loro id; al più se ne aggiunge una.
+        const after = hand.hand.cards.map((h) => h.spellId);
+        const rest = [...after];
+        const kept = handBefore.every((id) => {
+          const index = rest.indexOf(id);
+          if (index >= 0) rest.splice(index, 1);
+          return index >= 0;
+        });
+        ctx.report.expect(handIds.every((id, i) => c.hand[i]?.instanceId === id), 'mano riconciliata: stessi id d’istanza (C5)');
+        ctx.report.expect(kept && rest.length <= 1, `G5: mano ripristinata (${after.length - handBefore.length} pescate al rientro)`);
       },
     });
     for (const move of ['d1h5', 'f1c4', 'h5f7']) await playTurn(c, { move });
