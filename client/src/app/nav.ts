@@ -15,7 +15,7 @@ export interface NavItem {
 export const NAV_ITEMS: readonly NavItem[] = [
   { key: 'play', icon: 'play', to: '/lobby' },
   { key: 'decks', icon: 'decks', to: null },
-  { key: 'collection', icon: 'collection', to: null },
+  { key: 'collection', icon: 'collection', to: '/collection' },
   { key: 'ranking', icon: 'ranking', to: '/leaderboard' },
   { key: 'friends', icon: 'friends', to: null },
 ];

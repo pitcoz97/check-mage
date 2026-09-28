@@ -11,6 +11,7 @@ import {
   encodeRegister,
   interpretHttpResponse,
   normalizeAccount,
+  normalizeCollection,
   FALLBACK_CREDENTIAL_POLICY,
   normalizeGameHistory,
   normalizeLeaderboard,
@@ -717,6 +718,31 @@ describe('REST', () => {
     });
   });
 
+  it('collezione: voci valide, malformate scartate una per una; possedute e totale del server', () => {
+    const result = normalizeCollection({
+      cards: [
+        { spell_id: 'frost', copies: 2, max_copies: 2 },
+        { spell_id: 'haste', copies: 0, max_copies: 1 },
+        { spell_id: 'shield', copies: 3, max_copies: 2 },
+        { copies: 1, max_copies: 2 },
+      ],
+      owned: 2,
+      total: 3,
+    });
+    if (!result.ok) throw new Error('collezione rifiutata');
+    expect(result.value).toEqual({
+      cards: [
+        { spellId: 'frost', copies: 2, maxCopies: 2 },
+        { spellId: 'haste', copies: 0, maxCopies: 1 },
+      ],
+      owned: 2,
+      total: 3,
+    });
+    expect(result.warnings.map((w) => w.code)).toEqual(['collection_entry_invalid', 'collection_entry_invalid']);
+    expect(normalizeCollection({ cards: null, owned: 0, total: 0 })).toEqual({ ok: true, value: { cards: [], owned: 0, total: 0 }, warnings: [] });
+    expect(normalizeCollection({ cards: [] })).toMatchObject({ ok: false });
+  });
+
   it('ticket WebSocket', () => {
     expect(normalizeWsTicket({ ticket: 'ab12', expires_in: 30 })).toEqual({
       ok: true,
@@ -773,9 +799,11 @@ describe('catalogo', () => {
       ],
       effects: [{ kind: 'move_piece', params: { no_check: true } }],
       tags: ['arcano'],
-      rarity: 'common',
+      rarity: 'rare',
       perTurn: null,
     });
+    expect(spells.filter((s) => s.rarity === 'rare')).toHaveLength(9);
+    expect(spells.filter((s) => s.rarity === 'legendary')).toHaveLength(5);
     expect(spells.find((s) => s.id === 'blood_pact')?.perTurn).toBe(1);
   });
 

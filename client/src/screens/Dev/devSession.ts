@@ -1,4 +1,5 @@
 import { createLogger } from '../../lib/log';
+import fallbackCatalog from '../../spells/fallback.json';
 import { createAuth, type Auth } from '../../store/authStore';
 import { createMatchSession, type MatchSession } from '../../store/matchSession';
 import { fakeSockets } from '../../testing/fakeSocket';
@@ -67,6 +68,22 @@ const LEADERBOARD = [
   { rank: 5, id: 7, username: 'Riccardo', elo: 1240 },
 ];
 
+/**
+ * `GET /me/collection` delle anteprime: il set iniziale del server (comuni 2, rare 1, leggendarie 0), con in più
+ * Fretta e una seconda Frantumare per vedere una leggendaria posseduta e una rara piena.
+ */
+const EXTRA_COPIES: Record<string, number> = { haste: 1, shatter: 2 };
+const COLLECTION = (() => {
+  const cards = [...fallbackCatalog]
+    .sort((a, b) => a.mana_cost - b.mana_cost || a.id.localeCompare(b.id))
+    .map((spell) => {
+      const max = spell.rarity === 'legendary' ? 1 : 2;
+      const starter = spell.rarity === 'common' ? 2 : spell.rarity === 'rare' ? 1 : 0;
+      return { spell_id: spell.id, copies: EXTRA_COPIES[spell.id] ?? starter, max_copies: max };
+    });
+  return { cards, owned: cards.reduce((n, c) => n + c.copies, 0), total: cards.reduce((n, c) => n + c.max_copies, 0) };
+})();
+
 const SHIELD = { square: 'e4', effects: [{ kind: 'shield', remaining_turns: 1, source_spell_id: 'shield' }] };
 const FREEZE = { square: 'c3', effects: [{ kind: 'freeze', remaining_turns: 1, source_spell_id: 'ice_chain' }] };
 /** Step 6: l'alfiere in c1 è in phasing (Passo sfasato), fino alla fine del turno. */
@@ -88,6 +105,7 @@ export async function startDevSession({
     'GET /users/7': () => data({ user: SELF, stats: { wins: 23, losses: 17, draws: 4, total: 44 } }),
     'GET /users/8': () => data({ user: OPPONENT, stats: { wins: 0, losses: 0, draws: 0, total: 0 } }),
     'GET /leaderboard': () => data(LEADERBOARD),
+    'GET /me/collection': () => data(COLLECTION),
   });
   const auth = createAuth({ baseUrl: 'http://dev.local', storage, fetchImpl: server.fetchImpl });
   await auth.store.getState().bootstrap();

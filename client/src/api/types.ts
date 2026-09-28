@@ -51,6 +51,20 @@ export interface LeaderboardEntry {
   readonly elo: number;
 }
 
+/** Una voce di `GET /me/collection`: copie possedute di una magia, da 0 al massimo della rarità. */
+export interface CollectionCard {
+  readonly spellId: string;
+  readonly copies: number;
+  readonly maxCopies: number;
+}
+
+/** `GET /me/collection`: una voce per magia del catalogo, più le copie possedute su quelle possibili. */
+export interface CardCollection {
+  readonly cards: readonly CollectionCard[];
+  readonly owned: number;
+  readonly total: number;
+}
+
 export interface GameHistoryEntry {
   readonly id: string;
   readonly white: Username;

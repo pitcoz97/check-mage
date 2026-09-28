@@ -63,6 +63,8 @@ import {
 } from '../ws/protocol';
 import type {
   AuthSession,
+  CardCollection,
+  CollectionCard,
   CredentialPolicy,
   GameHistoryEntry,
   HttpErrorCode,
@@ -90,6 +92,7 @@ const WARNING_ASSUMPTION = {
   effect_unknown: 'G8',
   catalog_shape_unexpected: 'G10',
   catalog_entry_invalid: 'G10',
+  collection_entry_invalid: 'G10',
   enum_unknown: 'A15',
   number_out_of_range: 'A15',
   value_invalid: 'A15',
@@ -1085,9 +1088,9 @@ export const HTTP_ERROR_TEXTS: readonly ErrorTextRule<HttpErrorCode>[] = [
   { pattern: /^Risorsa non trovata$/, code: 'not_found' }, // api/router.go:33
   { pattern: /^Metodo non consentito$/, code: 'method_not_allowed' }, // api/router.go:34
   {
-    pattern: /^(Errore interno|Errore generazione token|Errore generazione ticket|Errore recupero profilo|Errore DB)$/,
+    pattern: /^(Errore interno|Errore generazione token|Errore generazione ticket|Errore recupero profilo|Errore recupero collezione|Errore DB)$/,
     code: 'internal_error',
-  }, // handlers/auth.go:59,137,145,247,257,288; handlers/ws.go:30; handlers/stats.go:25,82
+  }, // handlers/auth.go:59,137,145,247,257,288; handlers/ws.go:30; handlers/stats.go:25,82; handlers/collection.go
 ];
 
 export type HttpOutcome =
@@ -1190,6 +1193,30 @@ export function normalizePublicProfile(data: unknown): Normalized<PublicProfile>
 export function normalizeLeaderboard(data: unknown): Normalized<readonly LeaderboardEntry[]> {
   const entry = z.object({ rank: count, id: wireId, username: nonEmptyString, elo: z.number() });
   return normalize(nullableList(entry), data, (list) => list);
+}
+
+/**
+ * `GET /me/collection` (`handlers/collection.go`): le voci malformate si scartano una per una (come il catalogo,
+ * G10); possedute e totale restano quelli del server.
+ */
+export function normalizeCollection(data: unknown): Normalized<CardCollection> {
+  const schema = z.object({ cards: nullableList(z.unknown()), owned: count.min(0), total: count.min(0) });
+  const entry = z
+    .object({ spell_id: nonEmptyString, copies: count.min(0), max_copies: count.min(1) })
+    .refine((e) => e.copies <= e.max_copies, 'copies > max_copies');
+  const ctx = createCtx();
+  const parsed = parseWith(schema, data);
+  if (!parsed.ok) return { ok: false, issues: parsed.issues };
+  const cards: CollectionCard[] = [];
+  parsed.data.cards.forEach((raw, index) => {
+    const card = parseWith(entry, raw);
+    if (!card.ok) {
+      warn(ctx, 'collection_entry_invalid', `[${index}] ${card.issues.join('; ')}`);
+      return;
+    }
+    cards.push({ spellId: card.data.spell_id, copies: card.data.copies, maxCopies: card.data.max_copies });
+  });
+  return { ok: true, value: { cards, owned: parsed.data.owned, total: parsed.data.total }, warnings: ctx.warnings };
 }
 
 /** `GET /users/{id}/games` (`handlers/stats.go:54-108`): `[]` se vuota; `null` resta tollerato. */
@@ -1375,7 +1402,7 @@ export function normalizeSpellCatalog(raw: unknown): NormalizedCatalog {
       })),
       effects: wire.data.effects.map((effect) => ({ kind: effect.kind, params: effect.params ?? {} })),
       tags: wire.data.tags ?? [],
-      rarity: wire.data.rarity === 'legendary' ? 'legendary' : 'common',
+      rarity: wire.data.rarity === 'legendary' || wire.data.rarity === 'rare' ? wire.data.rarity : 'common',
       perTurn: wire.data.limits?.['per_turn'] ?? null,
     });
     if (!internal.ok) {

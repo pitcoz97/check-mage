@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { createBrowserRouter, type RouteObject } from 'react-router';
 
 import { Login } from '../screens/Auth/Login';
+import { Collection } from '../screens/Collection/Collection';
 import { Register } from '../screens/Auth/Register';
 import { Lobby } from '../screens/Lobby/Lobby';
 import { Leaderboard } from '../screens/Leaderboard/Leaderboard';
@@ -91,6 +92,7 @@ export const routes: RouteObject[] = [
               { path: 'lobby', element: <Lobby /> },
               { path: 'profile', element: <Profile /> },
               { path: 'leaderboard', element: <Leaderboard /> },
+              { path: 'collection', element: <Collection /> },
               { path: 'settings', element: <Settings /> },
             ],
           },

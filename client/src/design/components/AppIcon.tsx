@@ -5,7 +5,22 @@ import type { ReactNode } from 'react';
  * arriva da `currentColor`: nessun colore letterale qui.
  */
 
-export type AppIconName = 'logo' | 'play' | 'decks' | 'collection' | 'ranking' | 'friends' | 'settings' | 'trophy' | 'bell' | 'chevron' | 'home';
+export type AppIconName =
+  | 'logo'
+  | 'play'
+  | 'decks'
+  | 'collection'
+  | 'ranking'
+  | 'friends'
+  | 'settings'
+  | 'trophy'
+  | 'bell'
+  | 'chevron'
+  | 'home'
+  | 'search'
+  | 'lock'
+  | 'check'
+  | 'close';
 
 const SHAPES: Record<AppIconName, ReactNode> = {
   logo: (
@@ -48,6 +63,21 @@ const SHAPES: Record<AppIconName, ReactNode> = {
   chevron: <path d="M9 5l7 7-7 7" />,
   // Non disegnata: la casa, per tornare alla home dal foglio della partita su Android.
   home: <path d="M4 11l8-7 8 7M6 9.5V20h12V9.5M10 20v-5h4v5" />,
+  // Dalla tavola "Collezione": ricerca, lucchetto delle carte non possedute, spunta del filtro, chiusura del foglio.
+  search: (
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M16 16l4.5 4.5" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </>
+  ),
+  check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
+  close: <path d="M6 6l12 12M18 6L6 18" />,
 };
 
 export function AppIcon({ name, className = '', strokeWidth = 1.8 }: { name: AppIconName; className?: string; strokeWidth?: number }) {
