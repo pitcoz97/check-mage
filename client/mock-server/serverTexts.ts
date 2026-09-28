@@ -176,6 +176,7 @@ export const HTTP = {
   notRefreshToken: t('Token non valido', 'token_invalid'), // handlers/auth.go:222
   userNotFound: t('Utente non trovato', 'user_not_found'), // handlers/auth.go:236; handlers/stats.go:134
   profileError: t('Errore recupero profilo', 'internal_error'), // handlers/auth.go:288
+  collectionError: t('Errore recupero collezione', 'internal_error'), // handlers/collection.go
   tokenMissing: t('Token mancante', 'token_missing'), // middleware/auth.go:36
   tokenInvalid: t('Token non valido o scaduto', 'token_invalid_or_expired'), // middleware/auth.go:42
   ticketInvalid: t('Ticket non valido o scaduto', 'ticket_invalid'), // middleware/wsticket.go:88

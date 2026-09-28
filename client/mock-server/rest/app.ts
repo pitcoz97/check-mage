@@ -4,6 +4,7 @@ import type { AccessClaims, JwtService } from '../auth/jwt';
 import type { TicketStore } from '../auth/tickets';
 import type { MockConfig } from '../config';
 import { HTTP, type ServerText } from '../serverTexts';
+import { createCollectionStore, type CollectionSpell } from '../store/collection';
 import { PASSWORD_POLICY, validateRegister, type User, type UserStore } from '../store/users';
 import { clientKey, createRateLimiter } from './rateLimit';
 
@@ -18,12 +19,7 @@ export interface RestDeps {
   readonly jwt: JwtService;
   readonly tickets: TicketStore;
   /** Catalogo grezzo di `spells.json`, servito da `GET /spells`. */
-  readonly catalog: readonly SpellLike[];
-}
-
-interface SpellLike {
-  readonly id: string;
-  readonly mana_cost: number;
+  readonly catalog: readonly CollectionSpell[];
 }
 
 type AuthedRequest = Request & { claims?: AccessClaims };
@@ -100,6 +96,7 @@ const ROUTES: readonly { readonly pattern: RegExp; readonly methods: readonly st
   { pattern: /^\/users\/[^/]+\/games$/, methods: ['GET'] },
   { pattern: /^\/spells$/, methods: ['GET'] },
   { pattern: /^\/me$/, methods: ['GET'] },
+  { pattern: /^\/me\/collection$/, methods: ['GET'] },
   { pattern: /^\/ws(\/ticket)?$/, methods: ['GET'] },
 ];
 
@@ -110,6 +107,7 @@ function isAllowedOrigin(origin: string): boolean {
 
 export function createRestApp(deps: RestDeps, gate: RequestGate) {
   const { users, jwt, tickets } = deps;
+  const collections = createCollectionStore(deps.catalog);
   const app = express();
   app.disable('x-powered-by');
   app.disable('etag');
@@ -239,6 +237,12 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
     const user = req.claims === undefined ? undefined : users.findById(req.claims.user_id);
     if (user === undefined) return fail(res, 500, HTTP.profileError);
     ok(res, userJson(user, { email: true, createdAt: true }));
+  });
+
+  // handlers/collection.go: set iniziale alla prima lettura (db/collection.go)
+  app.get('/me/collection', requireAuth, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.collectionError);
+    ok(res, collections.load(req.claims.user_id));
   });
 
   // handlers/stats.go:54-108: `[]` se vuota (B8)
