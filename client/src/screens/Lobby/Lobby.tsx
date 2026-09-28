@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AppIcon } from '../../design/components/AppIcon';
 import { useAuth } from '../../store/AuthProvider';
 import { useMatch, useMatchSession } from '../../store/MatchProvider';
-import { RankingCard, SoonCard } from './HomeCards';
+import { CollectionCard, RankingCard, SoonCard } from './HomeCards';
 import { OngoingMatchCard } from './OngoingMatchCard';
 import { PlayCard } from './PlayCard';
 
@@ -79,7 +79,7 @@ export function Lobby() {
       {/* Desktop: la riga di card. */}
       <div className="hidden grow grid-cols-4 gap-5 lg:grid">
         <SoonCard icon="decks" title={t('nav.decks')} />
-        <SoonCard icon="collection" title={t('nav.collection')} />
+        <CollectionCard />
         <RankingCard />
         <SoonCard icon="friends" title={t('nav.friends')} />
       </div>

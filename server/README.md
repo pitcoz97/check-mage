@@ -189,6 +189,19 @@ CREATE TABLE live_matches (
 );
 ```
 
+The `user_cards` table (each user's card collection) is also created at startup
+(`db.EnsureCollectionSchema`); the starter set is granted on the first
+`GET /me/collection`:
+
+```sql
+CREATE TABLE user_cards (
+    user_id  INTEGER NOT NULL REFERENCES users(id),
+    spell_id TEXT NOT NULL,
+    copies   INTEGER NOT NULL CHECK (copies >= 0),
+    PRIMARY KEY (user_id, spell_id)
+);
+```
+
 ### 4. Run
 
 ```bash

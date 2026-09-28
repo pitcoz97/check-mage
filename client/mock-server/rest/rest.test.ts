@@ -139,6 +139,20 @@ describe('rotte (api/router.go)', () => {
     expect(spells[0]?.id).toBe('blood_pact');
   });
 
+  it('GET /me/collection: set iniziale alla prima lettura, idempotente, 401 senza token', async () => {
+    const server = await start();
+    expect((await call(server, 'GET', '/me/collection')).status).toBe(401);
+    const tokens = await login(server, 'collector');
+    const first = await call(server, 'GET', '/me/collection', { token: tokens.access_token });
+    const view = first.body.data as { cards: { spell_id: string; copies: number; max_copies: number }[]; owned: number; total: number };
+    expect(view.cards).toHaveLength(32);
+    expect(view.cards[0]).toEqual({ spell_id: 'blood_pact', copies: 2, max_copies: 2 });
+    expect(view.cards.find((c) => c.spell_id === 'shatter')).toEqual({ spell_id: 'shatter', copies: 1, max_copies: 2 });
+    expect(view.cards.find((c) => c.spell_id === 'haste')).toEqual({ spell_id: 'haste', copies: 0, max_copies: 1 });
+    expect([view.owned, view.total]).toEqual([45, 59]);
+    expect((await call(server, 'GET', '/me/collection', { token: tokens.access_token })).body.data).toEqual(view);
+  });
+
   it('GET /auth/password-policy', async () => {
     const server = await start();
     expect((await call(server, 'GET', '/auth/password-policy')).body.data).toEqual({

@@ -127,6 +127,10 @@
   --rarity-common: #8c8577;
   --rarity-rare: var(--gold);
   --rarity-mythic: #e0703e;
+
+  /* --- Collezione: rombo di copia vuoto e maniglia del foglio, controllo spento --- */
+  --pip-empty: #4a4452;
+  --control-off: #5a5262;
   /* Carta non giocabile (D5): velo scuro invece della trasparenza. 30% è il massimo che tiene ogni testo della carta
      sopra 4.5:1 (moneta del costo 4.6, riga del tipo 4.9): tests/contrast.test.ts lo verifica. */
   --card-disabled-veil: rgba(27, 26, 31, 0.3);
@@ -171,6 +175,7 @@
   --ring-elevated: inset 0 0 0 1px var(--bg-elevated);
   --drop-card: 0 10px 24px rgba(0, 0, 0, 0.45);
   --drop-board: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --drop-sheet: 0 -12px 40px rgba(0, 0, 0, 0.5);
   --ring-frozen: inset 0 0 0 2px var(--board-frozen-edge);
   --ring-shielded: inset 0 0 0 3px var(--gold), 0 0 14px var(--board-shield-glow);
   --ring-wall: inset 0 0 0 2px var(--board-wall-edge), inset 0 -4px 0 var(--board-wall-shade);

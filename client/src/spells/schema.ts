@@ -10,7 +10,7 @@ import { z } from 'zod';
 export const KNOWN_TARGET_TYPES = ['square', 'own_piece', 'enemy_piece'] as const;
 export type KnownTargetType = (typeof KNOWN_TARGET_TYPES)[number];
 
-export const RARITIES = ['common', 'legendary'] as const;
+export const RARITIES = ['common', 'rare', 'legendary'] as const;
 export type Rarity = (typeof RARITIES)[number];
 
 // `kind`, `type` dei bersagli e tag sono stringhe aperte: un valore sconosciuto non deve rompere il catalogo (§5.1.6).

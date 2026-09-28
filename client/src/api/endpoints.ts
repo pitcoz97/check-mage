@@ -3,6 +3,7 @@ import {
   encodeRefresh,
   encodeRegister,
   normalizeAccount,
+  normalizeCollection,
   normalizeLeaderboard,
   normalizeLogin,
   normalizePasswordPolicy,
@@ -18,6 +19,7 @@ import type { HttpClient } from './http';
 import type { Spell } from '../spells/schema';
 import type {
   AuthSession,
+  CardCollection,
   CredentialPolicy,
   HttpErrorInfo,
   LeaderboardEntry,
@@ -67,6 +69,11 @@ export function createApi(http: HttpClient) {
 
     async fetchPublicProfile(userId: string): Promise<ApiResult<PublicProfile>> {
       return toResult(await http.request('GET', `/users/${encodeURIComponent(userId)}`), normalizePublicProfile);
+    },
+
+    /** Copie possedute di ogni magia (`handlers/collection.go`). Autenticato: il set iniziale arriva alla prima lettura. */
+    async fetchCollection(): Promise<ApiResult<CardCollection>> {
+      return toResult(await http.request('GET', '/me/collection', { auth: true }), normalizeCollection);
     },
 
     /** Primi dieci per ELO (`handlers/stats.go:14-51`). Pubblico: niente posizione propria né stagione (P2-20). */

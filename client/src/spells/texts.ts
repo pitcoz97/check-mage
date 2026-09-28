@@ -43,8 +43,9 @@ export function spellTypeLine(t: TFunction, spell: Spell | undefined): string {
   return first === undefined ? t('spells.card.typePlain') : t('spells.card.type', { kind: effectPresentation(first.kind).label(t) });
 }
 
-/** Classe della cornice e del rombo per rarità: comune = grigio, leggendaria = la "mitica" del design. */
+/** Classe della cornice e del rombo per rarità: comune = grigio, rara = oro, leggendaria = la "mitica" del design. */
 export const RARITY_FRAME: Record<Rarity, { readonly border: string; readonly gem: string }> = {
   common: { border: 'border-rarity-common', gem: 'bg-rarity-common' },
+  rare: { border: 'border-rarity-rare', gem: 'bg-rarity-rare' },
   legendary: { border: 'border-rarity-mythic', gem: 'bg-rarity-mythic' },
 };

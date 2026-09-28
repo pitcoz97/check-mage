@@ -22,7 +22,12 @@ export interface TargetSpec {
   min_rank?: number;
 }
 
-export type Rarity = 'common' | 'legendary';
+export type Rarity = 'common' | 'rare' | 'legendary';
+
+/** `Rarity.MaxCopies` (`spells/spells.go`): comuni e rare 2, leggendarie 1. */
+export function maxCopies(rarity: Rarity): number {
+  return rarity === 'legendary' ? 1 : 2;
+}
 
 export interface SpellEffect {
   kind: string;
@@ -80,7 +85,7 @@ function loadCatalog(raw: unknown): Map<string, Spell> {
       spell.targets.every(validTarget) &&
       Array.isArray(spell.effects) &&
       Array.isArray(spell.tags) &&
-      (spell.rarity === 'common' || spell.rarity === 'legendary');
+      (spell.rarity === 'common' || spell.rarity === 'rare' || spell.rarity === 'legendary');
     if (!ok) throw new Error(`spells.json: voce ${index} non valida`);
     map.set(spell.id as string, spell as Spell);
   });

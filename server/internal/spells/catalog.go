@@ -39,7 +39,7 @@ var catalogList = []Spell{
 		Targets: []TargetSpec{{Type: TargetEnemyPiece, Pieces: minor}},
 		Effects: []Effect{{Kind: EffectFreezePiece, Params: map[string]interface{}{"duration": 1}}}},
 
-	{ID: "shatter", Name: "Frantumare", ManaCost: 4, Phases: mainPhases, Tags: []string{"gelo"}, Rarity: Common,
+	{ID: "shatter", Name: "Frantumare", ManaCost: 4, Phases: mainPhases, Tags: []string{"gelo"}, Rarity: Rare,
 		Targets: []TargetSpec{{Type: TargetEnemyPiece, Pieces: []PieceKind{Pawn, Knight, Bishop, Rook}, RequireEffect: "freeze"}},
 		Effects: []Effect{{Kind: EffectDestroyPiece}}},
 
@@ -75,7 +75,7 @@ var catalogList = []Spell{
 
 	// Il pedone muove anche come un pezzo minore del proprio cimitero, per questo
 	// turno (durata 0, M9 e M55); la scelta arriva con cast_spell.choice.
-	{ID: "echo_of_fallen", Name: "Eco del caduto", ManaCost: 4, Phases: preMove, Tags: []string{"necro", "arcano"}, Rarity: Common,
+	{ID: "echo_of_fallen", Name: "Eco del caduto", ManaCost: 4, Phases: preMove, Tags: []string{"necro", "arcano"}, Rarity: Rare,
 		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: []PieceKind{Pawn}}},
 		Effects: []Effect{{Kind: EffectBorrowMovement, Params: map[string]interface{}{
 			"from_graveyard": minor, "duration": 0}}}},
@@ -88,15 +88,15 @@ var catalogList = []Spell{
 		Effects: []Effect{{Kind: EffectAddEffect, Params: map[string]interface{}{
 			"effect": "phasing", "no_capture": true, "duration": 0}}}},
 
-	{ID: "blink", Name: "Blink", ManaCost: 4, Phases: mainPhases, Tags: []string{"arcano"}, Rarity: Common,
+	{ID: "blink", Name: "Blink", ManaCost: 4, Phases: mainPhases, Tags: []string{"arcano"}, Rarity: Rare,
 		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: minor}, {Type: TargetSquare, EmptySquare: true, MaxDistance: 2}},
 		Effects: []Effect{{Kind: EffectMovePiece, Params: map[string]interface{}{"no_check": true}}}},
 
-	{ID: "swap", Name: "Scambio", ManaCost: 3, Phases: mainPhases, Tags: []string{"arcano"}, Rarity: Common,
+	{ID: "swap", Name: "Scambio", ManaCost: 3, Phases: mainPhases, Tags: []string{"arcano"}, Rarity: Rare,
 		Targets: []TargetSpec{{Type: TargetOwnPiece}, {Type: TargetOwnPiece}},
 		Effects: []Effect{{Kind: EffectSwapPieces, Params: map[string]interface{}{"no_check": true}}}},
 
-	{ID: "metamorphosis", Name: "Metamorfosi", ManaCost: 5, Phases: mainPhases, Tags: []string{"arcano"}, Rarity: Common,
+	{ID: "metamorphosis", Name: "Metamorfosi", ManaCost: 5, Phases: mainPhases, Tags: []string{"arcano"}, Rarity: Rare,
 		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: minor}},
 		Effects: []Effect{{Kind: EffectTransformPiece, Params: map[string]interface{}{
 			"map": map[string]interface{}{"knight": "bishop", "bishop": "knight"}, "no_check": true}}}},
@@ -111,7 +111,7 @@ var catalogList = []Spell{
 		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: []PieceKind{Pawn, Knight, Bishop, Rook}}},
 		Effects: []Effect{{Kind: EffectShieldPiece, Params: map[string]interface{}{"duration": 1}}}},
 
-	{ID: "royal_shield", Name: "Scudo reale", ManaCost: 4, Phases: mainPhases, Tags: []string{"sacro"}, Rarity: Common,
+	{ID: "royal_shield", Name: "Scudo reale", ManaCost: 4, Phases: mainPhases, Tags: []string{"sacro"}, Rarity: Rare,
 		Targets: []TargetSpec{{Type: TargetOwnPiece, Pieces: []PieceKind{Queen}}},
 		Effects: []Effect{{Kind: EffectShieldPiece, Params: map[string]interface{}{"duration": 1}}}},
 
@@ -119,10 +119,10 @@ var catalogList = []Spell{
 		Effects: []Effect{{Kind: EffectShieldArea, Params: map[string]interface{}{
 			"around": "own_king", "radius": 1, "duration": 1}}}},
 
-	{ID: "divine_castling", Name: "Arrocco divino", ManaCost: 4, Phases: preMove, Tags: []string{"sacro"}, Rarity: Common,
+	{ID: "divine_castling", Name: "Arrocco divino", ManaCost: 4, Phases: preMove, Tags: []string{"sacro"}, Rarity: Rare,
 		Effects: []Effect{{Kind: EffectRestoreCastling}}},
 
-	{ID: "sanctuary", Name: "Santuario", ManaCost: 5, Phases: mainPhases, Tags: []string{"sacro"}, Rarity: Common,
+	{ID: "sanctuary", Name: "Santuario", ManaCost: 5, Phases: mainPhases, Tags: []string{"sacro"}, Rarity: Rare,
 		Targets: []TargetSpec{{Type: TargetSquare}},
 		Effects: []Effect{{Kind: EffectCreateSquareEffect, Params: map[string]interface{}{
 			"effect": "no_capture", "duration": 3}}}},
@@ -155,7 +155,7 @@ var catalogList = []Spell{
 			"on_enter": "destroy_piece", "only": []PieceKind{Pawn, Knight, Bishop},
 			"fallback": "freeze_piece", "fallback_duration": 1}}}},
 
-	{ID: "detonation", Name: "Detonazione", ManaCost: 4, Phases: mainPhases, Tags: []string{"rune", "gelo"}, Rarity: Common,
+	{ID: "detonation", Name: "Detonazione", ManaCost: 4, Phases: mainPhases, Tags: []string{"rune", "gelo"}, Rarity: Rare,
 		Effects: []Effect{{Kind: EffectDetonateRunes, Params: map[string]interface{}{
 			"radius": 1, "do": "freeze_piece", "duration": 1}}}},
 
@@ -210,8 +210,9 @@ func indexCatalog(list []Spell) map[string]Spell {
 
 // deckRecipe definisce quante copie di ogni carta compongono il mazzo, uguale
 // per entrambi i giocatori. Totale = 40 sulle 32 magie del brief, nei limiti di
-// copie della rarità (2 per le comuni, 1 per le leggendarie): le 5 leggendarie a
-// 1 copia, 8 comuni a 2 e 19 a 1 (M61, da rivedere nel bilanciamento).
+// copie della rarità (2 per comuni e rare, 1 per le leggendarie): le 5
+// leggendarie a 1 copia, 8 fra comuni e rare a 2 e 19 a 1 (M61, da rivedere nel
+// bilanciamento).
 var deckRecipe = []struct {
 	ID    string
 	Count int

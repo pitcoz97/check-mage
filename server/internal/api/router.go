@@ -54,6 +54,7 @@ func NewRouter() *chi.Mux {
 		r.Use(mw.Auth)
 
 		r.Get("/me", handlers.Me)
+		r.Get("/me/collection", handlers.Collection) // collezione di carte
 		r.Get("/users/{id}/games", handlers.GameHistory) // storico partite
 		r.Get("/ws/ticket", handlers.WSTicket)           // ticket monouso per /ws
 	})

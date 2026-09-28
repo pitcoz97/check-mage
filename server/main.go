@@ -42,6 +42,11 @@ func main() {
 	}
 	game.GameManager.LoadPersisted()
 
+	// Collezione di carte per utente (set iniziale alla prima lettura)
+	if err := db.EnsureCollectionSchema(); err != nil {
+		logger.L.Error("Errore creazione schema user_cards", zap.Error(err))
+	}
+
 	// Monitora la salute del DB ogni 30 secondi
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)

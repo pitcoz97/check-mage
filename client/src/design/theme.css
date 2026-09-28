@@ -73,6 +73,8 @@
   --color-rarity-common: var(--rarity-common);
   --color-rarity-rare: var(--rarity-rare);
   --color-rarity-mythic: var(--rarity-mythic);
+  --color-pip-empty: var(--pip-empty);
+  --color-control-off: var(--control-off);
   --color-card-disabled: var(--card-disabled-veil);
   --color-art-leap: var(--art-leap);
   --color-art-frost: var(--art-frost);
@@ -113,6 +115,7 @@
   --shadow-ring-elevated: var(--ring-elevated);
   --shadow-card: var(--drop-card);
   --shadow-board: var(--drop-board);
+  --shadow-sheet: var(--drop-sheet);
   --shadow-ring-frozen: var(--ring-frozen);
   --shadow-ring-shielded: var(--ring-shielded);
   --shadow-ring-wall: var(--ring-wall);

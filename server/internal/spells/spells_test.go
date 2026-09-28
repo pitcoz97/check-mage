@@ -105,7 +105,7 @@ func TestCatalog_WellFormed(t *testing.T) {
 	pieces := map[PieceKind]bool{Pawn: true, Knight: true, Bishop: true, Rook: true, Queen: true}
 
 	for id, sp := range Catalog {
-		if sp.Rarity != Common && sp.Rarity != Legendary {
+		if sp.Rarity != Common && sp.Rarity != Rare && sp.Rarity != Legendary {
 			t.Errorf("%s: rarità %q sconosciuta", id, sp.Rarity)
 		}
 		if len(sp.Tags) == 0 {
@@ -170,8 +170,8 @@ func TestDeckRecipe(t *testing.T) {
 }
 
 func TestRarity_MaxCopies(t *testing.T) {
-	if Common.MaxCopies() != 2 || Legendary.MaxCopies() != 1 {
-		t.Errorf("copie massime: common %d, legendary %d", Common.MaxCopies(), Legendary.MaxCopies())
+	if Common.MaxCopies() != 2 || Rare.MaxCopies() != 2 || Legendary.MaxCopies() != 1 {
+		t.Errorf("copie massime: common %d, rare %d, legendary %d", Common.MaxCopies(), Rare.MaxCopies(), Legendary.MaxCopies())
 	}
 }
 
