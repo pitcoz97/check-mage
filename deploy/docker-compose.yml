@@ -1,0 +1,87 @@
+# CheckMage su una VPS: database, server e Caddy (sito + HTTPS).
+# Si avvia dalla cartella deploy/ con:  docker compose up -d --build
+# I valori da compilare stanno in deploy/.env (modello: deploy/.env.example). Guida: docs/DEPLOY.md.
+
+name: checkmage
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chessuser
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Manca DB_PASSWORD in deploy/.env}
+      POSTGRES_DB: chessdb
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chessuser -d chessdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  server:
+    build: ../server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: chessuser
+      DB_PASSWORD: ${DB_PASSWORD:?Manca DB_PASSWORD in deploy/.env}
+      DB_NAME: chessdb
+      DB_SSLMODE: disable
+      JWT_SECRET: ${JWT_SECRET:?Manca JWT_SECRET in deploy/.env}
+      SERVER_PORT: "8080"
+      ENV: production
+      # Il sito, e l'app Android (la sua WebView ha origine https://localhost o capacitor://localhost).
+      CORS_ALLOWED_ORIGINS: https://${APP_DOMAIN},https://localhost,capacitor://localhost
+      # Caddy sta in questa rete: il rate limit legge l'IP vero da X-Forwarded-For.
+      TRUSTED_PROXIES: 172.28.0.0/16
+    # Allo spegnimento il server salva le partite in corso: gli si lascia il tempo.
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  caddy:
+    build:
+      context: ..
+      dockerfile: deploy/caddy/Dockerfile
+      args:
+        VITE_API_BASE_URL: https://${API_DOMAIN:?Manca API_DOMAIN in deploy/.env}
+        VITE_WS_URL: wss://${API_DOMAIN:?Manca API_DOMAIN in deploy/.env}/ws
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Manca APP_DOMAIN in deploy/.env}
+      API_DOMAIN: ${API_DOMAIN:?Manca API_DOMAIN in deploy/.env}
+      ACME_EMAIL: ${ACME_EMAIL:?Manca ACME_EMAIL in deploy/.env}
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:
