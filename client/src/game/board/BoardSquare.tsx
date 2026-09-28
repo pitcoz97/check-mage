@@ -72,7 +72,7 @@ export function BoardSquare({
           {states.map((state, index) => (
             <span key={`${state.kind}-${String(index)}`} className="flex items-center gap-px">
               {/* Uno stato permanente (una runa) non ha turni da contare. */}
-              {state.remainingTurns !== PERMANENT_TURNS && (
+              {state.remainingTurns !== PERMANENT_TURNS && state.remainingTurns !== 0 && (
                 <span className="rounded-pill bg-app/80 px-[0.35em] text-[max(8px,15cqw)] leading-tight font-bold text-primary tabular-nums">
                   {state.remainingTurns}
                 </span>

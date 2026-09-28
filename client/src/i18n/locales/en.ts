@@ -231,12 +231,14 @@ export const en: Translation = {
       nextPhase: 'Go to {{phase}} phase',
       endTurn: 'End turn',
       mustMove: 'Move a piece',
+      skipExtraMove: 'Skip the second move',
       waitOpponent: 'Opponent’s turn',
       short: {
         main1: 'Move',
         main2: 'End turn',
         draw: 'Spells',
         move: 'Move',
+        skipExtra: 'Skip',
         wait: 'Wait',
       },
       offerDraw: '½ Offer draw',
@@ -298,6 +300,7 @@ export const en: Translation = {
         no_castling: 'No castling to restore: king or rooks are not in place.',
         no_runes: 'You have no runes to detonate.',
         aura_present: 'That aura is already active.',
+        already_granted: 'You already have a second move this turn.',
       },
       choice: {
         missing: 'Pick the piece before casting the spell.',
@@ -488,6 +491,20 @@ export const en: Translation = {
         text: 'A permanent effect, active while its condition holds.',
         pawnSidestep: 'With {{count}} or more pawns, your pawns can move one square sideways.',
       },
+      add_effect: {
+        label: 'Phase step',
+        phasing: 'This move, the bishop passes through pieces to an empty square, without capturing.',
+        text: 'A movement state on the piece, for this turn.',
+      },
+      borrow_movement: {
+        label: 'Echo',
+        text: 'This turn the pawn also moves and captures like a {{pieces}} from your graveyard, your choice.',
+      },
+      extra_move: {
+        label: 'Second move',
+        pawnNoCapture: 'After your move you may also move a pawn, without capturing.',
+        text: 'After your move you get another one.',
+      },
       orList: '{{head}} or {{last}}',
       unknown: { label: 'Unknown effect', text: 'An effect this client does not know yet.' },
     },
@@ -496,6 +513,8 @@ export const en: Translation = {
       shield: 'Shielded',
       wall: 'Wall',
       no_capture: 'Sanctuary',
+      phasing: 'Phasing',
+      borrow_movement: 'Echo of the Fallen',
       rune: {
         freeze_piece: 'Stasis rune',
         return_to_origin: 'Repel rune',
@@ -507,6 +526,7 @@ export const en: Translation = {
       runeEnemy: 'Opponent’s {{rune}}',
       unknown: 'Active effect',
       badgeOne: '{{state}}, 1 turn left',
+      badgeThisTurn: '{{state}}, until the end of the turn',
       badgeMany: '{{state}}, {{count}} turns left',
     },
     prompt: {
@@ -576,6 +596,12 @@ export const en: Translation = {
       restless_soul: { name: 'Restless Soul', text: 'Until the end of the next opponent turn, each piece you lose draws you a card.' },
       reflection: { name: 'Reflection', text: 'Hidden trap: the first enemy that tries to capture one of your shielded pieces is frozen.' },
       banner: { name: 'Banner', text: 'Permanent: with 6 or more pawns, your pawns can move one square sideways.' },
+      phase_step: { name: 'Phase Step', text: 'Before your move: your bishop passes through pieces on this move. It cannot capture.' },
+      echo_of_fallen: {
+        name: 'Echo of the Fallen',
+        text: 'Before your move: one of your pawns also moves like a knight or bishop from your graveyard this turn.',
+      },
+      haste: { name: 'Haste', text: 'Before your move: after your move you may also move a pawn, without capturing.' },
     },
     refusal: {
       not_connected: 'You are not connected to the game.',

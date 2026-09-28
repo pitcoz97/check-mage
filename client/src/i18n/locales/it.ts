@@ -233,12 +233,14 @@ export const it = {
       nextPhase: 'Passa alla fase {{phase}}',
       endTurn: 'Fine del turno',
       mustMove: 'Muovi un pezzo',
+      skipExtraMove: 'Salta la seconda mossa',
       waitOpponent: 'Turno dell’avversario',
       short: {
         main1: 'Mossa',
         main2: 'Fine turno',
         draw: 'Magie',
         move: 'Muovi',
+        skipExtra: 'Salta',
         wait: 'Attendi',
       },
       offerDraw: '½ Offri patta',
@@ -300,6 +302,7 @@ export const it = {
         no_castling: 'Non ci sono arrocchi da ripristinare: re o torri non sono al loro posto.',
         no_runes: 'Non hai rune da far esplodere.',
         aura_present: 'Quell’aura è già attiva.',
+        already_granted: 'Hai già una seconda mossa in questo turno.',
       },
       choice: {
         missing: 'Scegli il pezzo prima di lanciare la magia.',
@@ -498,6 +501,20 @@ export const it = {
         text: 'Un effetto permanente, attivo finché vale la sua condizione.',
         pawnSidestep: 'Con {{count}} o più pedoni, i tuoi pedoni possono muovere di una casa di lato.',
       },
+      add_effect: {
+        label: 'Passo sfasato',
+        phasing: 'In questa mossa l’alfiere attraversa i pezzi fino a una casa vuota, senza catturare.',
+        text: 'Uno stato di movimento sul pezzo, per questo turno.',
+      },
+      borrow_movement: {
+        label: 'Eco',
+        text: 'In questo turno il pedone muove e cattura anche come un {{pieces}} del tuo cimitero, a scelta.',
+      },
+      extra_move: {
+        label: 'Seconda mossa',
+        pawnNoCapture: 'Dopo la tua mossa puoi muovere anche un pedone, senza catturare.',
+        text: 'Dopo la tua mossa ne hai un’altra.',
+      },
       orList: '{{head}} o {{last}}',
       unknown: { label: 'Effetto ignoto', text: 'Effetto che questo client non conosce ancora.' },
     },
@@ -506,6 +523,8 @@ export const it = {
       shield: 'Protetto',
       wall: 'Muro',
       no_capture: 'Santuario',
+      phasing: 'Sfasato',
+      borrow_movement: 'Eco del caduto',
       /** Le rune si chiamano per quello che fanno quando scattano (`on_enter`). */
       rune: {
         freeze_piece: 'Runa di stasi',
@@ -518,6 +537,7 @@ export const it = {
       runeEnemy: '{{rune}} dell’avversario',
       unknown: 'Effetto attivo',
       badgeOne: '{{state}}, ancora 1 turno',
+      badgeThisTurn: '{{state}}, fino a fine turno',
       badgeMany: '{{state}}, ancora {{count}} turni',
     },
     prompt: {
@@ -592,6 +612,12 @@ export const it = {
         text: 'Trappola nascosta: il primo nemico che prova a catturare un tuo pezzo scudato viene congelato.',
       },
       banner: { name: 'Stendardo', text: 'Per sempre: con 6 o più pedoni, i tuoi pedoni possono muovere di una casa di lato.' },
+      phase_step: { name: 'Passo sfasato', text: 'Prima della mossa: il tuo alfiere, in questa mossa, attraversa i pezzi. Non cattura.' },
+      echo_of_fallen: {
+        name: 'Eco del caduto',
+        text: 'Prima della mossa: un tuo pedone, in questo turno, muove anche come un cavallo o un alfiere del tuo cimitero.',
+      },
+      haste: { name: 'Fretta', text: 'Prima della mossa: dopo la tua mossa puoi muovere anche un pedone, senza catturare.' },
     },
     /** Perché una carta non è giocabile ora: il motivo si vede sulla carta, non si indovina. */
     refusal: {

@@ -24,6 +24,7 @@ function publicState(overrides: Partial<PublicGameState> = {}): PublicGameState 
     graveyards: { white: [], black: [] },
     squareStates: [],
     playerEffects: { triggers: [], auras: [] },
+    moveOptions: { specialMoves: [], extraMove: null },
     reconnected: false,
     players: { white: { id: '1', username: 'mario' }, black: { id: '2', username: 'luigi' } },
     timeControl: { baseMs: 600_000, incrementMs: 5_000 },
@@ -121,6 +122,16 @@ describe('applyServerEvent: aggiornamenti puntuali', () => {
       { square: 'b2', effects: [{ kind: 'freeze', remainingTurns: 1, sourceSpellId: 'eternal_winter' }] },
     ]);
     expect(state.game?.graveyards).toEqual({ white: ['pawn'], black: [] });
+  });
+
+  it('move_options sostituisce le opzioni di mossa', () => {
+    const options = { specialMoves: ['c1f4'], extraMove: { pieces: ['pawn' as const], noCapture: true } };
+    const state = run([...START, { type: 'move_options', moveOptions: options }]);
+    expect(state.game?.moveOptions).toEqual(options);
+    expect(run([{ type: 'move_options', moveOptions: { specialMoves: [], extraMove: null } }], '1', state).game?.moveOptions).toEqual({
+      specialMoves: [],
+      extraMove: null,
+    });
   });
 
   it('player_effects_changed sostituisce trigger e aure; trigger_fired e aura_changed restano per gli avvisi', () => {

@@ -4,7 +4,7 @@
  * classi di chi le usa (registry degli stati), mai qui.
  */
 
-export type StateIconName = 'frost' | 'shield' | 'wall' | 'sanctuary' | 'rune' | 'return' | 'burst' | 'question';
+export type StateIconName = 'frost' | 'shield' | 'wall' | 'sanctuary' | 'rune' | 'return' | 'burst' | 'phase' | 'echo' | 'question';
 
 export function StateIcon({ name, className = '' }: { name: StateIconName; className?: string }) {
   const common = { viewBox: '0 0 24 24', 'aria-hidden': true, focusable: false, className } as const;
@@ -50,6 +50,24 @@ export function StateIcon({ name, className = '' }: { name: StateIconName; class
     return (
       <svg {...common} fill="currentColor" stroke="var(--bg-app)" strokeWidth="1" strokeLinejoin="round">
         <path d="M12 2l2 6 6-3-3 6 6 1-6 2 3 6-6-3-2 6-2-6-6 3 3-6-6-2 6-1-3-6 6 3z" />
+      </svg>
+    );
+  }
+  if (name === 'phase') {
+    // Non disegnata dal design (D20): una diagonale tratteggiata con la punta, "attraverso".
+    return (
+      <svg {...common} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M5 19l14-14" strokeDasharray="3 3" />
+        <path d="M11 5h8v8" />
+      </svg>
+    );
+  }
+  if (name === 'echo') {
+    // Non disegnata dal design (D20): due archi concentrici, un'eco.
+    return (
+      <svg {...common} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+        <circle cx="7" cy="12" r="2.5" fill="currentColor" />
+        <path d="M12 7a6 6 0 0 1 0 10M16 4a10 10 0 0 1 0 16" />
       </svg>
     );
   }

@@ -77,6 +77,21 @@ describe('registry degli effetti: trigger e aure', () => {
   });
 });
 
+describe('registry degli effetti: mosse speciali', () => {
+  it('testi dai params, scelta dal cimitero, stati del pezzo', () => {
+    expect(spellRulesText(t, [{ kind: 'add_effect', params: { effect: 'phasing', no_capture: true, duration: 0 } }])[0]).toContain('attraversa i pezzi');
+    expect(spellRulesText(t, [{ kind: 'borrow_movement', params: { from_graveyard: ['knight', 'bishop'] } }])[0]).toContain('cavallo o alfiere');
+    expect(spellRulesText(t, [{ kind: 'extra_move', params: { pieces: ['pawn'], no_capture: true } }])).toEqual([
+      'Dopo la tua mossa puoi muovere anche un pedone, senza catturare.',
+    ]);
+    const borrow = effectPresentation('borrow_movement');
+    expect(borrow.choiceOptions?.({ from_graveyard: ['knight', 'bishop'] }, { graveyard: ['knight', 'bishop', 'pawn'] })).toEqual(['knight', 'bishop']);
+    expect(borrow.choiceOptions?.({ from_graveyard: ['knight', 'bishop'] }, { graveyard: ['bishop'] })).toBeNull();
+    expect(statePresentation('phasing').label(t)).toBe('Sfasato');
+    expect(statePresentation('borrow_movement').label(t)).toBe('Eco del caduto');
+  });
+});
+
 describe('registry degli effetti: rune', () => {
   it('testi delle carte dai params', () => {
     expect(spellRulesText(t, [{ kind: 'place_rune', params: { on_enter: 'freeze_piece', duration: 2 } }])).toEqual([

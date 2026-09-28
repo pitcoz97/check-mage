@@ -98,6 +98,9 @@ export const EFFECT_KINDS = [
   'hidden_effect',
   'add_trigger',
   'add_aura',
+  'add_effect',
+  'borrow_movement',
+  'extra_move',
 ] as const;
 export type KnownEffectKind = (typeof EFFECT_KINDS)[number];
 
@@ -310,6 +313,35 @@ const EFFECTS: Record<KnownEffectKind, EffectPresentation> = {
       return params['grant'] === 'pawn_sidestep' ? t('spells.effect.add_aura.pawnSidestep', { count: min }) : t('spells.effect.add_aura.text');
     },
   },
+  // Mosse speciali (Step 6): il testo viene dai params; icone provvisorie.
+  add_effect: {
+    icon: 'arrow',
+    art: ART.arcane,
+    label: (t) => t('spells.effect.add_effect.label'),
+    describe: (t, params) => (params['effect'] === 'phasing' ? t('spells.effect.add_effect.phasing') : t('spells.effect.add_effect.text')),
+  },
+  borrow_movement: {
+    icon: 'spark',
+    art: ART.doom,
+    label: (t) => t('spells.effect.borrow_movement.label'),
+    describe: (t, params) => t('spells.effect.borrow_movement.text', { pieces: pieceNames(t, params, 'from_graveyard') }),
+    // Solo i tipi davvero presenti nel proprio cimitero; con uno solo il server lo deduce (M55).
+    choiceOptions: (params, ctx) => {
+      const options = pieceList(params, 'from_graveyard').filter((kind) => ctx.graveyard.includes(kind));
+      return options.length > 1 ? options : null;
+    },
+  },
+  extra_move: {
+    icon: 'arrow',
+    art: ART.leap,
+    label: (t) => t('spells.effect.extra_move.label'),
+    describe: (t, params) => {
+      const pieces = pieceList(params, 'pieces');
+      return pieces.length === 1 && pieces[0] === 'pawn' && params['no_capture'] === true
+        ? t('spells.effect.extra_move.pawnNoCapture')
+        : t('spells.effect.extra_move.text');
+    },
+  },
 };
 
 /**
@@ -373,7 +405,7 @@ export interface StatePresentation {
   label(t: TFunction): string;
 }
 
-export const PIECE_STATE_KINDS = ['freeze', 'shield', 'wall', 'no_capture', 'rune'] as const;
+export const PIECE_STATE_KINDS = ['freeze', 'shield', 'wall', 'no_capture', 'rune', 'phasing', 'borrow_movement'] as const;
 export type KnownStateKind = (typeof PIECE_STATE_KINDS)[number];
 
 const UNKNOWN_STATE: StatePresentation = {
@@ -417,6 +449,19 @@ const STATES: Record<KnownStateKind, StatePresentation> = {
     badgeClass: 'text-arcane-bright',
     veil: 'inset-[14%] rounded-full border-2 border-board-rune-edge bg-board-rune',
     label: (t) => t('spells.state.rune.unknown'),
+  },
+  // Stati di movimento (Step 6), non disegnati (D20): durano fino alla fine del turno, solo badge e un velo leggero.
+  phasing: {
+    badge: 'phase',
+    badgeClass: 'text-arcane-bright',
+    veil: 'inset-[6%] rounded-full border-2 border-dashed border-board-rune-edge opacity-80',
+    label: (t) => t('spells.state.phasing'),
+  },
+  borrow_movement: {
+    badge: 'echo',
+    badgeClass: 'text-arcane-bright',
+    veil: '',
+    label: (t) => t('spells.state.borrow_movement'),
   },
 };
 
@@ -470,6 +515,8 @@ export function stateLabel(t: TFunction, effect: ActiveEffect, myColor: string |
     return t(effect.hidden === true ? 'spells.state.runeHidden' : 'spells.state.runeOwn', { rune: state });
   }
   if (effect.remainingTurns === PERMANENT_TURNS) return state;
+  // Durata 0 (M9): vale fino alla fine del turno di chi l'ha lanciato, come gli stati di movimento dello Step 6.
+  if (effect.remainingTurns === 0) return t('spells.state.badgeThisTurn', { state });
   return effect.remainingTurns === 1 ? t('spells.state.badgeOne', { state }) : t('spells.state.badgeMany', { state, count: effect.remainingTurns });
 }
 

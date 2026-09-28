@@ -25,6 +25,7 @@ import type {
   PrivateHand,
   ProtocolErrorInfo,
   PublicGameState,
+  MoveOptions,
   PlayerEffects,
   RuneResult,
   SpellId,
@@ -76,6 +77,7 @@ export const SERVER_MESSAGE_TYPES = [
   'player_effects_changed',
   'trigger_fired',
   'aura_changed',
+  'move_options',
   'timer_update',
   'game_over',
   'error',
@@ -142,6 +144,8 @@ export type ServerEvent =
       readonly result: TriggerResult;
     }
   | { readonly type: 'aura_changed'; readonly player: Color; readonly grant: string; readonly active: boolean }
+  /** Le mosse fuori dagli scacchi di chi riceve, nella sua fase Move (vuote se non è il suo turno). */
+  | { readonly type: 'move_options'; readonly moveOptions: MoveOptions }
   /** `turn` = giocatore di cui scorre il tempo, non il tratto scacchistico (`game/room.go:1331-1340`). */
   | { readonly type: 'timer_update'; readonly clocks: Clocks; readonly turn: Color | 'unknown' }
   | {

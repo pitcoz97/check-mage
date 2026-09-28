@@ -69,6 +69,8 @@ const LEADERBOARD = [
 
 const SHIELD = { square: 'e4', effects: [{ kind: 'shield', remaining_turns: 1, source_spell_id: 'shield' }] };
 const FREEZE = { square: 'c3', effects: [{ kind: 'freeze', remaining_turns: 1, source_spell_id: 'ice_chain' }] };
+/** Step 6: l'alfiere in c1 è in phasing (Passo sfasato), fino alla fine del turno. */
+const PHASING = { square: 'c1', effects: [{ kind: 'phasing', remaining_turns: 0, source_spell_id: 'phase_step', caster: 'white' }] };
 
 /** Account e sessione finti per le anteprime: con `withMatch` la partita delle tavole è già in corso. */
 export async function startDevSession({
@@ -128,10 +130,10 @@ export async function startDevSession({
   // (Promozione anticipata sul pedone in b7, Resurrezione con due tipi nel cimitero). Dello Step 3: un muro e un
   // santuario sulle case. Dello Step 4: una propria runa nascosta in e6, una runa nemica rivelata in a3, carte di rune
   // in mano e l'avviso di una magia nascosta dell'avversario; con `rune` anche l'avviso di una runa scattata. Dello
-  // Step 5: trigger e aure nelle righe dei giocatori, Anima inquieta e Riflesso in mano.
+  // Step 5: trigger e aure nelle righe dei giocatori. Dello Step 6: l'alfiere in c1 in phasing e le tre carte nuove in mano.
   if (scenario === 'spells' || scenario === 'rune') {
     socket.receive(
-      gameState(MOVES, [], {
+      gameState(MOVES, [PHASING], {
         fen: PROMOTION_FEN,
         extra: {
           white_mana: 10,
@@ -163,7 +165,7 @@ export async function startDevSession({
     );
     socket.receive({
       type: 'hand',
-      payload: { hand: ['early_promotion', 'restless_soul', 'reflection', 'stasis_rune', 'banner'], mana: 10, max_mana: 10, deck_size: 18 },
+      payload: { hand: ['early_promotion', 'restless_soul', 'phase_step', 'echo_of_fallen', 'haste'], mana: 10, max_mana: 10, deck_size: 18 },
     });
     socket.receive({ type: 'spell_cast', payload: { player: 'black', hidden: true, effects_applied: [{ kind: 'hidden_effect' }] } });
   }

@@ -151,7 +151,7 @@ const SCENARIOS: Record<string, Scenario> = {
     await white.refresh();
     report.expect((await white.me()).email === white.email, 'refresh del token e /me con il token nuovo');
     const catalog = await white.catalog();
-    report.expect(catalog.spells.length === 29, `catalogo: ${catalog.spells.length} magie da ${catalog.source}`);
+    report.expect(catalog.spells.length === 32, `catalogo: ${catalog.spells.length} magie da ${catalog.source}`);
     report.expect(catalog.source === 'server', 'catalogo da GET /spells');
 
     await white.connect('pvp');

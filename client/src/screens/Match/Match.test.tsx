@@ -165,6 +165,25 @@ describe('schermata di partita', () => {
     await waitFor(() => expect(square('e3').getAttribute('aria-label')).toBe('e3'));
   });
 
+  it('mosse speciali: le case del server si evidenziano e la mossa parte; la seconda mossa di Fretta si salta', async () => {
+    const { receive, expectSent } = await setup();
+    receive(gameState({ special_moves: ['c1f4', 'c1h6'] }));
+    fireEvent.click(square('c1'));
+    await waitFor(() =>
+      expect([...document.querySelectorAll('[data-target="true"]')].map((b) => b.getAttribute('data-square')).sort()).toEqual(['f4', 'h6']),
+    );
+    fireEvent.click(square('f4'));
+    await expectSent({ type: 'move', payload: { move: 'c1f4' } });
+
+    receive(gameState({ special_moves: ['e2e3', 'e2e4'], extra_move: { pieces: ['pawn'], no_capture: true } }));
+    await waitFor(() => expect(passButton().textContent).toContain('Salta la seconda mossa'));
+    expect(passButton().disabled).toBe(false);
+    fireEvent.click(square('g1'));
+    expect(document.querySelectorAll('[data-target="true"]')).toHaveLength(0);
+    fireEvent.click(passButton());
+    await expectSent({ type: 'pass_phase', payload: {} });
+  });
+
   it('il rifiuto deciso dal client non disturba il server', async () => {
     const { sent, receive } = await setup();
     receive(gameState({ phase: 'main1' }));

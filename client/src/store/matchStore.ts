@@ -378,6 +378,9 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
         lastTrigger: { player: event.player, on: event.on, do: event.do, sourceSpellId: event.sourceSpellId, result: event.result, seq },
       };
 
+    case 'move_options':
+      return game === null ? base : { ...base, game: { ...game, moveOptions: event.moveOptions } };
+
     case 'aura_changed':
       return { ...base, lastAura: { player: event.player, grant: event.grant, active: event.active, seq } };
 

@@ -27,11 +27,15 @@ function usePassState(): PassState {
   const reported = useMatch((s) => s.game?.phase ?? 'unknown');
   const phase: Phase | null = reported === 'unknown' ? null : reported;
   const activePlayer = useMatch((s) => s.game?.activePlayer ?? null);
+  const extraMove = useMatch((s) => s.game?.moveOptions.extraMove ?? null);
   const playing = useMatch((s) => s.lifecycle === 'playing');
   const connected = useSessionStatus((s) => s.connection.kind === 'open');
 
   const myTurn = myColor !== null && activePlayer === myColor;
-  const enabled = playing && connected && myTurn && phase !== null && PASSABLE_PHASES.includes(phase);
+  // La seconda mossa di Fretta si può saltare: `pass_phase` è ammesso anche nella fase Move (Step 6, M57).
+  const skipExtra = myTurn && phase === 'move' && extraMove !== null;
+  const enabled = playing && connected && myTurn && phase !== null && (PASSABLE_PHASES.includes(phase) || skipExtra);
+  if (skipExtra) return { enabled, label: t('match.action.skipExtraMove'), short: t('match.action.short.skipExtra') };
   if (!myTurn) return { enabled, label: t('match.action.waitOpponent'), short: t('match.action.short.wait') };
   const next = phase === null ? undefined : NEXT_PHASE[phase];
   if (next !== undefined) {

@@ -14,6 +14,8 @@ function context(overrides: Partial<BoardContext> = {}): BoardContext {
     phase: 'move',
     frozen: new Set<Square>(),
     squareStates: [],
+    specialMoves: [],
+    extraMove: false,
     canAct: true,
     ...overrides,
   };
@@ -56,6 +58,16 @@ describe('tapSquare', () => {
     const wall = { square: 'e3' as Square, effects: [{ kind: 'wall', remainingTurns: 2, sourceSpellId: 'ice_wall' }] };
     expect(tapSquare(context({ squareStates: [wall] }), null, 'e2')).toEqual({ kind: 'selection', selection: { from: 'e2', targets: [] } });
     expect(tapSquare(context({ squareStates: [wall] }), null, 'd2')).toEqual({ kind: 'selection', selection: { from: 'd2', targets: ['d3', 'd4'] } });
+  });
+
+  it('mosse speciali del server aggiunte ai bersagli; nella seconda mossa di Fretta solo quelle', () => {
+    const phasing = tapSquare(context({ specialMoves: ['c1f4', 'c1h6'] }), null, 'c1');
+    expect(phasing).toEqual({ kind: 'selection', selection: { from: 'c1', targets: ['f4', 'h6'] } });
+    const pawn = tapSquare(context({ specialMoves: ['e2d3'] }), null, 'e2');
+    expect(pawn).toEqual({ kind: 'selection', selection: { from: 'e2', targets: ['e3', 'e4', 'd3'] } });
+    const extra = context({ specialMoves: ['e2e3', 'e2e4'], extraMove: true });
+    expect(tapSquare(extra, null, 'g1')).toEqual({ kind: 'selection', selection: { from: 'g1', targets: [] } });
+    expect(tapSquare(extra, null, 'e2')).toEqual({ kind: 'selection', selection: { from: 'e2', targets: ['e3', 'e4'] } });
   });
 
   it('promozione segnalata alla UI, che chiede quale pezzo', () => {
