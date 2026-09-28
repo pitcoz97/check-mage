@@ -1,0 +1,6 @@
+.env
+.env.*
+main
+chess-server
+*.exe
+*.log

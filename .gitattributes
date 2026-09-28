@@ -1,0 +1,4 @@
+# I file che girano su Linux (VPS, container) devono avere fine riga LF anche se il repo è clonato su Windows.
+*.sh text eol=lf
+Dockerfile text eol=lf
+deploy/** text eol=lf

@@ -141,7 +141,7 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
   resterà a cadenza unica (vedi P2-1).
 
 ### P2-16 — Origini ammesse sull'handshake del WebSocket
-- **Stato:** aperta · **Priorità:** P2
+- **Stato:** chiusa (`feat/deploy`: `allowedOrigin` in `handlers/ws.go` legge `CORS_ALLOWED_ORIGINS`) · **Priorità:** P2
 - **Perché:** oggi l'upgrader accetta qualunque origine (`handlers/ws.go:16-18`, `CheckOrigin` restituisce `true` con
   il commento "In prod controlla origine"). Va benissimo adesso, ma quando il controllo verrà acceso l'elenco deve
   includere le stesse origini del CORS REST, **compresa quella della WebView Android** (`https://localhost`) e,

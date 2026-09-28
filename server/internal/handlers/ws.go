@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"chess-server/internal/config"
 	"chess-server/internal/game"
 	"chess-server/internal/logger"
 	mw "chess-server/internal/middleware"
 	"chess-server/internal/models"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
@@ -14,10 +16,35 @@ import (
 	"golang.org/x/time/rate"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // In prod controlla origine
-	},
+var upgrader = websocket.Upgrader{CheckOrigin: allowedOrigin}
+
+// allowedOrigin ammette l'handshake solo dalle origini di CORS_ALLOWED_ORIGINS
+// (stessi pattern di go-chi/cors, con un '*' al più), così il sito e l'app
+// Android si collegano e una pagina estranea no (P2-16). Senza Origin (client
+// non browser: test, e2e, verify-server) la richiesta passa: l'autenticazione
+// resta comunque obbligatoria.
+func allowedOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" || config.C == nil {
+		return true
+	}
+	for _, pattern := range config.C.CORSAllowedOrigins {
+		if matchOrigin(pattern, origin) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchOrigin confronta un'origine con un pattern: uguale (senza badare alle
+// maiuscole), "*", oppure prefisso e suffisso attorno a un solo '*'.
+func matchOrigin(pattern, origin string) bool {
+	pattern, origin = strings.ToLower(pattern), strings.ToLower(origin)
+	if pattern == "*" || pattern == origin {
+		return true
+	}
+	prefix, suffix, found := strings.Cut(pattern, "*")
+	return found && len(origin) >= len(prefix)+len(suffix) && strings.HasPrefix(origin, prefix) && strings.HasSuffix(origin, suffix)
 }
 
 // WSTicket gestisce GET /ws/ticket: emette un ticket monouso (30s) per aprire

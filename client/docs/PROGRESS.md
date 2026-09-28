@@ -3,14 +3,15 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Tutte le carte sbloccate (temporaneo), in attesa di review e dei test Go sulla VM.** Branch `feat/unlock-all` da
-`main` (catalogo, collezione e mazzi sono in `main`). Decisione C12 in `docs/ASSUMPTIONS.md` §8; mazzi in §9 (D1–D12,
-S22–S26). Il redesign (R1–R6) è unito
-in `main`.
+**Tutto in `main`:** catalogo, collezione, mazzi, carte sbloccate per ora (C12) e deploy su VPS (`docs/DEPLOY.md`).
+Decisioni in `docs/ASSUMPTIONS.md` §7–§9. Il redesign (R1–R6) è unito in `main`.
 Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
 eseguibile).
 
 ## Completo
+- **Deploy su VPS:** `deploy/` (Postgres con lo schema iniziale, server con Stockfish, Caddy che costruisce e serve il
+  client con HTTPS automatico), script di aggiornamento, backup e ripristino; `DB_SSLMODE` e controllo delle origini del
+  WebSocket (P2-16). Guida per chi non ha competenze: `docs/DEPLOY.md` alla radice.
 - **Tutte le carte sbloccate (temporaneo):** interruttore `spells.UnlockAllCards` sul server e `unlockAllCards` nel mock,
   accesi: collezione 59/59 e mazzi con qualsiasi carta; il set iniziale resta nel DB (C12).
 - **Mazzi personali:** tavole "Mazzi · desktop/Android". Server: `user_decks`, `/me/decks` (lista, crea, modifica,
@@ -75,8 +76,7 @@ eseguibile).
   iniziale 554 kB (172 kB gzip), partita 82 kB a richiesta.
 
 ## Prossima azione concreta
-Tu: `go build ./... && go vet ./... && go test ./...` sulla VM (branch `feat/unlock-all`), poi col server vero: la
-Collezione mostra 59/59 e i Mazzi accettano ogni carta.
+Tu: mettere il gioco online seguendo `docs/DEPLOY.md` (VPS, dominio, `deploy/.env`, `docker compose up -d --build`).
 Dopo: come si ottengono le carte (ricompense, buste).
 
 ## Decisioni prese

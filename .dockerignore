@@ -1,0 +1,12 @@
+# Contesto di build di deploy/caddy/Dockerfile (la radice del repository): solo il client serve davvero.
+.git
+**/node_modules
+**/.env
+**/.env.*
+client/dist
+client/android
+client/coverage
+client/design-reference
+client/docs/*.zip
+server
+deploy/backups
