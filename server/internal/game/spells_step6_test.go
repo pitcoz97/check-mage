@@ -75,6 +75,7 @@ func TestHaste_Cast(t *testing.T) {
 	if !r.extraGranted(match.PlayerWhite) {
 		t.Fatal("la seconda mossa è concessa")
 	}
+	r.Match.White.Mana = 10 // la prima Fretta ne ha spesi 6: senza ricarica il rifiuto sarebbe per il mana
 	if err := castIn(r, match.PlayerWhite, phase.PhaseMain1, "haste"); code(err) != gameerr.NoEffect || reasonOf(err) != "already_granted" {
 		t.Errorf("seconda Fretta: %v", err)
 	}
