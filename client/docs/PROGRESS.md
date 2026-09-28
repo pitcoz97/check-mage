@@ -3,13 +3,18 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Catalogo magie, Step 6 di 6 (`docs/BRIEFING-MAGIE.md`), in attesa di review e dei test Go sulla VM: il catalogo è
-completo (32 magie).** Branch `feat/spell-catalog` (gli Step 1–4 sono in `main`, PR #1). Decisioni e verifiche del
-brief in `docs/ASSUMPTIONS.md` §7 (M1–M61, S1–S17). Il redesign (R1–R6) è unito in `main`.
+**Collezione, in attesa di review e dei test Go sulla VM.** Branch `feat/collection` da `main` (il catalogo magie,
+Step 1–6, è in `main`). Decisioni in `docs/ASSUMPTIONS.md` §8 (C1–C8, S18–S21). Il redesign (R1–R6) è unito in
+`main`.
 Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
 eseguibile).
 
 ## Completo
+- **Collezione:** tavole "Collezione · desktop/Android". Server: rarità `rare` (9 magie), tabella `user_cards` con il set
+  iniziale alla prima lettura (comuni 2, rare 1, leggendarie 0: 45 / 59), `GET /me/collection`. Mock allineato.
+  Client: pagina `/collection` (voce di navigazione attiva) con contatore, ricerca, filtri di rarità, costo e possesso,
+  ordinamento, rombi delle copie, carte bloccate, pannello di dettaglio su desktop e foglio su Android;
+  `/dev/home/collection`. 599 test, e2e 11/11.
 - **Catalogo magie, Step 6:** mosse speciali. Server: `effects.SpecialMoves` (phasing dell'alfiere, movimento preso in
   prestito del pedone, passo di lato dello Stendardo) validate fuori da Stockfish e contate per matto e stallo; Fretta
   con la seconda mossa facoltativa; `special_moves`/`extra_move` in `game_state` e nel nuovo `move_options`. Passo
@@ -54,14 +59,15 @@ eseguibile).
   - **R6** accesso, stati dell'app, coda, profilo, banner, patta ricevuta, resa, promozione, fine partita nel
     linguaggio del design; pulizia di token e testi morti.
   - Anteprime solo di sviluppo, senza account: `/dev/cards`, `/dev/board`, `/dev/match` (`?scenario=over|draw|
-    reconnecting|replaced|disconnected|promotion`), `/dev/home` (`?match=1`, `/leaderboard`, `/settings`, `/profile`).
+    reconnecting|replaced|disconnected|promotion`), `/dev/home` (`?match=1`, `/leaderboard`, `/collection`, `/settings`,
+    `/profile`).
 - **Verifica finale:** typecheck, lint, build puliti; 457 test verdi; e2e 10/10; `cap sync android` pulito. JS
   iniziale 554 kB (172 kB gzip), partita 82 kB a richiesta.
 
 ## Prossima azione concreta
-Tu: `go build ./... && go vet ./... && go test ./...` sulla VM (branch `feat/spell-catalog`; i test che passano da una
-mossa usano Stockfish) e review dello Step 6, con la ricetta M61 da rivedere in bilanciamento. Poi il merge in `main`:
-la roadmap del brief è finita.
+Tu: `go build ./... && go vet ./... && go test ./...` sulla VM (branch `feat/collection`), poi una prima apertura della
+pagina col server vero (crea `user_cards` e il set iniziale). Review di rare (C3) e set iniziale (C4).
+Dopo: come si ottengono le carte (ricompense, buste) e i mazzi personali.
 
 ## Decisioni prese
 - Redesign: `REDESIGN_PLAN.md` §10 (D1–D22). Il design vince su colori, tipografia, spaziature e layout; testi e

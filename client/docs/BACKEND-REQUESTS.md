@@ -135,7 +135,8 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
 - **Perché:** il redesign mostra funzioni che il server non ha. Nel client sono visibili ma disattivate, senza dati
   finti: modalità **amichevole** e **contro bot** (oggi una sola coda classificata, `game/manager.go:31`; Stockfish è
   usato solo per le regole, `game/room.go:446`), **mazzi** e deckbuilding (un solo mazzo condiviso; fuori scope v1
-  nel briefing), **collezione**, **amici** e sfida diretta, **notifiche**, **chat** di partita.
+  nel briefing), **amici** e sfida diretta, **notifiche**, **chat** di partita. La **collezione** c'è
+  (`GET /me/collection`, `feat/collection`); mancano i modi per ottenere carte.
 - **Nel client:** nessun aggiramento. Le **cadenze** del design non sono incluse: per decisione di prodotto il gioco
   resterà a cadenza unica (vedi P2-1).
 

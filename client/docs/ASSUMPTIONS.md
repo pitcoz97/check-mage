@@ -352,3 +352,25 @@ I riferimenti sono al server di quel branch.
 | S15 | Un `game_state` senza `special_moves`/`extra_move` (server precedente allo Step 6) vale come nessuna mossa speciale; `move_options` sostituisce entrambe. | Come S6, S7, S12. | `adapter.ts` §2 |
 | S16 | I bersagli di un pezzo sono quelli di chess.js più le `special_moves` che partono da quella casa; con `extra_move` solo le `special_moves`. Nessuna mossa speciale è calcolata nel client. | Il server è autoritativo (M60). | `selection.ts` |
 | S17 | Uno stato con `remaining_turns: 0` vale fino alla fine del turno di chi l'ha lanciato: nessun numero sul badge, etichetta "fino a fine turno". | M9; oggi solo phasing e movimento preso in prestito. | `effects.registry.tsx`, `BoardSquare.tsx` |
+
+## 8. Collezione (`feat/collection`, tavole "Collezione · desktop/Android")
+
+### Decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| C1 | La collezione vive sul server (`user_cards`): per utente e magia, le copie possedute da 0 a `MaxCopies`. La pagina legge soltanto; per ora le carte non si ottengono in altri modi. | tu |
+| C2 | Nuova rarità `rare`, massimo 2 copie (comune 2, leggendaria 1). Cornice e rombo oro (`--rarity-rare`); la leggendaria resta sulla "mitica". | tu |
+| C3 | Rare: Frantumare, Scambio, Blink, Detonazione, Arrocco divino, Eco del caduto, Scudo reale, Metamorfosi, Santuario. La ricetta M61 non cambia. | proposta, da rivedere in bilanciamento |
+| C4 | Set iniziale: comuni 2, rare 1, leggendarie 0 = 45 copie su 59. | proposta, da rivedere |
+| C5 | Il set iniziale arriva alla prima `GET /me/collection`, in una transazione, se l'utente non ha righe: vale anche per gli utenti già registrati. | derivata |
+| C6 | Una magia aggiunta al catalogo dopo il set iniziale vale 0 copie; le righe di magie tolte dal catalogo si ignorano. | derivata |
+| C7 | Il contatore è copie possedute su copie possibili (Σ `max_copies`); i rombi di una carta sono tanti quanti il suo massimo, non 3 fissi. | derivata |
+| C8 | Mazzi e "Aggiungi a un mazzo" della tavola non ci sono (i mazzi personali non esistono); al loro posto le fasi in cui la magia si lancia. Per una carta non posseduta solo "Non hai ancora questa carta": il "come si ottiene" arriverà con le ricompense. Il mazzo di partita resta quello condiviso. | tu + derivata |
+
+### Assunzioni del client
+| # | Assunzione | Motivo | Dove |
+|---|---|---|---|
+| S18 | Una voce malformata di `GET /me/collection` si scarta con un warning (`collection_entry_invalid`); possedute e totale restano quelli del server. Una voce che il catalogo non conosce non si mostra. | Come il catalogo (G10). | `adapter.ts`, `collectionView.ts` |
+| S19 | Chip di costo `Tutti`, 0…6, `7+`: lo 0 in più rispetto alla tavola (Patto di sangue costa 0), `7+` comprende l'8. Su Android i chip stringono a 34px per starci in 390px. | Il catalogo va da 0 a 8. | `CollectionControls.tsx` |
+| S20 | Ricerca su nome e testo tradotti, senza maiuscole né accenti; ordinamento per nome secondo la lingua corrente. | Tavola + lingua. | `collectionView.ts` |
+| S21 | Su desktop la griglia è a colonne da 156px (cinque a 1440, come la tavola; di più o di meno su altri schermi) e il pannello di dettaglio arriva a 20px dal bordo. | La shell ha 40px di margine: con quello le cinque colonne non ci stanno. | `Collection.tsx` |
