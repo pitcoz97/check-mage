@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"chess-server/internal/game"
+	"chess-server/internal/logger"
 	mw "chess-server/internal/middleware"
 	"chess-server/internal/models"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
 
@@ -52,12 +54,21 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Mazzo attivo (D6). Con un errore del DB si gioca con la ricetta condivisa.
+	deck, valid, err := ActiveDeck(userID)
+	if err != nil {
+		logger.L.Error("Errore lettura mazzo attivo", zap.Int("user_id", userID), zap.Error(err))
+		deck, valid = nil, true
+	}
+
 	client := &game.Client{
-		UserID:   userID,
-		Username: username,
-		Conn:     conn,
-		Send:     make(chan []byte, 256),
-		Limiter:  rate.NewLimiter(5, 10), // 5 msg/sec, burst massimo 10
+		UserID:      userID,
+		Username:    username,
+		Conn:        conn,
+		Send:        make(chan []byte, 256),
+		Limiter:     rate.NewLimiter(5, 10), // 5 msg/sec, burst massimo 10
+		Deck:        deck,
+		DeckInvalid: !valid,
 	}
 
 	// JoinQueue decide se è una nuova partita o una riconnessione

@@ -25,7 +25,8 @@ const (
 
 // Codici di chiusura WebSocket applicativi (range 4000-4999).
 const (
-	CloseReplaced = 4001 // un'altra connessione dello stesso utente ha preso il posto di questa
+	CloseReplaced    = 4001 // un'altra connessione dello stesso utente ha preso il posto di questa
+	CloseDeckInvalid = 4002 // il mazzo attivo non è valido: niente coda (D6)
 )
 
 // Client rappresenta un giocatore connesso via WebSocket
@@ -37,6 +38,11 @@ type Client struct {
 	Send     chan []byte // canale per i messaggi in uscita — come una coda
 	Room     *Room
 	Limiter  *rate.Limiter // max messaggi al secondo
+
+	// Mazzo attivo del giocatore, espanso (nil = ricetta condivisa), e se non è
+	// valido: in quel caso non entra in coda (D6). Le riconnessioni lo ignorano.
+	Deck        []string
+	DeckInvalid bool
 }
 
 // WritePump legge dal canale Send e scrive sul WebSocket, e manda i ping di

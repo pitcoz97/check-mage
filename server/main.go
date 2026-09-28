@@ -46,6 +46,10 @@ func main() {
 	if err := db.EnsureCollectionSchema(); err != nil {
 		logger.L.Error("Errore creazione schema user_cards", zap.Error(err))
 	}
+	// Mazzi personali (mazzo iniziale alla prima lettura)
+	if err := db.EnsureDeckSchema(); err != nil {
+		logger.L.Error("Errore creazione schema user_decks", zap.Error(err))
+	}
 
 	// Monitora la salute del DB ogni 30 secondi
 	go func() {

@@ -87,7 +87,7 @@ func NewRoom(id string, white, black *Client, baseTime, increment time.Duration)
 			Turn:   "white",
 			Status: StatusActive,
 		},
-		Match:             match.New(time.Now().UnixNano()), // draw / turno 1 / Bianco, mazzi mischiati
+		Match:             match.NewWithDecks(time.Now().UnixNano(), white.Deck, black.Deck), // draw / turno 1 / Bianco, mazzi attivi mischiati
 		WhiteTime:         baseTime,
 		BlackTime:         baseTime,
 		BaseTime:          baseTime,
