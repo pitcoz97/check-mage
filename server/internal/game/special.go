@@ -148,8 +148,12 @@ func (r *Room) moveOptionsFor(viewer match.Player) moveOptions {
 	return out
 }
 
-// moveOptionViews fotografa le opzioni dei due giocatori. Va invocata con r.mu tenuto.
+// moveOptionViews fotografa le opzioni dei due giocatori; nil a partita finita
+// (nessun move_options dopo l'ultimo game_state). Va invocata con r.mu tenuto.
 func (r *Room) moveOptionViews() map[match.Player]moveOptions {
+	if r.ended {
+		return nil
+	}
 	return map[match.Player]moveOptions{
 		match.PlayerWhite: r.moveOptionsFor(match.PlayerWhite),
 		match.PlayerBlack: r.moveOptionsFor(match.PlayerBlack),
