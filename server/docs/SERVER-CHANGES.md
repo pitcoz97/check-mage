@@ -271,6 +271,6 @@ Verifica: `go build ./... && go vet ./... && go test ./...` (i test che passano 
 |---|---|---|
 | 1 | Nuova rarità `rare` (massimo 2 copie, come le comuni): `shatter`, `swap`, `blink`, `detonation`, `divine_castling`, `echo_of_fallen`, `royal_shield`, `metamorphosis`, `sanctuary`. La ricetta del mazzo non cambia | Accettare `rare` nello schema; cornice oro |
 | 2 | `GET /me/collection` (Bearer): `{cards: [{spell_id, copies, max_copies}], owned, total}`, una voce per ogni magia del catalogo nell'ordine di `GET /spells` | Pagina Collezione |
-| 3 | Tabella `user_cards` creata allo startup (`db.EnsureCollectionSchema`); il set iniziale (comuni 2, rare 1, leggendarie 0: 55 / 64) arriva alla prima lettura, in una transazione | — |
+| 3 | Tabella `user_cards` creata allo startup (`db.EnsureCollectionSchema`); il set iniziale (comuni 2, rare 1, leggendarie 0: 45 / 59) arriva alla prima lettura, in una transazione | — |
 
 Verifica: `go build ./... && go vet ./... && go test ./...`; col DB vero, una prima `GET /me/collection` crea le righe dello starter.

@@ -2,7 +2,7 @@ package spells
 
 import "testing"
 
-// Set iniziale (C4): comuni al massimo, rare a 1, leggendarie a 0; 55 copie su 64.
+// Set iniziale (C4): comuni al massimo, rare a 1, leggendarie a 0; 45 copie su 59.
 func TestStarterSet(t *testing.T) {
 	starter := StarterSet()
 	for id, s := range Catalog {
@@ -12,8 +12,8 @@ func TestStarterSet(t *testing.T) {
 		}
 	}
 	view := Collection(starter)
-	if view.Owned != 55 || view.Total != 64 {
-		t.Errorf("set iniziale = %d / %d, atteso 55 / 64", view.Owned, view.Total)
+	if view.Owned != 45 || view.Total != 59 {
+		t.Errorf("set iniziale = %d / %d, atteso 45 / 59", view.Owned, view.Total)
 	}
 }
 
@@ -38,8 +38,8 @@ func TestCollection_Clamp(t *testing.T) {
 	if e := byID["shatter"]; e.Copies != 0 || e.MaxCopies != 2 {
 		t.Errorf("shatter (senza voce) = %+v, atteso 0/2", e)
 	}
-	if view.Owned != 2 || view.Total != 64 {
-		t.Errorf("totale = %d / %d, atteso 2 / 64", view.Owned, view.Total)
+	if view.Owned != 2 || view.Total != 59 {
+		t.Errorf("totale = %d / %d, atteso 2 / 59", view.Owned, view.Total)
 	}
 	// Stesso ordine di GET /spells.
 	for i, s := range List() {

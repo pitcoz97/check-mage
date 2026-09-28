@@ -40,7 +40,7 @@ func TestCollection_Starter(t *testing.T) {
 	if !resp.Success || len(resp.Data.Cards) != len(spells.Catalog) {
 		t.Fatalf("risposta = %+v", resp)
 	}
-	if resp.Data.Owned != 55 || resp.Data.Total != 64 {
-		t.Errorf("totale = %d / %d, atteso 55 / 64", resp.Data.Owned, resp.Data.Total)
+	if resp.Data.Owned != 45 || resp.Data.Total != 59 {
+		t.Errorf("totale = %d / %d, atteso 45 / 59", resp.Data.Owned, resp.Data.Total)
 	}
 }

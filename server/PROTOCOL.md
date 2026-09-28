@@ -441,7 +441,7 @@ l'utente possiede di ogni magia del catalogo, nell'ordine di `GET /spells`.
 
 ```json
 { "cards": [ { "spell_id": "blood_pact", "copies": 2, "max_copies": 2 } ],
-  "owned": 55, "total": 64 }
+  "owned": 45, "total": 59 }
 ```
 
 `copies` va da 0 a `max_copies` (il limite di copie della rarità); `owned` e
