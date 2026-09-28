@@ -20,12 +20,13 @@ var DB *sql.DB
 
 func Connect() {
 	connStr := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		config.C.DBHost,
 		config.C.DBPort,
 		config.C.DBUser,
 		config.C.DBPassword,
 		config.C.DBName,
+		config.C.DBSSLMode,
 	)
 
 	var err error

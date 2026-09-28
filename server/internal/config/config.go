@@ -18,6 +18,9 @@ type Config struct {
 	DBPassword string
 	DBName     string
 
+	// sslmode di lib/pq: disable (stessa macchina o rete Docker), require, verify-full…
+	DBSSLMode string
+
 	// JWT
 	JWTSecret string
 
@@ -58,6 +61,7 @@ func Load() {
 		DBUser:     getEnv("DB_USER", "chessuser"),
 		DBPassword: getEnv("DB_PASSWORD", ""),
 		DBName:     getEnv("DB_NAME", "chessdb"),
+		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
 
 		JWTSecret: getEnv("JWT_SECRET", ""),
 
