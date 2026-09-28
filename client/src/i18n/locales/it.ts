@@ -114,6 +114,8 @@ export const it = {
     playRanked: 'Gioca classificata',
     soonText: 'Arriverà presto.',
     fullRanking: 'Classifica completa',
+    collectionOf: '/ {{total}} carte',
+    browseCards: 'Sfoglia le carte',
     friendsOnline: 'Amici online',
   },
   leaderboard: {

@@ -36,6 +36,16 @@ async function renderAuthenticated(path: string) {
     'GET /users/7': () => data({ user: ACCOUNT, stats: { wins: 1, losses: 0, draws: 0, total: 1 } }),
     'GET /ws/ticket': () => data({ ticket: `t${++ticket}`, expires_in: 30 }),
     'GET /leaderboard': () => leaderboard(),
+    'GET /me/collection': () =>
+      data({
+        cards: [
+          { spell_id: 'frost', copies: 2, max_copies: 2 },
+          { spell_id: 'shatter', copies: 1, max_copies: 2 },
+          { spell_id: 'haste', copies: 0, max_copies: 1 },
+        ],
+        owned: 3,
+        total: 5,
+      }),
   });
   const auth = createAuth({ baseUrl: 'http://api', storage, fetchImpl: server.fetchImpl });
   const { session, sockets } = testMatchSession(auth, storage);
@@ -147,6 +157,29 @@ describe('shell, classifica e impostazioni (R5)', () => {
       fireEvent.click(document.querySelector('[data-nav="ranking"]') as HTMLElement);
     });
     expect(router.state.location.pathname).toBe('/leaderboard');
+  });
+
+  it('home: la card Collezione con i dati del server porta alla pagina', async () => {
+    const { router } = await renderAuthenticated('/lobby');
+    const card = await waitFor(() => {
+      const found = document.querySelector('[data-collection-card]') as HTMLElement | null;
+      expect(found?.querySelector('[role=progressbar]')).toBeTruthy();
+      return found as HTMLElement;
+    });
+    expect(card.getAttribute('aria-disabled')).toBeNull();
+    expect(within(card).getByRole('progressbar', { name: 'Possiedi 3 copie su 5' })).toBeTruthy();
+    expect(within(card).getByText('/ 5 carte')).toBeTruthy();
+    const counts = [...card.querySelectorAll('[data-rarity]')].map((row) => [row.getAttribute('data-rarity'), row.textContent]);
+    expect(counts).toEqual([
+      ['common', 'Comuni2'],
+      ['rare', 'Rare1'],
+      ['legendary', 'Leggendarie0'],
+    ]);
+    expect(document.querySelectorAll('[data-soon-card]')).toHaveLength(2);
+    await act(async () => {
+      fireEvent.click(within(card).getByRole('link', { name: 'Sfoglia le carte' }));
+    });
+    expect(router.state.location.pathname).toBe('/collection');
   });
 
   it('classifica: i primi dieci, la propria riga evidenziata; un errore offre Riprova', async () => {

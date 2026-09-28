@@ -6,7 +6,7 @@ import type { CardCollection } from '../../api/types';
 import { initI18n } from '../../i18n';
 import { createWebStorage } from '../../lib/storage';
 import fallbackCatalog from '../../spells/fallback.json';
-import { collectionItems, DEFAULT_FILTERS, visibleItems, type CollectionFilters, type CollectionItem } from './collectionView';
+import { collectionItems, DEFAULT_FILTERS, ownedByRarity, visibleItems, type CollectionFilters, type CollectionItem } from './collectionView';
 
 const spells = normalizeSpellCatalog(fallbackCatalog).spells;
 const byId = new Map(spells.map((spell) => [spell.id, spell]));
@@ -37,6 +37,10 @@ describe('collezione: voci, filtri e ordinamenti', () => {
   it('le voci fuori catalogo si scartano; nome e testo tradotti', () => {
     expect(items).toHaveLength(32);
     expect(items.find((item) => item.spell.id === 'frost')).toMatchObject({ name: 'Brina', copies: 2, maxCopies: 2 });
+  });
+
+  it('copie possedute per rarità (home, C10)', () => {
+    expect(ownedByRarity(items)).toEqual({ common: 36, rare: 9, legendary: 0 });
   });
 
   it('di default per costo e poi per nome', () => {

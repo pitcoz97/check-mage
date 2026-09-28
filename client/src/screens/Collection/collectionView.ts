@@ -60,6 +60,13 @@ export function collectionItems(t: TFunction, collection: CardCollection, byId: 
   return items;
 }
 
+/** Copie possedute per rarità (card Collezione della home, C10). */
+export function ownedByRarity(items: readonly CollectionItem[]): Record<Rarity, number> {
+  const out: Record<Rarity, number> = { common: 0, rare: 0, legendary: 0 };
+  for (const item of items) out[item.spell.rarity] += item.copies;
+  return out;
+}
+
 /** Minuscole e senza accenti: "perche" trova "perché". */
 function fold(value: string): string {
   return value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase();

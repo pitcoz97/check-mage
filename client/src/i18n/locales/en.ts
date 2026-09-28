@@ -112,6 +112,8 @@ export const en: Translation = {
     playRanked: 'Play ranked',
     soonText: 'Coming soon.',
     fullRanking: 'Full ranking',
+    collectionOf: '/ {{total}} cards',
+    browseCards: 'Browse cards',
     friendsOnline: 'Friends online',
   },
   leaderboard: {
