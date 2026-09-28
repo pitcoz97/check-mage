@@ -4,6 +4,9 @@ Questa guida porta CheckMage da "gira sul mio PC" a "chiunque può giocare da `h
 hai mai usato un server. Ogni comando si copia e incolla; dopo ogni passo c'è scritto **cosa devi vedere** e cosa fare
 se non lo vedi.
 
+> **Preferisci un computer a casa invece di una VPS?** C'è una guida apposta, con un confronto fra le due strade:
+> [`DEPLOY-CASA.md`](DEPLOY-CASA.md).
+
 Tempo necessario: circa **2 ore** la prima volta, di cui buona parte ad aspettare (DNS, build). Poi ogni
 aggiornamento è un solo comando.
 

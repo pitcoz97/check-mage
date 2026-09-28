@@ -9,6 +9,8 @@ Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile su
 eseguibile).
 
 ## Completo
+- **Server a casa:** variante `deploy/docker-compose.home.yml` (Cloudflare Tunnel, nessuna porta aperta, attivata da
+  `COMPOSE_FILE` in `deploy/.env`) e guida `docs/DEPLOY-CASA.md` con il confronto VPS/casa.
 - **Deploy su VPS:** `deploy/` (Postgres con lo schema iniziale, server con Stockfish, Caddy che costruisce e serve il
   client con HTTPS automatico), script di aggiornamento, backup e ripristino; `DB_SSLMODE` e controllo delle origini del
   WebSocket (P2-16). Guida per chi non ha competenze: `docs/DEPLOY.md` alla radice.
