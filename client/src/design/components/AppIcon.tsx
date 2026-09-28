@@ -20,7 +20,11 @@ export type AppIconName =
   | 'search'
   | 'lock'
   | 'check'
-  | 'close';
+  | 'close'
+  | 'plus'
+  | 'minus'
+  | 'more'
+  | 'spark';
 
 const SHAPES: Record<AppIconName, ReactNode> = {
   logo: (
@@ -78,6 +82,17 @@ const SHAPES: Record<AppIconName, ReactNode> = {
   ),
   check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
   close: <path d="M6 6l12 12M18 6L6 18" />,
+  // Dalla tavola "Mazzi": + e − delle righe, «Autocompleta». Il menu dell'editor Android non è disegnato.
+  plus: <path d="M6 12h12M12 6v12" />,
+  minus: <path d="M6 12h12" />,
+  more: (
+    <>
+      <circle cx="12" cy="5.5" r="1.4" />
+      <circle cx="12" cy="12" r="1.4" />
+      <circle cx="12" cy="18.5" r="1.4" />
+    </>
+  ),
+  spark: <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" />,
 };
 
 export function AppIcon({ name, className = '', strokeWidth = 1.8 }: { name: AppIconName; className?: string; strokeWidth?: number }) {

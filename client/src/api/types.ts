@@ -65,6 +65,25 @@ export interface CardCollection {
   readonly total: number;
 }
 
+/** Un mazzo personale (`handlers/decks.go`): `valid` e `active` li decide il server (D1, D3). */
+export interface Deck {
+  readonly id: string;
+  readonly name: string;
+  /** Copie per id di magia, solo quelle > 0. */
+  readonly cards: ReadonlyMap<string, number>;
+  readonly size: number;
+  readonly valid: boolean;
+  readonly active: boolean;
+  readonly updatedAt: string;
+}
+
+/** `GET /me/decks`: i mazzi, il loro massimo e la dimensione di un mazzo valido. */
+export interface DeckList {
+  readonly decks: readonly Deck[];
+  readonly maxDecks: number;
+  readonly deckSize: number;
+}
+
 export interface GameHistoryEntry {
   readonly id: string;
   readonly white: Username;
@@ -128,6 +147,15 @@ export const HTTP_ERROR_CODES = [
   'not_found',
   'method_not_allowed',
   'service_unavailable',
+  // Mazzi (handlers/decks.go)
+  'deck_limit',
+  'deck_name_invalid',
+  'deck_unknown_spell',
+  'deck_too_many_copies',
+  'deck_not_owned',
+  'deck_not_valid',
+  'deck_last',
+  'deck_not_found',
   // Codici generati dal client, non dal server:
   /** Server irraggiungibile (fetch fallita, timeout, offline). */
   'network_error',

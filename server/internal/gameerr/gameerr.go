@@ -20,6 +20,7 @@ const (
 	// Stato della partita / coda
 	GameOver                Code = "game_over"                  // la partita è già terminata
 	ReplacedByNewConnection Code = "replaced_by_new_connection" // un'altra connessione dello stesso utente ha preso il posto di questa
+	DeckInvalid             Code = "deck_invalid"               // il mazzo attivo non è valido: niente coda
 
 	// Turno e fasi
 	NotYourTurn Code = "not_your_turn"

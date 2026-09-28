@@ -47,6 +47,13 @@ func (m *Manager) JoinQueue(client *Client) bool {
 		delete(m.userRooms, client.UserID)
 	}
 
+	// Mazzo attivo non valido: niente coda, errore e chiusura (D6).
+	if client.DeckInvalid {
+		client.sendErr(gameerr.New(gameerr.DeckInvalid, "Il mazzo attivo non è valido"))
+		client.closeWith(CloseDeckInvalid, string(gameerr.DeckInvalid))
+		return false
+	}
+
 	// Stesso utente già in coda da un'altra connessione (refresh, secondo tab):
 	// la connessione nuova prende il posto di quella vecchia, che viene chiusa.
 	if m.waiting != nil && m.waiting.UserID == client.UserID {

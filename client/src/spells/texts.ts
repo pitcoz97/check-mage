@@ -35,6 +35,11 @@ export function spellText(t: TFunction, spell: Spell | undefined, spellId: strin
   return spellRulesText(t, spell.effects);
 }
 
+/** Nome dell'archetipo; un tag che l'i18n non conosce resta com'è. */
+export function tagLabel(t: TFunction, tag: string): string {
+  return isTagId(tag) ? t(`spells.tag.${tag}`) : tag;
+}
+
 /** "Magia · Gelo": l'archetipo è il primo tag; senza tag noti si ripiega sul kind del primo effetto. */
 export function spellTypeLine(t: TFunction, spell: Spell | undefined): string {
   const tag = spell?.tags.find(isTagId);

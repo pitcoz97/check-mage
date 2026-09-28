@@ -91,8 +91,8 @@ export interface MatchOverrides {
 }
 
 /** `spells/spells.go:141-157`. */
-function newPlayerState(rng: Rng): PlayerState {
-  const deck = shuffle(buildDeck(), rng);
+function newPlayerState(rng: Rng, cards?: readonly string[]): PlayerState {
+  const deck = shuffle(cards === undefined ? buildDeck() : [...cards], rng);
   return { hand: deck.splice(0, STARTING_HAND), deck, discard: [], mana: INITIAL_MANA, max_mana: INITIAL_MANA, graveyard: [] };
 }
 
@@ -125,9 +125,11 @@ export class MatchState {
   constructor(
     rng: Rng,
     private readonly overrides: MatchOverrides = {},
+    /** `NewWithDecks`: il mazzo attivo di ogni giocatore; assente = la ricetta condivisa. */
+    decks: Partial<Record<Color, readonly string[]>> = {},
   ) {
-    this.white = newPlayerState(rng);
-    this.black = newPlayerState(rng);
+    this.white = newPlayerState(rng, decks.white);
+    this.black = newPlayerState(rng, decks.black);
     for (const color of ['white', 'black'] as const) {
       const ps = this.player(color);
       const forcedHand = overrides.hand?.[color];

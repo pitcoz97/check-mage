@@ -448,7 +448,43 @@ l'utente possiede di ogni magia del catalogo, nell'ordine di `GET /spells`.
 `total` sono le somme di `copies` e `max_copies`. Alla prima lettura l'utente
 riceve il set iniziale: le comuni al massimo, le rare a 1 copia, le leggendarie
 a 0. Una magia aggiunta al catalogo dopo vale 0 copie. Per ora le carte non si
-ottengono in altri modi, e il mazzo di partita resta quello condiviso.
+ottengono in altri modi.
+
+## Mazzi
+
+Rotte autenticate (`Authorization: Bearer <access_token>`):
+
+| Rotta | Corpo | Risposta |
+|---|---|---|
+| `GET /me/decks` | — | `{decks: [deck], max_decks: 10, deck_size: 40}` |
+| `POST /me/decks` | `{name, cards: [{spell_id, copies}]}` | `201` + `deck` (non attivo) |
+| `PUT /me/decks/{id}` | `{name, cards}` | `deck` |
+| `DELETE /me/decks/{id}` | — | la lista, come `GET` |
+| `POST /me/decks/{id}/activate` | — | la lista, come `GET` |
+
+`deck` = `{id, name, cards: [{spell_id, copies}], size, valid, active, updated_at}`
+(`cards` per id, `updated_at` RFC 3339).
+
+Un mazzo è **valido** con 40 carte esatte, ognuna del catalogo, entro il limite di
+copie della rarità e entro le copie possedute (`GET /me/collection`). Si può
+salvare anche un mazzo più corto (bozza), ma solo un mazzo valido può essere
+attivo, e il mazzo attivo resta valido. Al massimo 10 mazzi; nome da 1 a 24
+caratteri (spazi esterni tolti). Alla prima lettura chi non ha mazzi riceve
+"Mazzo iniziale", attivo: la ricetta condivisa limitata alle copie possedute,
+completata fino a 40 con le carte più economiche. Eliminando il mazzo attivo
+diventa attivo il valido modificato più di recente (o si ricrea il mazzo
+iniziale); l'ultimo mazzo non si elimina.
+
+Errori (`400`, salvo dove indicato): `Hai già il numero massimo di mazzi`,
+`Nome del mazzo non valido`, `Carta non presente nel catalogo`, `Troppe copie
+di una carta`, `Copie non possedute`, `Il mazzo non è valido` (attivare una
+bozza o rendere non valido l'attivo), `Non puoi eliminare l'ultimo mazzo`,
+`Mazzo non trovato` (`404`), `Dati non validi`.
+
+**In partita** ognuno gioca col proprio mazzo attivo, letto all'apertura del
+WebSocket. Se non è valido il server manda `error {code: "deck_invalid"}`, non
+mette in coda e chiude con il codice `4002`. Le riconnessioni non rileggono il
+mazzo.
 
 ## Limiti noti
 

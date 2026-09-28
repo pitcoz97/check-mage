@@ -76,6 +76,8 @@ export type GameResult = '1-0' | '0-1' | '1/2-1/2';
 
 /** Codice di chiusura di una connessione sostituita (`game/client.go:28`). */
 export const CLOSE_REPLACED = 4001;
+/** `CloseDeckInvalid` (`client.go`): mazzo attivo non valido, niente coda (D6). */
+export const CLOSE_DECK_INVALID = 4002;
 
 /** `NullMove` (`room.go:37`): mossa consumata da uno scudo, `--` nel PGN. */
 export const NULL_MOVE = '0000';
@@ -89,6 +91,8 @@ export interface RoomOptions {
   incrementMs: number;
   reconnectTimeoutMs: number;
   overrides?: MatchOverrides;
+  /** Il mazzo attivo di ogni giocatore (`match.NewWithDecks`); assente = la ricetta condivisa. */
+  decks?: Partial<Record<Color, readonly string[]>>;
   /** Solo test: posizione iniziale diversa da quella standard (il server parte sempre da `room.go:83`). */
   initialFen?: string;
   /** `room.go:1280-1281`. */
@@ -227,7 +231,7 @@ export class Room {
     this.board = { fen, moves: [], turn: sideToMove(fen), status: 'active' };
     this.white = options.white;
     this.black = options.black;
-    this.match = new MatchState(options.rng, options.overrides);
+    this.match = new MatchState(options.rng, options.overrides, options.decks);
     this.whiteTime = options.baseTimeMs;
     this.blackTime = options.baseTimeMs;
     this.tracker = new Tracker(this.board.fen);

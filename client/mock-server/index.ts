@@ -7,6 +7,8 @@ import { createTicketStore } from './auth/tickets';
 import { configFromEnv, DEFAULT_CONFIG, type MockConfig } from './config';
 import { RAW_CATALOG } from './game/catalog';
 import { createRequestGate, createRestApp } from './rest/app';
+import { createCollectionStore } from './store/collection';
+import { createDeckStore, type DeckStore } from './store/decks';
 import { createUserStore } from './store/users';
 import { createLogger } from './util';
 import { createGateway } from './ws/gateway';
@@ -16,6 +18,8 @@ export interface MockServerHandle {
   readonly httpUrl: string;
   readonly wsUrl: string;
   readonly config: MockConfig;
+  /** Solo test ed e2e: per rendere non valido un mazzo attivo (`deck_invalid`). */
+  readonly decks: DeckStore;
   close(): Promise<void>;
 }
 
@@ -28,8 +32,10 @@ export async function startMockServer(overrides: Partial<MockConfig> = {}): Prom
   const tickets = createTicketStore();
   const gate = createRequestGate(config, jwt, tickets);
 
-  const app = createRestApp({ config, users, jwt, tickets, catalog: RAW_CATALOG }, gate);
-  const gateway = createGateway({ config, users, gate, log });
+  const collections = createCollectionStore(RAW_CATALOG);
+  const decks = createDeckStore(collections);
+  const app = createRestApp({ config, users, jwt, tickets, catalog: RAW_CATALOG, collections, decks }, gate);
+  const gateway = createGateway({ config, users, gate, log, decks });
   const server = createServer(app);
   server.on('upgrade', (req, socket, head) => gateway.handleUpgrade(req, socket, head));
 
@@ -45,6 +51,7 @@ export async function startMockServer(overrides: Partial<MockConfig> = {}): Prom
     httpUrl: `http://localhost:${port}`,
     wsUrl: `ws://localhost:${port}/ws`,
     config,
+    decks,
     close: () =>
       new Promise<void>((resolve) => {
         gateway.close();

@@ -46,6 +46,16 @@ async function renderAuthenticated(path: string) {
         owned: 3,
         total: 5,
       }),
+    'GET /me/decks': () =>
+      data({
+        decks: [
+          { id: 1, name: 'Mazzo iniziale', cards: [{ spell_id: 'frost', copies: 2 }], size: 40, valid: true, active: false, updated_at: '2026-09-20T10:00:00Z' },
+          { id: 2, name: 'Rune d’Oro', cards: [{ spell_id: 'shield', copies: 2 }], size: 40, valid: true, active: true, updated_at: '2026-09-21T10:00:00Z' },
+          { id: 3, name: 'Bozza', cards: [], size: 0, valid: false, active: false, updated_at: '2026-09-27T10:00:00Z' },
+        ],
+        max_decks: 10,
+        deck_size: 40,
+      }),
   });
   const auth = createAuth({ baseUrl: 'http://api', storage, fetchImpl: server.fetchImpl });
   const { session, sockets } = testMatchSession(auth, storage);
@@ -149,10 +159,11 @@ describe('shell, classifica e impostazioni (R5)', () => {
   it('navigazione: le voci «Presto» non portano da nessuna parte, quelle vere sì', async () => {
     const { router } = await renderAuthenticated('/lobby');
     await screen.findByRole('heading', { name: 'Bentornato, mario' });
-    const decks = document.querySelector('[data-nav="decks"]') as HTMLElement;
-    expect(decks.tagName).toBe('SPAN');
-    expect(decks.getAttribute('aria-disabled')).toBe('true');
-    expect(decks.textContent).toContain('Presto');
+    const friends = document.querySelector('[data-nav="friends"]') as HTMLElement;
+    expect(friends.tagName).toBe('SPAN');
+    expect(friends.getAttribute('aria-disabled')).toBe('true');
+    expect(friends.textContent).toContain('Presto');
+    expect((document.querySelector('[data-nav="decks"]') as HTMLElement).tagName).toBe('A');
     await act(async () => {
       fireEvent.click(document.querySelector('[data-nav="ranking"]') as HTMLElement);
     });
@@ -175,11 +186,31 @@ describe('shell, classifica e impostazioni (R5)', () => {
       ['rare', 'Rare1'],
       ['legendary', 'Leggendarie0'],
     ]);
-    expect(document.querySelectorAll('[data-soon-card]')).toHaveLength(2);
+    expect(document.querySelectorAll('[data-soon-card]')).toHaveLength(1);
     await act(async () => {
       fireEvent.click(within(card).getByRole('link', { name: 'Sfoglia le carte' }));
     });
     expect(router.state.location.pathname).toBe('/collection');
+  });
+
+  it('home: la card Mazzi (prima l’attivo) e la riga «Mazzo attivo · Cambia» di Gioca (D12)', async () => {
+    const { router } = await renderAuthenticated('/lobby');
+    const card = await waitFor(() => {
+      const found = document.querySelector('[data-decks-card]') as HTMLElement | null;
+      expect(found?.querySelectorAll('[data-deck]')).toHaveLength(3);
+      return found as HTMLElement;
+    });
+    const rows = [...card.querySelectorAll('[data-deck]')].map((row) => row.textContent);
+    expect(rows[0]).toBe('Rune d’OroAttivo');
+    expect(rows[1]).toContain('Bozza · 0/40');
+    expect(rows[2]).toContain('Mazzo iniziale');
+    const active = document.querySelector('[data-active-deck]') as HTMLElement;
+    expect(active.getAttribute('data-active-deck')).toBe('2');
+    expect(active.textContent).toContain('Rune d’Oro');
+    await act(async () => {
+      fireEvent.click(within(active).getByRole('link', { name: 'Cambia' }));
+    });
+    expect(router.state.location.pathname).toBe('/decks');
   });
 
   it('classifica: i primi dieci, la propria riga evidenziata; un errore offre Riprova', async () => {

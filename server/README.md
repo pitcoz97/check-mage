@@ -202,6 +202,22 @@ CREATE TABLE user_cards (
 );
 ```
 
+The `user_decks` table (personal decks, at most one active per user) is created
+at startup too (`db.EnsureDeckSchema`); the starter deck is created on the first
+`GET /me/decks`:
+
+```sql
+CREATE TABLE user_decks (
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    name       TEXT NOT NULL,
+    cards      JSONB NOT NULL,
+    active     BOOLEAN NOT NULL DEFAULT false,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX user_decks_one_active ON user_decks (user_id) WHERE active;
+```
+
 ### 4. Run
 
 ```bash

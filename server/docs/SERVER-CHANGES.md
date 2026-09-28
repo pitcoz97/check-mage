@@ -274,3 +274,14 @@ Verifica: `go build ./... && go vet ./... && go test ./...` (i test che passano 
 | 3 | Tabella `user_cards` creata allo startup (`db.EnsureCollectionSchema`); il set iniziale (comuni 2, rare 1, leggendarie 0: 45 / 59) arriva alla prima lettura, in una transazione | — |
 
 Verifica: `go build ./... && go vet ./... && go test ./...`; col DB vero, una prima `GET /me/collection` crea le righe dello starter.
+
+## 16. Mazzi personali
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | `GET/POST /me/decks`, `PUT/DELETE /me/decks/{id}`, `POST /me/decks/{id}/activate` (vedi PROTOCOL.md, "Mazzi"); tabella `user_decks` creata allo startup | Pagina Mazzi, card della home, mazzo attivo |
+| 2 | Mazzo valido: 40 carte, limiti di rarità, copie possedute; bozze salvabili, solo un valido può essere attivo; massimo 10 | Stato del mazzo, errori per testo |
+| 3 | "Mazzo iniziale" attivo creato alla prima lettura | — |
+| 4 | In partita ognuno gioca col proprio mazzo attivo; se non è valido: `error deck_invalid` e chiusura `4002`, niente coda | Messaggio e link ai Mazzi |
+
+Verifica: `go build ./... && go vet ./... && go test ./...`; col DB vero, una prima `GET /me/decks` crea la tabella e il mazzo iniziale.

@@ -1,23 +1,27 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 
 import { AppIcon, type AppIconName } from '../../design/components/AppIcon';
 import { Spinner } from '../../design/components/Spinner';
+import { useCatalog } from '../../spells/CatalogProvider';
 import { RARITIES } from '../../spells/schema';
 import { RARITY_FRAME } from '../../spells/texts';
 import { useAuth } from '../../store/AuthProvider';
 import { ownedByRarity } from '../Collection/collectionView';
 import { useCollection } from '../Collection/useCollection';
+import { byRecency, deckSigil } from '../Decks/deckEditor';
+import { DeckSigil } from '../Decks/DeckSigil';
+import { useDecks } from '../Decks/useDecks';
 import { RankingRows } from '../Leaderboard/RankingRows';
 import { useLeaderboard } from '../Leaderboard/useLeaderboard';
 
 /**
- * La riga di card in fondo alla home desktop (tavola "Home · desktop"). Mazzi e Amici non hanno dati sul server: la card
- * c'è, con «Presto» e nessun dato finto (D9). Classifica (D11) e Collezione (C9–C11) sono vere.
+ * La riga di card in fondo alla home desktop (tavola "Home · desktop"). Amici non ha dati sul server: la card c'è, con
+ * «Presto» e nessun dato finto (D9). Mazzi (D12), Collezione (C9–C11) e Classifica (D11) sono vere.
  */
 
-function CardTitle({ icon, title, trailing, to }: { icon: AppIconName; title: string; trailing?: ReactNode; to?: string }) {
+export function CardTitle({ icon, title, trailing, to }: { icon: AppIconName; title: string; trailing?: ReactNode; to?: string }) {
   const content = (
     <>
       <span className="flex size-8 items-center justify-center rounded-8 bg-elevated text-gold">
@@ -43,6 +47,71 @@ export function SoonCard({ icon, title }: { icon: AppIconName; title: string }) 
     <section data-soon-card aria-disabled="true" className="flex flex-col gap-2 rounded-16 bg-panel p-[18px]">
       <CardTitle icon={icon} title={title} trailing={<span className="rounded-pill bg-quiet px-2 py-0.5 text-11 font-bold text-muted">{t('nav.soon')}</span>} />
       <p className="text-14 text-muted">{t('home.soonText')}</p>
+    </section>
+  );
+}
+
+/** Mazzi in breve (D12): quanti sono, i primi tre (l'attivo, poi i più recenti) e «+ Nuovo mazzo». */
+export function DecksCard() {
+  const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const decks = useDecks();
+  const byId = useCatalog((s) => s.byId);
+  const { state } = decks;
+  const list = state.kind === 'ready' ? state.list : null;
+  const date = (iso: string) => new Date(iso).toLocaleDateString(i18n.language, { day: 'numeric', month: 'short' });
+
+  return (
+    <section data-decks-card className="flex flex-col gap-2 rounded-16 bg-panel p-[18px]">
+      <CardTitle
+        icon="decks"
+        title={t('nav.decks')}
+        to="/decks"
+        trailing={list === null ? undefined : <span className="text-13 font-bold text-muted">{list.decks.length}</span>}
+      />
+      {state.kind === 'loading' && <Spinner label={t('decks.loading')} />}
+      {state.kind === 'error' && <p className="text-14 text-muted">{t('decks.error')}</p>}
+      {list !== null && (
+        <ul className="flex flex-col gap-1">
+          {byRecency(list.decks)
+            .slice(0, 3)
+            .map((deck) => (
+              <li key={deck.id}>
+                <Link
+                  to={`/decks/${deck.id}`}
+                  data-deck={deck.id}
+                  className={`flex items-center gap-2.5 rounded-10 px-2 py-1.5 text-primary ${deck.active ? 'bg-sunken' : ''}`}
+                >
+                  <DeckSigil sigil={deckSigil(deck.cards, byId)} size="sm" />
+                  <span className="flex min-w-0 flex-col gap-px">
+                    <span className="truncate text-14 font-bold">{deck.name}</span>
+                    <span className="text-12 text-muted">
+                      {deck.active
+                        ? t('decks.active')
+                        : deck.valid
+                          ? t('decks.modified', { date: date(deck.updatedAt) })
+                          : t('decks.draftCount', { count: deck.size, size: list.deckSize })}
+                    </span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+        </ul>
+      )}
+      <span className="grow" />
+      <button
+        type="button"
+        disabled={list === null || list.decks.length >= list.maxDecks}
+        onClick={() =>
+          void decks.create(t('decks.newDeckName'), new Map()).then((result) => {
+            if (result.ok) void navigate(`/decks/${result.value.id}`);
+          })
+        }
+        className="flex h-10 items-center justify-center gap-1.5 rounded-10 bg-elevated text-14 font-bold text-primary shadow-edge-elevated hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <AppIcon name="plus" strokeWidth={2.4} className="size-4" />
+        {t('decks.newDeck')}
+      </button>
     </section>
   );
 }

@@ -65,6 +65,8 @@ import type {
   AuthSession,
   CardCollection,
   CollectionCard,
+  Deck,
+  DeckList,
   CredentialPolicy,
   GameHistoryEntry,
   HttpErrorCode,
@@ -93,6 +95,7 @@ const WARNING_ASSUMPTION = {
   catalog_shape_unexpected: 'G10',
   catalog_entry_invalid: 'G10',
   collection_entry_invalid: 'G10',
+  deck_entry_invalid: 'G10',
   enum_unknown: 'A15',
   number_out_of_range: 'A15',
   value_invalid: 'A15',
@@ -1064,7 +1067,15 @@ function matchErrorText<C extends string>(rules: readonly ErrorTextRule<C>[], me
 
 /** Testi esatti degli errori REST: la REST non ha codici (P1-3 applicata solo al WebSocket, ASSUMPTIONS C4). */
 export const HTTP_ERROR_TEXTS: readonly ErrorTextRule<HttpErrorCode>[] = [
-  { pattern: /^Dati non validi$/, code: 'invalid_request' }, // handlers/auth.go:27,98,197
+  { pattern: /^Dati non validi$/, code: 'invalid_request' }, // handlers/auth.go:27,98,197; handlers/decks.go
+  { pattern: /^Hai già il numero massimo di mazzi$/, code: 'deck_limit' }, // handlers/decks.go
+  { pattern: /^Nome del mazzo non valido$/, code: 'deck_name_invalid' },
+  { pattern: /^Carta non presente nel catalogo$/, code: 'deck_unknown_spell' },
+  { pattern: /^Troppe copie di una carta$/, code: 'deck_too_many_copies' },
+  { pattern: /^Copie non possedute$/, code: 'deck_not_owned' },
+  { pattern: /^Il mazzo non è valido$/, code: 'deck_not_valid' },
+  { pattern: /^Non puoi eliminare l'ultimo mazzo$/, code: 'deck_last' },
+  { pattern: /^Mazzo non trovato$/, code: 'deck_not_found' },
   { pattern: /^Username, email e password sono obbligatori$/, code: 'missing_fields' }, // handlers/auth.go:37
   { pattern: /^username deve avere almeno \d+ caratteri$/, code: 'username_too_short' }, // validation/validation.go:64
   { pattern: /^username non può superare \d+ caratteri$/, code: 'username_too_long' }, // validation/validation.go:67
@@ -1217,6 +1228,57 @@ export function normalizeCollection(data: unknown): Normalized<CardCollection> {
     cards.push({ spellId: card.data.spell_id, copies: card.data.copies, maxCopies: card.data.max_copies });
   });
   return { ok: true, value: { cards, owned: parsed.data.owned, total: parsed.data.total }, warnings: ctx.warnings };
+}
+
+const wireDeckSchema = z.object({
+  id: wireId,
+  name: nonEmptyString,
+  cards: nullableList(z.object({ spell_id: nonEmptyString, copies: count.min(1) })),
+  size: count.min(0),
+  valid: z.boolean(),
+  active: z.boolean(),
+  updated_at: z.string(),
+});
+
+function toDeck(wire: z.output<typeof wireDeckSchema>): Deck {
+  const cards = new Map<string, number>();
+  for (const card of wire.cards) cards.set(card.spell_id, (cards.get(card.spell_id) ?? 0) + card.copies);
+  return { id: wire.id, name: wire.name, cards, size: wire.size, valid: wire.valid, active: wire.active, updatedAt: wire.updated_at };
+}
+
+/** Un mazzo (`POST`/`PUT /me/decks`, `handlers/decks.go`). */
+export function normalizeDeck(data: unknown): Normalized<Deck> {
+  return normalize(wireDeckSchema, data, toDeck);
+}
+
+/**
+ * `GET /me/decks` (e le risposte di `DELETE` e `activate`): un mazzo malformato si scarta con un warning, come le
+ * voci del catalogo (G10); il resto della lista resta.
+ */
+export function normalizeDeckList(data: unknown): Normalized<DeckList> {
+  const schema = z.object({ decks: nullableList(z.unknown()), max_decks: count.min(1), deck_size: count.min(1) });
+  const ctx = createCtx();
+  const parsed = parseWith(schema, data);
+  if (!parsed.ok) return { ok: false, issues: parsed.issues };
+  const decks: Deck[] = [];
+  parsed.data.decks.forEach((raw, index) => {
+    const deck = parseWith(wireDeckSchema, raw);
+    if (!deck.ok) {
+      warn(ctx, 'deck_entry_invalid', `[${index}] ${deck.issues.join('; ')}`);
+      return;
+    }
+    decks.push(toDeck(deck.data));
+  });
+  return { ok: true, value: { decks, maxDecks: parsed.data.max_decks, deckSize: parsed.data.deck_size }, warnings: ctx.warnings };
+}
+
+/** Corpo di `POST`/`PUT /me/decks`: `{name, cards: [{spell_id, copies}]}`, per id. */
+export function encodeDeck(name: string, cards: ReadonlyMap<string, number>): string {
+  const list = [...cards.entries()]
+    .filter(([, copies]) => copies > 0)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([spellId, copies]) => ({ spell_id: spellId, copies }));
+  return JSON.stringify({ name, cards: list });
 }
 
 /** `GET /users/{id}/games` (`handlers/stats.go:54-108`): `[]` se vuota; `null` resta tollerato. */

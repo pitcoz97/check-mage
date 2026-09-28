@@ -7,6 +7,7 @@ import { fakeSockets } from '../testing/fakeSocket';
 import {
   BACKOFF,
   backoffDelay,
+  CLOSE_DECK_INVALID,
   CLOSE_REPLACED,
   createConnection,
   nativeSocketFactory,
@@ -108,6 +109,20 @@ describe('connessione', () => {
     expect(connection.getStatus()).toMatchObject({ kind: 'connecting', since: start });
     sockets.last().drop();
     expect(connection.getStatus()).toMatchObject({ kind: 'reconnecting', since: start });
+  });
+
+  it('4002: mazzo attivo non valido, nessuna riconnessione; si riapre a mano', async () => {
+    const { connection, sockets } = setup();
+    connection.open();
+    await flush();
+    sockets.last().open();
+    sockets.last().drop(CLOSE_DECK_INVALID);
+    expect(connection.getStatus()).toEqual({ kind: 'deck_invalid' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(sockets.sockets).toHaveLength(1);
+    connection.open();
+    await flush();
+    expect(sockets.sockets).toHaveLength(2);
   });
 
   it('4001: connessione sostituita, nessuna riconnessione', async () => {

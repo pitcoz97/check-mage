@@ -84,6 +84,49 @@ const COLLECTION = (() => {
   return { cards, owned: cards.reduce((n, c) => n + c.copies, 0), total: cards.reduce((n, c) => n + c.max_copies, 0) };
 })();
 
+/** `GET /me/decks` delle anteprime: il mazzo iniziale attivo, un mazzo di gelo e una bozza. Le scritture non ci sono. */
+/** 40 carte possedute, dalle più economiche. */
+const DECK_CARDS = (() => {
+  const out: { spell_id: string; copies: number }[] = [];
+  let total = 0;
+  for (const c of COLLECTION.cards) {
+    const copies = Math.min(c.copies, c.max_copies, 40 - total);
+    if (copies > 0) out.push({ spell_id: c.spell_id, copies });
+    total += Math.max(0, copies);
+  }
+  return out;
+})();
+const DECKS = {
+  decks: [
+    {
+      id: 1,
+      name: 'Mazzo iniziale',
+      cards: DECK_CARDS,
+      size: 40,
+      valid: true,
+      active: true,
+      updated_at: '2026-09-20T10:00:00Z',
+    },
+    {
+      id: 2,
+      name: 'Gelo & Ombra',
+      cards: [
+        { spell_id: 'frost', copies: 2 },
+        { spell_id: 'ice_wall', copies: 2 },
+        { spell_id: 'ice_chain', copies: 2 },
+        { spell_id: 'shatter', copies: 2 },
+        { spell_id: 'stasis_rune', copies: 2 },
+      ],
+      size: 10,
+      valid: false,
+      active: false,
+      updated_at: '2026-09-27T10:00:00Z',
+    },
+  ],
+  max_decks: 10,
+  deck_size: 40,
+};
+
 const SHIELD = { square: 'e4', effects: [{ kind: 'shield', remaining_turns: 1, source_spell_id: 'shield' }] };
 const FREEZE = { square: 'c3', effects: [{ kind: 'freeze', remaining_turns: 1, source_spell_id: 'ice_chain' }] };
 /** Step 6: l'alfiere in c1 è in phasing (Passo sfasato), fino alla fine del turno. */
@@ -106,6 +149,7 @@ export async function startDevSession({
     'GET /users/8': () => data({ user: OPPONENT, stats: { wins: 0, losses: 0, draws: 0, total: 0 } }),
     'GET /leaderboard': () => data(LEADERBOARD),
     'GET /me/collection': () => data(COLLECTION),
+    'GET /me/decks': () => data(DECKS),
   });
   const auth = createAuth({ baseUrl: 'http://dev.local', storage, fetchImpl: server.fetchImpl });
   await auth.store.getState().bootstrap();
