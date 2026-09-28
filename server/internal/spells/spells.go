@@ -220,7 +220,16 @@ func (ps *PlayerState) CopyGraveyard() []GraveEntry {
 // NewPlayerState costruisce e mischia (in modo deterministico, via rng) il
 // mazzo e pesca la mano iniziale di StartingHand carte.
 func NewPlayerState(rng *rand.Rand) *PlayerState {
-	deck := BuildDeck()
+	return NewPlayerStateWithDeck(rng, BuildDeck())
+}
+
+// NewPlayerStateWithDeck è NewPlayerState con un mazzo dato (il mazzo attivo del
+// giocatore, già espanso); nil = la ricetta condivisa.
+func NewPlayerStateWithDeck(rng *rand.Rand, cards []string) *PlayerState {
+	if cards == nil {
+		cards = BuildDeck()
+	}
+	deck := append([]string{}, cards...)
 	rng.Shuffle(len(deck), func(i, j int) { deck[i], deck[j] = deck[j], deck[i] })
 
 	ps := &PlayerState{

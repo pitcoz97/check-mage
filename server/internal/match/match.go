@@ -48,14 +48,20 @@ type State struct {
 // mani iniziali. Il Bianco NON pesca al turno 1 (stile Hearthstone: chi inizia
 // salta la prima pesca); la pesca per-turno parte dal primo turno del Nero.
 func New(seed int64) *State {
+	return NewWithDecks(seed, nil, nil)
+}
+
+// NewWithDecks è New con il mazzo di ogni giocatore (il suo mazzo attivo,
+// espanso); nil = la ricetta condivisa.
+func NewWithDecks(seed int64, white, black []string) *State {
 	rng := rand.New(rand.NewSource(seed))
 	return &State{
 		CurrentPhase: phase.PhaseDraw,
 		TurnNumber:   1,
 		ActivePlayer: PlayerWhite,
 		Seed:         seed,
-		White:        spells.NewPlayerState(rng),
-		Black:        spells.NewPlayerState(rng),
+		White:        spells.NewPlayerStateWithDeck(rng, white),
+		Black:        spells.NewPlayerStateWithDeck(rng, black),
 		rng:          rng,
 	}
 }
