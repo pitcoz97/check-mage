@@ -175,6 +175,10 @@ CREATE INDEX idx_games_black ON games(black_id);
 CREATE INDEX idx_users_elo ON users(elo DESC);
 ```
 
+> **Production:** `deploy/` at the repository root runs Postgres (with this schema, via
+> `deploy/postgres/init.sql`), the server (`server/Dockerfile`, Stockfish included) and Caddy with automatic HTTPS.
+> Step-by-step guide (Italian): `docs/DEPLOY.md`.
+
 The `live_matches` table (in-progress games, so a restart doesn't lose them) is
 created automatically at startup (`db.EnsureLiveMatchSchema`); you don't need to
 create it by hand:

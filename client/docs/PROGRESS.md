@@ -10,6 +10,9 @@ Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile su
 eseguibile).
 
 ## Completo
+- **Deploy su VPS:** `deploy/` (Postgres con lo schema iniziale, server con Stockfish, Caddy che costruisce e serve il
+  client con HTTPS automatico), script di aggiornamento, backup e ripristino; `DB_SSLMODE` e controllo delle origini del
+  WebSocket (P2-16). Guida per chi non ha competenze: `docs/DEPLOY.md` alla radice.
 - **Mazzi personali:** tavole "Mazzi · desktop/Android". Server: `user_decks`, `/me/decks` (lista, crea, modifica,
   elimina, attiva), regole in `spells/decks.go` (40 carte, limiti di rarità e di possesso, bozze, massimo 10), mazzo
   iniziale alla prima lettura, in partita il mazzo attivo di ciascuno (`deck_invalid` + chiusura 4002). Mock

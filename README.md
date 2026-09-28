@@ -29,6 +29,12 @@ npm run dev    # client su :5173
 Per puntare il client al server vero basta cambiare `VITE_API_BASE_URL` e `VITE_WS_URL` in `client/.env`
 (vedi `client/.env.example`).
 
+## Mettere il gioco online
+
+Tutto il necessario per una VPS Linux (Postgres, server, sito, HTTPS automatico) è in [`deploy/`](deploy/): un solo
+`docker compose up -d --build`. La guida passo passo, anche per chi non ha mai usato un server, è
+[`docs/DEPLOY.md`](docs/DEPLOY.md).
+
 ## Documentazione
 
 - Protocollo WebSocket: [`server/PROTOCOL.md`](server/PROTOCOL.md)

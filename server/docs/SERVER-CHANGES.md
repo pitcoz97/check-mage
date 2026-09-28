@@ -285,3 +285,13 @@ Verifica: `go build ./... && go vet ./... && go test ./...`; col DB vero, una pr
 | 4 | In partita ognuno gioca col proprio mazzo attivo; se non è valido: `error deck_invalid` e chiusura `4002`, niente coda | Messaggio e link ai Mazzi |
 
 Verifica: `go build ./... && go vet ./... && go test ./...`; col DB vero, una prima `GET /me/decks` crea la tabella e il mazzo iniziale.
+
+## 18. Deploy su VPS
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | `DB_SSLMODE` (default `disable`) al posto di `sslmode=disable` fisso: un Postgres gestito con SSL usa `require` | — |
+| 2 | L'handshake del WebSocket accetta solo le origini di `CORS_ALLOWED_ORIGINS` (stessi pattern con `*`); senza `Origin` passa (P2-16 chiusa) | In produzione il sito e l'app (`https://localhost`, `capacitor://localhost`) devono essere nella lista: lo fa `deploy/docker-compose.yml` |
+| 3 | `server/Dockerfile` (Go + Stockfish di Debian) e lo stack `deploy/` (Postgres, server, Caddy); guida in `docs/DEPLOY.md` | Il client si costruisce nel container di Caddy con gli URL di produzione |
+
+Verifica: `go build ./... && go vet ./... && go test ./...`.
