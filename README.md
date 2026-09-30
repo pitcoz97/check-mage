@@ -32,8 +32,9 @@ Per puntare il client al server vero basta cambiare `VITE_API_BASE_URL` e `VITE_
 ## Mettere il gioco online
 
 Tutto il necessario per una VPS Linux (Postgres, server, sito, HTTPS automatico) è in [`deploy/`](deploy/): un solo
-`docker compose up -d --build`. La guida passo passo, anche per chi non ha mai usato un server, è
-[`docs/DEPLOY.md`](docs/DEPLOY.md).
+`docker compose up -d --build`. Due guide passo passo, anche per chi non ha mai usato un server: su una VPS in affitto,
+[`docs/DEPLOY.md`](docs/DEPLOY.md), o su un computer di casa con Cloudflare Tunnel, senza aprire porte,
+[`docs/DEPLOY-CASA.md`](docs/DEPLOY-CASA.md), che inizia con un confronto fra le due.
 
 ## Documentazione
 
