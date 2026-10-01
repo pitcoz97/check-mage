@@ -1091,6 +1091,17 @@ export const HTTP_ERROR_TEXTS: readonly ErrorTextRule<HttpErrorCode>[] = [
   { pattern: /^Il giocatore è in partita$/, code: 'challenge_target_busy' },
   { pattern: /^Sei già in partita$/, code: 'challenge_self_busy' },
   { pattern: /^Sfida non trovata$/, code: 'challenge_not_found' },
+  { pattern: /^Non puoi aggiungere te stesso$/, code: 'friend_self' }, // handlers/friendships.go
+  { pattern: /^Siete già amici$/, code: 'friend_already' },
+  { pattern: /^Richiesta già inviata$/, code: 'friend_pending' },
+  { pattern: /^Hai raggiunto il numero massimo di amici$/, code: 'friend_limit' },
+  { pattern: /^Il giocatore ha raggiunto il numero massimo di amici$/, code: 'friend_their_limit' },
+  { pattern: /^Hai troppe richieste in sospeso$/, code: 'friend_pending_limit' },
+  { pattern: /^Richiesta non trovata$/, code: 'friend_request_not_found' },
+  { pattern: /^Amico non trovato$/, code: 'friend_not_found' },
+  { pattern: /^Non puoi bloccare te stesso$/, code: 'block_self' },
+  { pattern: /^Giocatore non bloccato$/, code: 'block_not_found' },
+  { pattern: /^Ricerca troppo corta$/, code: 'search_too_short' },
   { pattern: /^Username, email e password sono obbligatori$/, code: 'missing_fields' }, // handlers/auth.go:37
   { pattern: /^username deve avere almeno \d+ caratteri$/, code: 'username_too_short' }, // validation/validation.go:64
   { pattern: /^username non può superare \d+ caratteri$/, code: 'username_too_long' }, // validation/validation.go:67

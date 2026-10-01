@@ -9,6 +9,7 @@ import type { CollectionSpell, CollectionStore } from '../store/collection';
 import type { DeckResult, DeckStore } from '../store/decks';
 import type { PresenceStore } from '../store/presence';
 import { PASSWORD_POLICY, validateRegister, type User, type UserStore } from '../store/users';
+import type { FriendsApi, Outcome } from './friends';
 import { clientKey, createRateLimiter } from './rateLimit';
 
 /**
@@ -29,13 +30,9 @@ export interface RestDeps {
   readonly challenges: ChallengeStore;
   /** Chi è in partita: lo sa il gateway (`GameManager.InMatch`, `PlayingIDs`). */
   readonly matches: { inMatch(userId: number): boolean; playingIds(): number[] };
+  /** Amicizie, richieste, ricerca e blocchi (`rest/friends.ts`). */
+  readonly friendsApi: FriendsApi;
 }
-
-/** `handlers.MaxFriends`. */
-const MAX_FRIENDS = 100;
-
-type FriendStatus = 'online' | 'playing' | 'offline';
-const STATUS_RANK: Record<FriendStatus, number> = { online: 0, playing: 1, offline: 2 };
 
 type AuthedRequest = Request & { claims?: AccessClaims };
 
@@ -116,6 +113,12 @@ const ROUTES: readonly { readonly pattern: RegExp; readonly methods: readonly st
   { pattern: /^\/me\/decks\/[^/]+$/, methods: ['PUT', 'DELETE'] },
   { pattern: /^\/me\/decks\/[^/]+\/activate$/, methods: ['POST'] },
   { pattern: /^\/me\/friends$/, methods: ['GET'] },
+  { pattern: /^\/me\/friends\/requests$/, methods: ['POST'] },
+  { pattern: /^\/me\/friends\/requests\/[^/]+$/, methods: ['DELETE'] },
+  { pattern: /^\/me\/friends\/requests\/[^/]+\/accept$/, methods: ['POST'] },
+  { pattern: /^\/me\/friends\/[^/]+$/, methods: ['DELETE'] },
+  { pattern: /^\/me\/blocks$/, methods: ['GET', 'POST'] },
+  { pattern: /^\/me\/blocks\/[^/]+$/, methods: ['DELETE'] },
   { pattern: /^\/me\/presence$/, methods: ['POST'] },
   { pattern: /^\/me\/challenges$/, methods: ['POST'] },
   { pattern: /^\/me\/challenges\/[^/]+$/, methods: ['DELETE'] },
@@ -129,7 +132,7 @@ function isAllowedOrigin(origin: string): boolean {
 
 export function createRestApp(deps: RestDeps, gate: RequestGate) {
   const { users, jwt, tickets } = deps;
-  const { collections, decks, presence, challenges, matches, config } = deps;
+  const { collections, decks, presence, challenges, matches, friendsApi } = deps;
   const app = express();
   app.disable('x-powered-by');
   app.disable('etag');
@@ -235,6 +238,16 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
     );
   });
 
+  /** Risposta di un'operazione delle amicizie (`rest/friends.ts`). */
+  const answer = (res: Response, outcome: Outcome) => (outcome.ok ? ok(res, outcome.data, outcome.status) : fail(res, outcome.status, outcome.error));
+  const pathUser = (req: Request) => (/^\d+$/.test(String(req.params['id'])) ? Number(req.params['id']) : 0);
+
+  // handlers/friendships.go: ricerca per nome (A5). Prima di `/users/:id`, come la rotta statica di chi.
+  app.get('/users/search', requireAuth, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    answer(res, friendsApi.search(req.claims.user_id, req.query['q']));
+  });
+
   // handlers/stats.go:111-161 (pubblica)
   app.get('/users/:id', (req, res) => {
     const id = Number(req.params['id']);
@@ -297,30 +310,45 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
     reply(res, decks.activate(req.claims.user_id, id));
   });
 
-  // handlers/friends.go (F1–F3): con `allFriends` tutti gli utenti, prima gli online, poi in partita, poi offline
+  // handlers/friends.go e friendships.go (F1–F3, A1–A10): amici veri, altri giocatori (con `allFriends`), richieste
   app.get('/me/friends', requireAuth, (req: AuthedRequest, res) => {
     if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
-    const self = req.claims.user_id;
-    if (!config.allFriends) return ok(res, { friends: [], online: 0 });
-    const statuses = new Map<number, FriendStatus>();
-    for (const id of presence.onlineIds()) statuses.set(id, 'online');
-    for (const id of matches.playingIds()) statuses.set(id, 'playing');
-    const byName = (a: User, b: User) => a.username.toLowerCase().localeCompare(b.username.toLowerCase()) || a.id - b.id;
-    const friends = users
-      .all()
-      .filter((u) => u.id !== self)
-      .sort((a, b) => Number(statuses.has(b.id)) - Number(statuses.has(a.id)) || byName(a, b))
-      .slice(0, MAX_FRIENDS)
-      .map((u) => ({ id: u.id, username: u.username, elo: u.elo, status: statuses.get(u.id) ?? ('offline' as FriendStatus) }))
-      .sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status] || a.username.toLowerCase().localeCompare(b.username.toLowerCase()));
-    ok(res, { friends, online: friends.filter((f) => f.status === 'online').length });
+    answer(res, friendsApi.listed(req.claims.user_id));
+  });
+  app.post('/me/friends/requests', requireAuth, readJson, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    answer(res, friendsApi.request(req.claims.user_id, decodeBody(req)?.['to']));
+  });
+  app.post('/me/friends/requests/:id/accept', requireAuth, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    answer(res, friendsApi.accept(req.claims.user_id, pathUser(req)));
+  });
+  app.delete('/me/friends/requests/:id', requireAuth, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    answer(res, friendsApi.deleteLink(req.claims.user_id, pathUser(req), 'pending'));
+  });
+  app.delete('/me/friends/:id', requireAuth, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    answer(res, friendsApi.deleteLink(req.claims.user_id, pathUser(req), 'accepted'));
+  });
+  app.get('/me/blocks', requireAuth, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    answer(res, friendsApi.blocks(req.claims.user_id));
+  });
+  app.post('/me/blocks', requireAuth, readJson, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    answer(res, friendsApi.block(req.claims.user_id, decodeBody(req)?.['user_id']));
+  });
+  app.delete('/me/blocks/:id', requireAuth, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    answer(res, friendsApi.unblock(req.claims.user_id, pathUser(req)));
   });
 
   // handlers/challenges.go: il segnale di presenza porta le sfide ricevute (F2)
   app.post('/me/presence', requireAuth, (req: AuthedRequest, res) => {
     if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
     presence.touch(req.claims.user_id);
-    ok(res, { incoming: challenges.incoming(req.claims.user_id) });
+    ok(res, { incoming: challenges.incoming(req.claims.user_id), friend_requests: friendsApi.incomingCount(req.claims.user_id) });
   });
 
   const player = (u: User): ChallengePlayer => ({ id: u.id, username: u.username, elo: u.elo });
@@ -331,7 +359,7 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
     const to = body?.['to'];
     if (typeof to !== 'number' || !Number.isInteger(to) || to <= 0) return fail(res, 400, HTTP.invalidBody);
     if (to === self) return fail(res, 400, HTTP.challengeSelf);
-    if (!config.allFriends) return fail(res, 404, HTTP.challengeNoPlayer);
+    if (!friendsApi.isFriend(self, to)) return fail(res, 404, HTTP.challengeNoPlayer);
     const target = users.findById(to);
     if (target === undefined) return fail(res, 404, HTTP.challengeNoPlayer);
     const me = users.findById(self);

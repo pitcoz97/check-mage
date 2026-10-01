@@ -76,14 +76,18 @@ function connect(server: MockServerHandle, p: Player, challenge: string) {
 const errorCodes = (frames: Frame[]) => frames.filter((f) => f.type === 'error').map((f) => f.payload['code']);
 
 describe('amici e presenza', () => {
-  it('GET /me/friends: tutti amici, prima gli online, poi per nome; se stessi esclusi', async () => {
+  it('GET /me/friends: senza amicizie tutti negli altri giocatori, prima gli online, poi per nome; se stessi esclusi', async () => {
     const server = await start();
     const [anna, bruno] = [await player(server, 'anna'), await player(server, 'bruno')];
     await player(server, 'aldo');
     await call(server, 'POST', '/me/presence', bruno.token);
     const res = await call(server, 'GET', '/me/friends', anna.token);
     expect(res.body.data).toEqual({
-      friends: [
+      friends: [],
+      incoming: [],
+      outgoing: [],
+      max_friends: 200,
+      others: [
         { id: bruno.id, username: 'bruno', elo: 1200, status: 'online' },
         { id: 3, username: 'aldo', elo: 1200, status: 'offline' },
       ],
@@ -95,7 +99,7 @@ describe('amici e presenza', () => {
     const server = await start({ allFriends: false });
     const anna = await player(server, 'anna');
     await player(server, 'bruno');
-    expect((await call(server, 'GET', '/me/friends', anna.token)).body.data).toEqual({ friends: [], online: 0 });
+    expect((await call(server, 'GET', '/me/friends', anna.token)).body.data).toEqual({ friends: [], others: [], incoming: [], outgoing: [], online: 0, max_friends: 200 });
   });
 });
 
@@ -128,10 +132,10 @@ describe('sfide dirette', () => {
     const [stateA, stateB] = await Promise.all([a.next('game_state'), b.next('game_state')]);
     expect(stateA.payload['friendly']).toBe(true);
     expect(stateB.payload['friendly']).toBe(true);
-    expect((await call(server, 'POST', '/me/presence', bruno.token)).body.data).toEqual({ incoming: [] });
+    expect((await call(server, 'POST', '/me/presence', bruno.token)).body.data).toEqual({ incoming: [], friend_requests: 0 });
 
-    const friends = (await call(server, 'GET', '/me/friends', anna.token)).body.data as { friends: { status: string }[] };
-    expect(friends.friends[0]?.status).toBe('playing');
+    const friends = (await call(server, 'GET', '/me/friends', anna.token)).body.data as { others: { status: string }[] };
+    expect(friends.others[0]?.status).toBe('playing');
     expect((await call(server, 'POST', '/me/challenges', anna.token, { to: bruno.id })).body.error).toBe('Sei già in partita');
 
     a.ws.send(JSON.stringify({ type: 'resign', payload: {} }));
@@ -182,6 +186,85 @@ describe('sfide dirette', () => {
     a.ws.close();
     await a.closed;
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect((await call(server, 'POST', '/me/presence', bruno.token)).body.data).toEqual({ incoming: [] });
+    expect((await call(server, 'POST', '/me/presence', bruno.token)).body.data).toEqual({ incoming: [], friend_requests: 0 });
+  });
+});
+
+describe('amicizie vere e blocchi (handlers/friendships.go)', () => {
+  type List = { friends: { id: number }[]; others: { id: number }[]; incoming: { id: number }[]; outgoing: { id: number }[] };
+  const ids = (items: { id: number }[]) => items.map((i) => i.id);
+
+  it('richiesta, accetta, richiesta incrociata, rimuovi, rifiuta; badge nella presenza', async () => {
+    const server = await start();
+    const [anna, bruno, carlo] = [await player(server, 'anna'), await player(server, 'bruno'), await player(server, 'carlo')];
+    const sent = await call(server, 'POST', '/me/friends/requests', anna.token, { to: bruno.id });
+    expect(sent.status).toBe(201);
+    expect(ids((sent.body.data as List).outgoing)).toEqual([bruno.id]);
+    expect(ids((sent.body.data as List).others)).toEqual([carlo.id]);
+    expect((await call(server, 'POST', '/me/presence', bruno.token)).body.data).toMatchObject({ friend_requests: 1 });
+    expect((await call(server, 'POST', '/me/friends/requests', anna.token, { to: bruno.id })).body.error).toBe('Richiesta già inviata');
+    expect((await call(server, 'POST', `/me/friends/requests/${bruno.id}/accept`, anna.token)).status).toBe(404);
+    const accepted = await call(server, 'POST', `/me/friends/requests/${anna.id}/accept`, bruno.token);
+    expect(ids((accepted.body.data as List).friends)).toEqual([anna.id]);
+    expect((await call(server, 'POST', '/me/friends/requests', bruno.token, { to: anna.id })).body.error).toBe('Siete già amici');
+
+    await call(server, 'POST', '/me/friends/requests', carlo.token, { to: anna.id });
+    const crossed = await call(server, 'POST', '/me/friends/requests', anna.token, { to: carlo.id });
+    expect(ids((crossed.body.data as List).friends).sort()).toEqual([bruno.id, carlo.id]);
+
+    expect((await call(server, 'DELETE', `/me/friends/${bruno.id}`, anna.token)).status).toBe(200);
+    expect((await call(server, 'DELETE', `/me/friends/${bruno.id}`, anna.token)).body.error).toBe('Amico non trovato');
+    await call(server, 'POST', '/me/friends/requests', bruno.token, { to: anna.id });
+    expect((await call(server, 'DELETE', `/me/friends/requests/${bruno.id}`, anna.token)).status).toBe(200);
+    expect(ids(((await call(server, 'GET', '/me/friends', bruno.token)).body.data as List).outgoing)).toEqual([]);
+  });
+
+  it('ricerca per nome con la relazione; troppo corta; se stessi esclusi', async () => {
+    const server = await start();
+    const [anna, bruno] = [await player(server, 'anna'), await player(server, 'bruno')];
+    await player(server, 'brunella');
+    await call(server, 'POST', '/me/friends/requests', anna.token, { to: bruno.id });
+    expect((await call(server, 'GET', '/users/search?q=b', anna.token)).body.error).toBe('Ricerca troppo corta');
+    const found = (await call(server, 'GET', '/users/search?q=BRU', anna.token)).body.data as { username: string; relation: string }[];
+    expect(found.map((u) => [u.username, u.relation])).toEqual([
+      ['brunella', 'none'],
+      ['bruno', 'outgoing'],
+    ]);
+    expect((await call(server, 'GET', '/users/search?q=anna', anna.token)).body.data).toEqual([]);
+  });
+
+  it('blocco: niente richieste né sfide, nascosti a vicenda, sfida aperta chiusa; sblocco', async () => {
+    const server = await start();
+    const [anna, bruno] = [await player(server, 'anna'), await player(server, 'bruno')];
+    await call(server, 'POST', '/me/presence', anna.token);
+    await call(server, 'POST', '/me/presence', bruno.token);
+    const ch = (await call(server, 'POST', '/me/challenges', bruno.token, { to: anna.id })).body.data as { id: string };
+    const b = connect(server, bruno, ch.id);
+    await b.opened;
+
+    const blocked = await call(server, 'POST', '/me/blocks', anna.token, { user_id: bruno.id });
+    expect(blocked.body.data).toEqual([{ id: bruno.id, username: 'bruno' }]);
+    expect(await b.closed).toBe(4003);
+    expect(errorCodes(b.frames)).toEqual(['challenge_unavailable']);
+    expect(ids(((await call(server, 'GET', '/me/friends', anna.token)).body.data as List).others)).toEqual([]);
+    expect(ids(((await call(server, 'GET', '/me/friends', bruno.token)).body.data as List).others)).toEqual([]);
+    expect((await call(server, 'POST', '/me/friends/requests', bruno.token, { to: anna.id })).body.error).toBe('Giocatore non trovato');
+    expect((await call(server, 'POST', '/me/challenges', bruno.token, { to: anna.id })).body.error).toBe('Giocatore non trovato');
+    expect((await call(server, 'GET', '/users/search?q=anna', bruno.token)).body.data).toEqual([]);
+    expect((await call(server, 'POST', '/me/blocks', anna.token, { user_id: anna.id })).body.error).toBe('Non puoi bloccare te stesso');
+
+    expect((await call(server, 'DELETE', `/me/blocks/${bruno.id}`, anna.token)).body.data).toEqual([]);
+    expect((await call(server, 'DELETE', `/me/blocks/${bruno.id}`, anna.token)).body.error).toBe('Giocatore non bloccato');
+    expect(ids(((await call(server, 'GET', '/me/friends', bruno.token)).body.data as List).others)).toEqual([anna.id]);
+  });
+
+  it('senza allFriends si sfidano solo gli amici veri', async () => {
+    const server = await start({ allFriends: false });
+    const [anna, bruno] = [await player(server, 'anna'), await player(server, 'bruno')];
+    await call(server, 'POST', '/me/presence', bruno.token);
+    expect((await call(server, 'POST', '/me/challenges', anna.token, { to: bruno.id })).body.error).toBe('Giocatore non trovato');
+    await call(server, 'POST', '/me/friends/requests', anna.token, { to: bruno.id });
+    await call(server, 'POST', `/me/friends/requests/${anna.id}/accept`, bruno.token);
+    expect((await call(server, 'POST', '/me/challenges', anna.token, { to: bruno.id })).status).toBe(201);
   });
 });

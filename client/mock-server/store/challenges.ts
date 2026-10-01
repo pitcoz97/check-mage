@@ -101,6 +101,13 @@ export function createChallengeStore(ttlMs: number, now: () => number = Date.now
       }
     },
 
+    /** `CloseChallengesBetween` (A8): uno dei due ha bloccato l'altro. */
+    closeBetween(a: number, b: number): void {
+      for (const ch of [...challenges.values()]) {
+        if ((ch.from.id === a && ch.to.id === b) || (ch.from.id === b && ch.to.id === a)) close(ch, 'challenge_unavailable');
+      }
+    },
+
     /** `LeaveChallenge`: se se ne va chi sfida la sfida è annullata, se se ne va lo sfidato resta aperta. */
     leave(waiter: ChallengeWaiter): void {
       for (const ch of [...challenges.values()]) {

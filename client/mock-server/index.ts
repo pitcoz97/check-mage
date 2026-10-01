@@ -7,8 +7,10 @@ import { createTicketStore } from './auth/tickets';
 import { configFromEnv, DEFAULT_CONFIG, type MockConfig } from './config';
 import { RAW_CATALOG } from './game/catalog';
 import { createRequestGate, createRestApp } from './rest/app';
+import { createFriendsApi } from './rest/friends';
 import { createChallengeStore } from './store/challenges';
 import { createCollectionStore } from './store/collection';
+import { createFriendStore } from './store/friends';
 import { createDeckStore, type DeckStore } from './store/decks';
 import { createPresenceStore } from './store/presence';
 import { createUserStore } from './store/users';
@@ -39,8 +41,16 @@ export async function startMockServer(overrides: Partial<MockConfig> = {}): Prom
   const presence = createPresenceStore(config.presenceWindowMs);
   const challenges = createChallengeStore(config.challengeTtlMs);
   const gateway = createGateway({ config, users, gate, log, decks, presence, challenges });
+  const friendsApi = createFriendsApi({
+    config,
+    users,
+    friends: createFriendStore(),
+    presence,
+    matches: gateway,
+    closeChallengesBetween: (a, b) => challenges.closeBetween(a, b),
+  });
   const app = createRestApp(
-    { config, users, jwt, tickets, catalog: RAW_CATALOG, collections, decks, presence, challenges, matches: gateway },
+    { config, users, jwt, tickets, catalog: RAW_CATALOG, collections, decks, presence, challenges, matches: gateway, friendsApi },
     gate,
   );
   const server = createServer(app);

@@ -204,6 +204,18 @@ export const HTTP_ERROR_CODES = [
   'challenge_target_busy',
   'challenge_self_busy',
   'challenge_not_found',
+  // Amicizie e blocchi (handlers/friendships.go)
+  'friend_self',
+  'friend_already',
+  'friend_pending',
+  'friend_limit',
+  'friend_their_limit',
+  'friend_pending_limit',
+  'friend_request_not_found',
+  'friend_not_found',
+  'block_self',
+  'block_not_found',
+  'search_too_short',
   // Codici generati dal client, non dal server:
   /** Server irraggiungibile (fetch fallita, timeout, offline). */
   'network_error',
