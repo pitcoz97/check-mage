@@ -3,12 +3,18 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**Tutto in `main`:** catalogo, collezione, mazzi, carte sbloccate per ora (C12) e deploy su VPS (`docs/DEPLOY.md`).
-Decisioni in `docs/ASSUMPTIONS.md` §7–§9. Il redesign (R1–R6) è unito in `main`.
+**`feat/friends` (da rivedere):** amici, presenza e sfide dirette amichevoli (ASSUMPTIONS §10, F1–F10). In `main`:
+catalogo, collezione, mazzi, carte sbloccate per ora (C12) e deploy (`docs/DEPLOY.md`, `docs/DEPLOY-CASA.md`).
+Decisioni in `docs/ASSUMPTIONS.md` §7–§10. Il redesign (R1–R6) è unito in `main`.
 Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
 eseguibile).
 
 ## Completo
+- **Amici e sfide:** server con presenza in memoria, `GET /me/friends` (tutti amici per ora, `AllFriends`),
+  `POST /me/presence`, `POST`/`DELETE /me/challenges`, `/ws?challenge=<id>` con chiusura 4003, partite amichevoli
+  senza ELO (`games.rated`). Mock allineato. Client: segnale di presenza ogni 10 s, pagina `/friends`, profilo
+  `/players/:id` con ultime partite, banner delle sfide nella shell, card «Amici» e riga Android nella home, chip
+  «Amichevole» in partita. 669 test, `npm run e2e:challenge` 11/11 sul mock.
 - **Server a casa:** variante `deploy/docker-compose.home.yml` (Cloudflare Tunnel, nessuna porta aperta, attivata da
   `COMPOSE_FILE` in `deploy/.env`) e guida `docs/DEPLOY-CASA.md` con il confronto VPS/casa.
 - **Deploy su VPS:** `deploy/` (Postgres con lo schema iniziale, server con Stockfish, Caddy che costruisce e serve il

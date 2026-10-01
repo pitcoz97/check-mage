@@ -406,3 +406,29 @@ I riferimenti sono al server di quel branch.
 | S24 | La validità mostrata dall'editor (contatore, stato, pulsanti) è solo presentazione: decide il server. | Server autoritativo. | `deckEditor.ts` |
 | S25 | Desktop e Android hanno alberi diversi (lista + editor contro schede + pannello): la pagina sceglie con `matchMedia` (`useMediaQuery`), senza `matchMedia` vale Android. | Due tavole diverse, non solo classi. | `Decks.tsx` |
 | S26 | «+ Nuovo mazzo» crea subito una bozza vuota sul server ("Nuovo mazzo") e la apre. | Il server salva le bozze (D3). | `Decks.tsx`, `HomeCards.tsx` |
+
+## 10. Amici e sfide dirette (`feat/friends`)
+
+### Decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| F1 | Finché i giocatori sono pochi tutti sono amici di tutti (`handlers.AllFriends` sul server, `allFriends` nel mock). Richieste e amicizie vere arriveranno dopo, senza cambiare l'API. | tu |
+| F2 | Presenza: segnale `POST /me/presence` ogni 10 s mentre l'app è aperta e in primo piano (anche in partita), fermo a pagina nascosta; online = segnale negli ultimi 30 s. Niente socket sempre aperto. | tu + derivata |
+| F3 | Stati: online, in partita (partita attiva), offline. Lista ordinata così, poi per nome, al massimo 100. | derivata |
+| F4 | Sfida solo a un amico online e non in partita; scade dopo 60 s; una nuova sfida sostituisce la precedente dello stesso sfidante. | derivata |
+| F5 | Chi riceve una sfida la vede in un banner in cima a ogni schermata della shell, col tempo residuo, «Accetta» e «Rifiuta». | derivata |
+| F6 | Chi sfida aspetta col banner «In attesa di…» e «Annulla»; rifiuto, scadenza e sfida non più disponibile arrivano con la chiusura 4003 e il motivo, senza riconnessione. | derivata |
+| F7 | La partita parte quando tutti e due sono collegati a `/ws?challenge=<id>`: chi sfida subito dopo averla creata, lo sfidato quando accetta. Accettare chiude un'eventuale ricerca in coda. | derivata |
+| F8 | Le sfide sono amichevoli: niente ELO, `games.rated = false`, chip «Amichevole» in partita e nello storico. | tu |
+| F9 | Quando parte una partita le altre sfide aperte dei due giocatori si chiudono. | derivata |
+| F10 | Non disegnati: pagina Amici, profilo di un altro giocatore (`/players/:id`, con ultime partite e «Sfida»), banner delle sfide. La card della home desktop e la riga «Amici online» di Android seguono le tavole della home. Anche il proprio profilo mostra ora le ultime partite. | tu + derivata |
+
+### Assunzioni del client
+| # | Assunzione | Motivo | Dove |
+|---|---|---|---|
+| S27 | Gli errori REST delle sfide arrivano solo come testo: ogni testo ha il suo codice (`challenge_*`), come gli altri (C4). | Il REST non ha codici. | `adapter.ts` |
+| S28 | Un amico o una sfida malformati si scartano con un warning; uno stato sconosciuto vale offline (non si sfida). | Come il catalogo (G10). | `adapter.ts` |
+| S29 | Il motivo della chiusura 4003 si legge dal reason (`challenge_declined`…); senza reason vale «non disponibile». | Il server mette il codice nel reason. | `connection.ts` |
+| S30 | I parametri di apertura del socket (`challenge`) restano nelle riconnessioni; la coda li azzera. | Una riconnessione durante l'attesa deve tornare nello slot della sfida. | `connection.ts`, `matchSession.ts` |
+| S31 | Una sfida a cui si è risposto da qui sparisce subito dal banner, anche se il server la manda ancora finché non parte o scade. | Niente banner che torna dopo «Accetta». | `presence.ts` |
+| S32 | Nello storico il lato del giocatore si riconosce da `white_id`/`black_id`; sui server che non li mandano, dal nome. | Compatibilità. | `ProfileParts.tsx` |

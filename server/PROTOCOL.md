@@ -491,6 +491,49 @@ WebSocket. Se non è valido il server manda `error {code: "deck_invalid"}`, non
 mette in coda e chiude con il codice `4002`. Le riconnessioni non rileggono il
 mazzo.
 
+## Amici e sfide dirette
+
+Rotte autenticate (`Authorization: Bearer <access_token>`):
+
+| Rotta | Corpo | Risposta |
+|---|---|---|
+| `GET /me/friends` | — | `{friends: [{id, username, elo, status}], online}` |
+| `POST /me/presence` | — | `{incoming: [challenge]}` |
+| `POST /me/challenges` | `{to: <id utente>}` | `201` + `challenge` |
+| `DELETE /me/challenges/{id}` | — | `{success: true}` |
+
+`status` vale `online`, `playing` (partita attiva, anche dormiente dopo un riavvio)
+o `offline`; la lista è ordinata online → in partita → offline, poi per nome, al
+massimo 100 voci, senza se stessi. Per ora (`handlers.AllFriends`, acceso) gli
+amici sono **tutti gli utenti**; spento, la lista è vuota.
+
+**Presenza**: è online chi ha mandato un segnale negli ultimi 30 s, con
+`POST /me/presence` (il client lo manda ogni ~10 s mentre l'app è in primo piano)
+o aprendo il WebSocket. Solo memoria: dopo un riavvio tutti sono offline fino al
+segnale successivo.
+
+`challenge` = `{id, from: {id, username, elo}, to: {id, username, elo}, expires_in}`
+(`expires_in` in secondi). Una sfida scade dopo 60 s; una nuova sfida dello stesso
+sfidante sostituisce la precedente. `DELETE` da chi sfida la annulla, dallo
+sfidato la rifiuta. Errori: `Non puoi sfidare te stesso` (`400`), `Giocatore non
+trovato` (`404`, anche se non è amico), `Il giocatore non è online`, `Il giocatore
+è in partita`, `Sei già in partita` (`409`), `Sfida non trovata` (`404`), `Dati
+non validi`.
+
+**Partita**: chi sfida apre subito `/ws?ticket=…&challenge=<id>` e aspetta; lo
+sfidato accetta aprendo lo stesso URL. Il secondo che arriva fa partire la room:
+colori a caso, **amichevole** (`game_state.friendly: true`, assente nelle
+classificate), nessun cambio di ELO, `games.rated = false`. Valgono le regole della
+coda: riconnessione a una partita in corso, `deck_invalid` + `4002`, una seconda
+connessione dello stesso utente sostituisce la prima (`4001`). Chi aspetta una
+sfida che non partirà più riceve `error` con `code` `challenge_declined`,
+`challenge_expired` o `challenge_unavailable` e la chiusura **4003** (il reason
+è il codice). Se si chiude il socket di chi sfida la sfida è annullata; quello
+dello sfidato no. Quando parte una partita (dalla coda o da una sfida), le altre
+sfide aperte dei due giocatori si chiudono con `challenge_unavailable`.
+
+`GET /users/{id}/games` porta anche `white_id`, `black_id` e `rated`.
+
 ## Limiti noti
 
 - Le partite in corso sono persistite in Postgres: un riavvio del server non le
