@@ -13,12 +13,16 @@ import { useCollection } from '../Collection/useCollection';
 import { byRecency, deckSigil } from '../Decks/deckEditor';
 import { DeckSigil } from '../Decks/DeckSigil';
 import { useDecks } from '../Decks/useDecks';
+import { FriendAvatar } from '../Friends/FriendAvatar';
+import { FriendRow } from '../Friends/FriendRow';
+import { useChallenge } from '../Friends/useChallenge';
+import { useFriends } from '../Friends/useFriends';
 import { RankingRows } from '../Leaderboard/RankingRows';
 import { useLeaderboard } from '../Leaderboard/useLeaderboard';
 
 /**
- * La riga di card in fondo alla home desktop (tavola "Home · desktop"). Amici non ha dati sul server: la card c'è, con
- * «Presto» e nessun dato finto (D9). Mazzi (D12), Collezione (C9–C11) e Classifica (D11) sono vere.
+ * La riga di card in fondo alla home desktop (tavola "Home · desktop"): Mazzi (D12), Collezione (C9–C11), Classifica
+ * (D11) e Amici (F1–F7).
  */
 
 export function CardTitle({ icon, title, trailing, to }: { icon: AppIconName; title: string; trailing?: ReactNode; to?: string }) {
@@ -41,13 +45,82 @@ export function CardTitle({ icon, title, trailing, to }: { icon: AppIconName; ti
   );
 }
 
-export function SoonCard({ icon, title }: { icon: AppIconName; title: string }) {
+/** Quanti amici mostra la card: online e in partita prima, come li ordina il server. */
+const FRIENDS_IN_CARD = 4;
+
+/** Amici in breve: quanti sono online e i primi quattro, con «Sfida» per chi è online. */
+export function FriendsCard() {
   const { t } = useTranslation();
+  const { state } = useFriends();
+  const challenges = useChallenge();
+  const list = state.kind === 'ready' ? state.list : null;
+
   return (
-    <section data-soon-card aria-disabled="true" className="flex flex-col gap-2 rounded-16 bg-panel p-[18px]">
-      <CardTitle icon={icon} title={title} trailing={<span className="rounded-pill bg-quiet px-2 py-0.5 text-11 font-bold text-muted">{t('nav.soon')}</span>} />
-      <p className="text-14 text-muted">{t('home.soonText')}</p>
+    <section data-friends-card className="flex flex-col gap-2 rounded-16 bg-panel p-[18px]">
+      <CardTitle
+        icon="friends"
+        title={t('nav.friends')}
+        to="/friends"
+        trailing={list === null ? undefined : <span className="text-13 font-bold text-play-bright">{t('friends.onlineCount', { count: list.online })}</span>}
+      />
+      {state.kind === 'loading' && <Spinner label={t('friends.loading')} />}
+      {state.kind === 'error' && <p className="text-14 text-muted">{t('friends.error')}</p>}
+      {list !== null && list.friends.length === 0 && <p className="text-14 text-muted">{t('friends.empty')}</p>}
+      {list !== null && list.friends.length > 0 && (
+        <ul className="flex flex-col gap-0.5">
+          {list.friends.slice(0, FRIENDS_IN_CARD).map((friend) => (
+            <FriendRow
+              key={friend.id}
+              friend={friend}
+              compact
+              canChallenge={challenges.canChallenge}
+              sending={challenges.sending === friend.id}
+              onChallenge={() => void challenges.challenge(friend)}
+            />
+          ))}
+        </ul>
+      )}
+      <span className="grow" />
+      <Link
+        to="/friends"
+        className="flex h-10 items-center justify-center rounded-10 bg-elevated text-14 font-bold text-primary shadow-edge-elevated hover:brightness-110"
+      >
+        {t('friends.all')}
+      </Link>
     </section>
+  );
+}
+
+/** Quanti avatar ci stanno nella riga Android. */
+const FRIENDS_IN_ROW = 6;
+
+/** Android: «Amici online» con gli avatar di chi è online (tavola "Home · Android"); tutta la riga porta agli Amici. */
+export function FriendsOnlineRow() {
+  const { t } = useTranslation();
+  const { state } = useFriends();
+  const online = state.kind === 'ready' ? state.list.friends.filter((f) => f.status === 'online') : [];
+
+  return (
+    <Link to="/friends" data-friends-online className="flex flex-col gap-2.5 rounded-16 bg-panel p-4 text-primary">
+      <span className="flex items-center gap-2">
+        <span className="grow text-12 font-extrabold tracking-[0.1em] text-muted uppercase">{t('home.friendsOnline')}</span>
+        {state.kind === 'ready' && <span className="text-13 font-bold text-play-bright">{t('friends.onlineCount', { count: state.list.online })}</span>}
+        <AppIcon name="chevron" strokeWidth={2.2} className="size-4 text-muted" />
+      </span>
+      {state.kind === 'ready' &&
+        (online.length === 0 ? (
+          <span className="text-14 text-muted">{t('friends.noneOnline')}</span>
+        ) : (
+          <span className="flex items-center gap-3">
+            {online.slice(0, FRIENDS_IN_ROW).map((friend) => (
+              <span key={friend.id} className="flex w-11 flex-col items-center gap-1">
+                <FriendAvatar name={friend.username} status="online" />
+                <span className="w-full truncate text-center text-11 text-muted">{friend.username}</span>
+              </span>
+            ))}
+          </span>
+        ))}
+    </Link>
   );
 }
 

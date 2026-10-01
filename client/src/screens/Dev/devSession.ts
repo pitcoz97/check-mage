@@ -122,6 +122,31 @@ const DECKS = {
   deck_size: 40,
 };
 
+/** `GET /me/friends` delle anteprime: tutti amici (F1), online prima, poi in partita, poi offline. */
+const FRIENDS = {
+  friends: [
+    { id: 8, username: 'Morgana_77', elo: 1285, status: 'online' },
+    { id: 22, username: 'Ser_Knight', elo: 1978, status: 'online' },
+    { id: 24, username: 'Alchimista', elo: 1190, status: 'online' },
+    { id: 21, username: 'VoidRook', elo: 2014, status: 'playing' },
+    { id: 23, username: 'Lady_Ember', elo: 1951, status: 'offline' },
+    { id: 25, username: 'Torre_Nera', elo: 1402, status: 'offline' },
+  ],
+  online: 3,
+};
+
+/** Una sfida in arrivo da Morgana, per vedere il banner. */
+const INCOMING = {
+  incoming: [{ id: 'dev-challenge', from: { id: 8, username: 'Morgana_77', elo: 1285 }, to: { id: 7, username: 'Riccardo', elo: 1240 }, expires_in: 45 }],
+};
+
+/** Ultime partite di Morgana: una classificata vinta, un'amichevole persa, una patta. */
+const GAMES = [
+  { id: 3, white_id: 8, black_id: 7, white: 'Morgana_77', black: 'Riccardo', result: '1-0', time_control: '10+5', pgn: '', played_at: '2026-09-30T18:00:00Z', rated: true },
+  { id: 2, white_id: 21, black_id: 8, white: 'VoidRook', black: 'Morgana_77', result: '1-0', time_control: '10+5', pgn: '', played_at: '2026-09-29T18:00:00Z', rated: false },
+  { id: 1, white_id: 8, black_id: 22, white: 'Morgana_77', black: 'Ser_Knight', result: '1/2-1/2', time_control: '10+5', pgn: '', played_at: '2026-09-28T18:00:00Z', rated: true },
+];
+
 const SHIELD = { square: 'e4', effects: [{ kind: 'shield', remaining_turns: 1, source_spell_id: 'shield' }] };
 const FREEZE = { square: 'c3', effects: [{ kind: 'freeze', remaining_turns: 1, source_spell_id: 'ice_chain' }] };
 /** Step 6: l'alfiere in c1 è in phasing (Passo sfasato), fino alla fine del turno. */
@@ -141,7 +166,12 @@ export async function startDevSession({
     'GET /me': () => data(SELF),
     'GET /ws/ticket': () => data({ ticket: 'dev', expires_in: 30 }),
     'GET /users/7': () => data({ user: SELF, stats: { wins: 23, losses: 17, draws: 4, total: 44 } }),
-    'GET /users/8': () => data({ user: OPPONENT, stats: { wins: 0, losses: 0, draws: 0, total: 0 } }),
+    'GET /users/8': () => data({ user: OPPONENT, stats: { wins: 12, losses: 9, draws: 2, total: 23 } }),
+    'GET /users/8/games': () => data(GAMES),
+    'GET /users/7/games': () => data(GAMES),
+    'GET /me/friends': () => data(FRIENDS),
+    'POST /me/presence': () => data(INCOMING),
+    'DELETE /me/challenges/dev-challenge': () => data(null),
     'GET /leaderboard': () => data(LEADERBOARD),
     'GET /me/collection': () => data(COLLECTION),
     'GET /me/decks': () => data(DECKS),

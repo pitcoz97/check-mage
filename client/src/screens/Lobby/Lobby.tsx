@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AppIcon } from '../../design/components/AppIcon';
 import { useAuth } from '../../store/AuthProvider';
 import { useMatch, useMatchSession } from '../../store/MatchProvider';
-import { CollectionCard, DecksCard, RankingCard, SoonCard } from './HomeCards';
+import { CollectionCard, DecksCard, FriendsCard, FriendsOnlineRow, RankingCard } from './HomeCards';
 import { OngoingMatchCard } from './OngoingMatchCard';
 import { PlayCard } from './PlayCard';
 
@@ -81,14 +81,13 @@ export function Lobby() {
         <DecksCard />
         <CollectionCard />
         <RankingCard />
-        <SoonCard icon="friends" title={t('nav.friends')} />
+        <FriendsCard />
       </div>
 
-      {/* Android: amici online, «Presto». */}
-      <section aria-disabled="true" className="flex items-center gap-2 lg:hidden">
-        <h2 className="grow text-12 font-extrabold tracking-[0.1em] text-muted uppercase">{t('home.friendsOnline')}</h2>
-        <span className="rounded-pill bg-quiet px-2 py-0.5 text-11 font-bold text-muted">{t('nav.soon')}</span>
-      </section>
+      {/* Android: amici online. */}
+      <div className="lg:hidden">
+        <FriendsOnlineRow />
+      </div>
     </div>
   );
 }

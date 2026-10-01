@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, Navigate, useBlocker, useLocation, useNavigate, useParams } from 'react-router';
@@ -78,7 +79,7 @@ function useDecksBase(id: string | undefined): string {
   return id === undefined ? trimmed : trimmed.slice(0, trimmed.lastIndexOf('/'));
 }
 
-function errorText(t: ReturnType<typeof useTranslation>['t'], code: HttpErrorCode | null): string {
+function errorText(t: TFunction, code: HttpErrorCode | null): string {
   return code === null ? t('decks.saveError') : t(`errors.http.${code}`);
 }
 

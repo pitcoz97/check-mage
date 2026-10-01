@@ -12,7 +12,7 @@ import { CatalogProvider } from '../spells/CatalogProvider';
 import { MatchProvider } from '../store/MatchProvider';
 import { testCatalogStore } from '../testing/catalog';
 import { testMatchSession } from '../testing/session';
-import { ACCOUNT, data, fakeServer, memoryStorage } from '../testing/fakes';
+import { ACCOUNT, data, fail, fakeServer, memoryStorage } from '../testing/fakes';
 import { routes } from './router';
 
 const languageStore = createWebStorage(() => undefined);
@@ -26,6 +26,11 @@ let leaderboard: () => Response = () =>
     { rank: 4, id: 7, username: 'mario', elo: 1234 },
   ]);
 
+/** Sfide ricevute e risposta a `POST /me/challenges` del server finto: i test le sostituiscono. */
+let incoming: unknown[] = [];
+let challengeReply: () => Response = () =>
+  data({ id: 'ch-1', from: { id: 7, username: 'mario', elo: 1234 }, to: { id: 8, username: 'luigi', elo: 1300 }, expires_in: 60 }, 201);
+
 /** Utente già autenticato: sessione salvata e `/me` valido. */
 async function renderAuthenticated(path: string) {
   const { storage } = memoryStorage();
@@ -36,6 +41,25 @@ async function renderAuthenticated(path: string) {
     'GET /users/7': () => data({ user: ACCOUNT, stats: { wins: 1, losses: 0, draws: 0, total: 1 } }),
     'GET /ws/ticket': () => data({ ticket: `t${++ticket}`, expires_in: 30 }),
     'GET /leaderboard': () => leaderboard(),
+    'GET /me/friends': () =>
+      data({
+        friends: [
+          { id: 8, username: 'luigi', elo: 1300, status: 'online' },
+          { id: 9, username: 'toad', elo: 1100, status: 'playing' },
+          { id: 10, username: 'peach', elo: 1250, status: 'offline' },
+        ],
+        online: 1,
+      }),
+    'POST /me/presence': () => data({ incoming }),
+    'POST /me/challenges': () => challengeReply(),
+    'DELETE /me/challenges/in-1': () => data(null),
+    'GET /users/8': () => data({ user: { id: 8, username: 'luigi', elo: 1300, created_at: '2026-02-01T10:00:00Z' }, stats: { wins: 5, losses: 3, draws: 1, total: 9 } }),
+    'GET /users/8/games': () =>
+      data([
+        { id: 1, white_id: 8, black_id: 7, white: 'luigi', black: 'mario', result: '1-0', time_control: '10+5', pgn: '', played_at: '2026-09-30T10:00:00Z', rated: true },
+        { id: 2, white_id: 7, black_id: 8, white: 'mario', black: 'luigi', result: '1/2-1/2', time_control: '10+5', pgn: '', played_at: '2026-09-29T10:00:00Z', rated: false },
+      ]),
+    'GET /users/7/games': () => data([]),
     'GET /me/collection': () =>
       data({
         cards: [
@@ -69,7 +93,7 @@ async function renderAuthenticated(path: string) {
       </CatalogProvider>
     </AuthProvider>,
   );
-  return { router, view, session, sockets, storage };
+  return { router, view, session, sockets, storage, server };
 }
 
 beforeAll(async () => {
@@ -78,6 +102,9 @@ beforeAll(async () => {
 
 afterEach(async () => {
   cleanup();
+  incoming = [];
+  challengeReply = () =>
+    data({ id: 'ch-1', from: { id: 7, username: 'mario', elo: 1234 }, to: { id: 8, username: 'luigi', elo: 1300 }, expires_in: 60 }, 201);
   await changeLanguage('it', languageStore);
 });
 
@@ -156,13 +183,10 @@ function gameState() {
 }
 
 describe('shell, classifica e impostazioni (R5)', () => {
-  it('navigazione: le voci «Presto» non portano da nessuna parte, quelle vere sì', async () => {
+  it('navigazione: tutte le voci portano alla loro pagina', async () => {
     const { router } = await renderAuthenticated('/lobby');
     await screen.findByRole('heading', { name: 'Bentornato, mario' });
-    const friends = document.querySelector('[data-nav="friends"]') as HTMLElement;
-    expect(friends.tagName).toBe('SPAN');
-    expect(friends.getAttribute('aria-disabled')).toBe('true');
-    expect(friends.textContent).toContain('Presto');
+    expect((document.querySelector('[data-nav="friends"]') as HTMLElement).tagName).toBe('A');
     expect((document.querySelector('[data-nav="decks"]') as HTMLElement).tagName).toBe('A');
     await act(async () => {
       fireEvent.click(document.querySelector('[data-nav="ranking"]') as HTMLElement);
@@ -186,7 +210,7 @@ describe('shell, classifica e impostazioni (R5)', () => {
       ['rare', 'Rare1'],
       ['legendary', 'Leggendarie0'],
     ]);
-    expect(document.querySelectorAll('[data-soon-card]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-soon-card]')).toHaveLength(0);
     await act(async () => {
       fireEvent.click(within(card).getByRole('link', { name: 'Sfoglia le carte' }));
     });
@@ -335,5 +359,102 @@ describe('coda, partita e connessione', () => {
     });
     expect(await screen.findByRole('heading', { name: 'Bentornato, mario' })).toBeTruthy();
     expect(await storage.get('active-match')).toBeNull();
+  });
+});
+
+describe('amici e sfide (F1–F8)', () => {
+  it('navigazione e home: Amici porta alla pagina; la card dice quanti sono online', async () => {
+    const { router } = await renderAuthenticated('/lobby');
+    const card = await waitFor(() => {
+      const found = document.querySelector('[data-friends-card]') as HTMLElement | null;
+      expect(found?.querySelectorAll('[data-friend]')).toHaveLength(3);
+      return found as HTMLElement;
+    });
+    expect(within(card).getByText('1 online')).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(document.querySelector('[data-nav="friends"]') as HTMLElement);
+    });
+    expect(router.state.location.pathname).toBe('/friends');
+  });
+
+  it('pagina Amici: sezioni per stato, Sfida solo per chi è online, ricerca', async () => {
+    await renderAuthenticated('/friends');
+    await screen.findByRole('heading', { name: 'Amici' });
+    await waitFor(() => expect(document.querySelectorAll('[data-friends-section]')).toHaveLength(3));
+    expect([...document.querySelectorAll('[data-friends-section]')].map((s) => s.getAttribute('data-friends-section'))).toEqual(['online', 'playing', 'offline']);
+    expect(screen.getByRole('button', { name: 'Sfida luigi' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Sfida peach' })).toBeNull();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Cerca un amico' }), { target: { value: 'pea' } });
+    expect(document.querySelectorAll('[data-friend]')).toHaveLength(1);
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Cerca un amico' }), { target: { value: 'zzz' } });
+    expect(screen.getByText('Nessun amico con questo nome.')).toBeTruthy();
+  });
+
+  it('Sfida → socket con la sfida e attesa; rifiutata → motivo e Chiudi', async () => {
+    const { sockets, server } = await renderAuthenticated('/friends');
+    fireEvent.click(await screen.findByRole('button', { name: 'Sfida luigi' }));
+    await waitFor(() => expect(sockets.sockets).toHaveLength(1));
+    expect(server.hits).toContain('POST /me/challenges');
+    expect(sockets.last().url).toBe('ws://api/ws?ticket=t1&challenge=ch-1');
+    sockets.last().open();
+    expect(await screen.findByText('In attesa di luigi…')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Sfida luigi' }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => {
+      sockets.last().drop(4003, 'challenge_declined');
+    });
+    expect(await screen.findByText('luigi ha rifiutato la sfida.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Chiudi' }));
+    expect(document.querySelector('[data-challenge-banner]')).toBeNull();
+  });
+
+  it('un rifiuto del server alla sfida si mostra tradotto', async () => {
+    challengeReply = () => fail(409, 'Il giocatore è in partita');
+    const { sockets } = await renderAuthenticated('/friends');
+    fireEvent.click(await screen.findByRole('button', { name: 'Sfida luigi' }));
+    expect(await screen.findByText('Il giocatore è in partita.')).toBeTruthy();
+    expect(sockets.sockets).toHaveLength(0);
+  });
+
+  it('sfida in arrivo: Accetta apre il socket della sfida, la partita parte amichevole', async () => {
+    incoming = [{ id: 'in-1', from: { id: 8, username: 'luigi', elo: 1300 }, to: { id: 7, username: 'mario', elo: 1234 }, expires_in: 40 }];
+    const { router, sockets } = await renderAuthenticated('/lobby');
+    const banner = await waitFor(() => {
+      const found = document.querySelector('[data-incoming-challenge="in-1"]') as HTMLElement | null;
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    expect(within(banner).getByText('luigi ti sfida')).toBeTruthy();
+    fireEvent.click(within(banner).getByRole('button', { name: 'Accetta' }));
+    await waitFor(() => expect(sockets.sockets).toHaveLength(1));
+    expect(sockets.last().url).toBe('ws://api/ws?ticket=t1&challenge=in-1');
+    expect(await screen.findByText('Collegamento alla sfida di luigi…')).toBeTruthy();
+    sockets.last().open();
+    await act(async () => {
+      sockets.last().receive({ ...gameState(), payload: { ...gameState().payload, friendly: true } });
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe('/match'));
+    expect(await screen.findByText('Amichevole')).toBeTruthy();
+  });
+
+  it('sfida in arrivo: Rifiuta la chiude sul server e sparisce', async () => {
+    incoming = [{ id: 'in-1', from: { id: 8, username: 'luigi', elo: 1300 }, to: { id: 7, username: 'mario', elo: 1234 }, expires_in: 40 }];
+    const { server } = await renderAuthenticated('/lobby');
+    fireEvent.click(await screen.findByRole('button', { name: 'Rifiuta' }));
+    expect(document.querySelector('[data-incoming-challenge]')).toBeNull();
+    await waitFor(() => expect(server.hits).toContain('DELETE /me/challenges/in-1'));
+  });
+
+  it('profilo di un giocatore: stato, statistiche, ultime partite con l’amichevole; il proprio id porta a /profile', async () => {
+    const { router } = await renderAuthenticated('/players/8');
+    expect(await screen.findByRole('heading', { name: 'luigi' })).toBeTruthy();
+    await waitFor(() => expect(document.querySelectorAll('[data-game]')).toHaveLength(2));
+    expect([...document.querySelectorAll('[data-game]')].map((g) => g.getAttribute('data-outcome'))).toEqual(['win', 'draw']);
+    expect(within(document.querySelector('[data-game="2"]') as HTMLElement).getByText('Amichevole')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Sfida luigi' })).toBeTruthy();
+
+    await act(async () => {
+      await router.navigate('/players/7');
+    });
+    expect(router.state.location.pathname).toBe('/profile');
   });
 });

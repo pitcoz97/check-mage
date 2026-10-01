@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -25,7 +26,7 @@ const STATES = [
 
 type StateKey = (typeof STATES)[number]['key'];
 
-function stateLabel(key: StateKey, t: ReturnType<typeof useTranslation>['t']): string {
+function stateLabel(key: StateKey, t: TFunction): string {
   if (key === 'playable') return t('spells.dev.state.playable');
   if (key === 'mana') return t('spells.dev.state.mana');
   if (key === 'phase') return t('spells.dev.state.phase');

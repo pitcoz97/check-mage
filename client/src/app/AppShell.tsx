@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Outlet, useNavigate } from 'react-router';
 
 import { useMatch } from '../store/MatchProvider';
+import { ChallengeBanner } from './ChallengeBanner';
 import { MobileHeader, MobileTabBar, SideNav } from './Navigation';
 
 /**
@@ -9,7 +10,8 @@ import { MobileHeader, MobileTabBar, SideNav } from './Navigation';
  * inferiore su Android.
  *
  * Una partita in corso resta in background mentre si naviga (D13): la sessione vive a livello d'app. Si entra in
- * partita da soli solo quando la coda trova un avversario, ovunque ci si trovi nella shell.
+ * partita da soli solo quando la coda trova un avversario o parte una sfida, ovunque ci si trovi nella shell. Le sfide
+ * dirette stanno in cima al contenuto (F5–F7).
  */
 export function AppShell() {
   const navigate = useNavigate();
@@ -31,6 +33,7 @@ export function AppShell() {
           <MobileHeader />
         </div>
         <main className="flex grow flex-col pt-4 lg:pt-0">
+          <ChallengeBanner />
           <Outlet />
         </main>
       </div>
