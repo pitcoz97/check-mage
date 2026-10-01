@@ -33,18 +33,8 @@ func (m *Manager) JoinQueue(client *Client) bool {
 	defer m.mu.Unlock()
 
 	// Controlla se il giocatore ha una partita in corso
-	if roomID, exists := m.userRooms[client.UserID]; exists {
-		room, roomExists := m.rooms[roomID]
-		if roomExists && room.isActive() {
-			logger.L.Info("Riconnessione in corso",
-				zap.String("player", client.Username),
-				zap.String("room", roomID),
-			)
-			room.Reconnect(client)
-			return true // è una riconnessione
-		}
-		// La room non esiste più, pulisci
-		delete(m.userRooms, client.UserID)
+	if m.tryReconnectLocked(client) {
+		return true // è una riconnessione
 	}
 
 	// Mazzo attivo non valido: niente coda, errore e chiusura (D6).
@@ -105,6 +95,56 @@ func (m *Manager) JoinQueue(client *Client) bool {
 
 	// L'identità dei giocatori arriva nel primo game_state (white_player/black_player).
 	return false
+}
+
+// tryReconnectLocked riporta il client nella sua partita se ne ha una attiva, e
+// ripulisce l'indice se la room non c'è più. Va invocata con m.mu tenuto.
+func (m *Manager) tryReconnectLocked(client *Client) bool {
+	roomID, exists := m.userRooms[client.UserID]
+	if !exists {
+		return false
+	}
+	if room, roomExists := m.rooms[roomID]; roomExists && room.isActive() {
+		logger.L.Info("Riconnessione in corso",
+			zap.String("player", client.Username),
+			zap.String("room", roomID),
+		)
+		room.Reconnect(client)
+		return true
+	}
+	// La room non esiste più, pulisci
+	delete(m.userRooms, client.UserID)
+	return false
+}
+
+// inMatchLocked dice se l'utente ha una partita attiva. Va invocata con m.mu tenuto.
+func (m *Manager) inMatchLocked(userID int) bool {
+	roomID, exists := m.userRooms[userID]
+	if !exists {
+		return false
+	}
+	room, roomExists := m.rooms[roomID]
+	return roomExists && room.isActive()
+}
+
+// InMatch dice se l'utente ha una partita attiva (stato "playing" degli amici).
+func (m *Manager) InMatch(userID int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.inMatchLocked(userID)
+}
+
+// PlayingIDs restituisce gli utenti con una partita attiva.
+func (m *Manager) PlayingIDs() []int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]int, 0, len(m.userRooms))
+	for userID := range m.userRooms {
+		if m.inMatchLocked(userID) {
+			out = append(out, userID)
+		}
+	}
+	return out
 }
 
 // LeaveQueue rimuove un client dalla coda se è ancora in attesa. Il confronto è

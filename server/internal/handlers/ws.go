@@ -6,6 +6,7 @@ import (
 	"chess-server/internal/logger"
 	mw "chess-server/internal/middleware"
 	"chess-server/internal/models"
+	"chess-server/internal/presence"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -80,6 +81,7 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	presence.Default.Touch(userID) // aprire il socket vale come segnale di presenza (F2)
 
 	// Mazzo attivo (D6). Con un errore del DB si gioca con la ricetta condivisa.
 	deck, valid, err := ActiveDeck(userID)
