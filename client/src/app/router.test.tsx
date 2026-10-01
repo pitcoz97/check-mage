@@ -26,6 +26,26 @@ let leaderboard: () => Response = () =>
     { rank: 4, id: 7, username: 'mario', elo: 1234 },
   ]);
 
+/** Amici del server finto (A1–A3): due amici veri, due altri giocatori, una richiesta ricevuta da wario. */
+const FRIENDS = {
+  friends: [
+    { id: 8, username: 'luigi', elo: 1300, status: 'online' },
+    { id: 9, username: 'toad', elo: 1100, status: 'playing' },
+  ],
+  others: [
+    { id: 12, username: 'daisy', elo: 1180, status: 'online' },
+    { id: 10, username: 'peach', elo: 1250, status: 'offline' },
+  ],
+  incoming: [{ id: 11, username: 'wario', elo: 1150, status: 'offline' }],
+  outgoing: [],
+  online: 2,
+  max_friends: 200,
+};
+let searchRelation = 'none';
+/** Bloccati e richieste ricevute del server finto. */
+let blocks: { id: number; username: string }[] = [];
+let friendRequests = 0;
+
 /** Sfide ricevute e risposta a `POST /me/challenges` del server finto: i test le sostituiscono. */
 let incoming: unknown[] = [];
 let challengeReply: () => Response = () =>
@@ -41,16 +61,27 @@ async function renderAuthenticated(path: string) {
     'GET /users/7': () => data({ user: ACCOUNT, stats: { wins: 1, losses: 0, draws: 0, total: 1 } }),
     'GET /ws/ticket': () => data({ ticket: `t${++ticket}`, expires_in: 30 }),
     'GET /leaderboard': () => leaderboard(),
-    'GET /me/friends': () =>
-      data({
-        friends: [
-          { id: 8, username: 'luigi', elo: 1300, status: 'online' },
-          { id: 9, username: 'toad', elo: 1100, status: 'playing' },
-          { id: 10, username: 'peach', elo: 1250, status: 'offline' },
-        ],
-        online: 1,
-      }),
-    'POST /me/presence': () => data({ incoming }),
+    'GET /me/friends': () => data(FRIENDS),
+    'POST /me/friends/requests/11/accept': () =>
+      data({ ...FRIENDS, friends: [...FRIENDS.friends, { id: 11, username: 'wario', elo: 1150, status: 'offline' }], incoming: [] }),
+    'GET /users/search': () => data([{ id: 10, username: 'peach', elo: 1250, relation: searchRelation }]),
+    'POST /me/friends/requests': () => {
+      searchRelation = 'outgoing';
+      return data({ ...FRIENDS, others: [], outgoing: [{ id: 10, username: 'peach', elo: 1250, status: 'offline' }] }, 201);
+    },
+    'POST /me/presence': () => data({ incoming, friend_requests: friendRequests }),
+    'DELETE /me/friends/8': () => data({ ...FRIENDS, friends: [FRIENDS.friends[1]] }),
+    'GET /me/blocks': () => data(blocks),
+    'POST /me/blocks': () => {
+      blocks = [{ id: 10, username: 'peach' }];
+      return data(blocks);
+    },
+    'DELETE /me/blocks/10': () => {
+      blocks = [];
+      return data(blocks);
+    },
+    'GET /users/10': () => data({ user: { id: 10, username: 'peach', elo: 1250, created_at: '2026-02-01T10:00:00Z' }, stats: { wins: 0, losses: 0, draws: 0, total: 0 } }),
+    'GET /users/10/games': () => data([]),
     'POST /me/challenges': () => challengeReply(),
     'DELETE /me/challenges/in-1': () => data(null),
     'GET /users/8': () => data({ user: { id: 8, username: 'luigi', elo: 1300, created_at: '2026-02-01T10:00:00Z' }, stats: { wins: 5, losses: 3, draws: 1, total: 9 } }),
@@ -103,6 +134,9 @@ beforeAll(async () => {
 afterEach(async () => {
   cleanup();
   incoming = [];
+  searchRelation = 'none';
+  blocks = [];
+  friendRequests = 0;
   challengeReply = () =>
     data({ id: 'ch-1', from: { id: 7, username: 'mario', elo: 1234 }, to: { id: 8, username: 'luigi', elo: 1300 }, expires_in: 60 }, 201);
   await changeLanguage('it', languageStore);
@@ -367,27 +401,47 @@ describe('amici e sfide (F1–F8)', () => {
     const { router } = await renderAuthenticated('/lobby');
     const card = await waitFor(() => {
       const found = document.querySelector('[data-friends-card]') as HTMLElement | null;
-      expect(found?.querySelectorAll('[data-friend]')).toHaveLength(3);
+      expect(found?.querySelectorAll('[data-friend]')).toHaveLength(4);
       return found as HTMLElement;
     });
-    expect(within(card).getByText('1 online')).toBeTruthy();
+    expect(within(card).getByText('2 online')).toBeTruthy();
+    expect(within(card).getByText('1 richieste')).toBeTruthy();
+    // Prima gli amici veri, poi gli altri giocatori.
+    expect([...card.querySelectorAll('[data-friend]')].map((row) => row.getAttribute('data-friend'))).toEqual(['8', '9', '12', '10']);
     await act(async () => {
       fireEvent.click(document.querySelector('[data-nav="friends"]') as HTMLElement);
     });
     expect(router.state.location.pathname).toBe('/friends');
   });
 
-  it('pagina Amici: sezioni per stato, Sfida solo per chi è online, ricerca', async () => {
-    await renderAuthenticated('/friends');
+  it('pagina Amici: richieste, amici per stato, altri giocatori; Sfida solo per chi è online; accetta', async () => {
+    const { server } = await renderAuthenticated('/friends');
     await screen.findByRole('heading', { name: 'Amici' });
-    await waitFor(() => expect(document.querySelectorAll('[data-friends-section]')).toHaveLength(3));
-    expect([...document.querySelectorAll('[data-friends-section]')].map((s) => s.getAttribute('data-friends-section'))).toEqual(['online', 'playing', 'offline']);
+    await waitFor(() => expect(document.querySelectorAll('[data-friends-section]')).toHaveLength(4));
+    expect([...document.querySelectorAll('[data-friends-section]')].map((s) => s.getAttribute('data-friends-section'))).toEqual(['incoming', 'online', 'playing', 'others']);
+    expect(screen.getByText('2 / 200 amici')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sfida luigi' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Sfida daisy' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Sfida peach' })).toBeNull();
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Cerca un amico' }), { target: { value: 'pea' } });
-    expect(document.querySelectorAll('[data-friend]')).toHaveLength(1);
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Cerca un amico' }), { target: { value: 'zzz' } });
-    expect(screen.getByText('Nessun amico con questo nome.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Aggiungi peach agli amici' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Accetta la richiesta di wario' }));
+    await waitFor(() => expect(document.querySelector('[data-friends-section="incoming"]')).toBeNull());
+    expect(server.hits).toContain('POST /me/friends/requests/11/accept');
+    expect(screen.getByText('3 / 200 amici')).toBeTruthy();
+  });
+
+  it('pagina Amici: la ricerca trova i giocatori e Aggiungi manda la richiesta', async () => {
+    const { server } = await renderAuthenticated('/friends');
+    const box = await screen.findByRole('searchbox', { name: 'Cerca un giocatore' });
+    fireEvent.change(box, { target: { value: 'p' } });
+    expect(screen.getByText('Scrivi almeno 2 caratteri.')).toBeTruthy();
+    fireEvent.change(box, { target: { value: 'pe' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Aggiungi peach agli amici' }, { timeout: 2_000 }));
+    await waitFor(() => expect(server.hits).toContain('POST /me/friends/requests'));
+    expect(await screen.findByRole('button', { name: 'Annulla la richiesta a peach' }, { timeout: 2_000 })).toBeTruthy();
+    fireEvent.change(box, { target: { value: '' } });
+    expect(await screen.findByText('Richieste inviate')).toBeTruthy();
   });
 
   it('Sfida → socket con la sfida e attesa; rifiutata → motivo e Chiudi', async () => {
@@ -456,5 +510,87 @@ describe('amici e sfide (F1–F8)', () => {
       await router.navigate('/players/7');
     });
     expect(router.state.location.pathname).toBe('/profile');
+  });
+});
+
+describe('amicizie: profilo, fine partita, classifica, bloccati, badge (A6–A8)', () => {
+  it('badge sulla voce Amici con le richieste ricevute', async () => {
+    friendRequests = 2;
+    await renderAuthenticated('/lobby');
+    const badge = await waitFor(() => {
+      const found = document.querySelector('[data-nav="friends"] [data-nav-badge]');
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    expect(badge.textContent).toContain('2');
+  });
+
+  it('profilo: Aggiungi per un altro giocatore; Rimuovi con conferma per un amico', async () => {
+    const { router, server } = await renderAuthenticated('/players/10');
+    expect(await screen.findByRole('heading', { name: 'peach' })).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Aggiungi peach agli amici' }));
+    expect(await screen.findByRole('button', { name: 'Annulla la richiesta a peach' })).toBeTruthy();
+    expect(server.hits).toContain('POST /me/friends/requests');
+
+    await act(async () => {
+      await router.navigate('/players/8');
+    });
+    expect(await screen.findByRole('heading', { name: 'luigi' })).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Rimuovi amico' }));
+    const confirm = screen.getByRole('group', { name: 'Rimuovi amico' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Rimuovi amico' }));
+    await waitFor(() => expect(server.hits).toContain('DELETE /me/friends/8'));
+  });
+
+  it('profilo: Blocca dal menu, con conferma; poi Sblocca', async () => {
+    const { server } = await renderAuthenticated('/players/10');
+    await screen.findByRole('heading', { name: 'peach' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Altre azioni' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Blocca' }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'Blocca' })).getByRole('button', { name: 'Blocca' }));
+    expect(await screen.findByText(/Hai bloccato questo giocatore/)).toBeTruthy();
+    expect(server.hits).toContain('POST /me/blocks');
+    expect(screen.queryByRole('button', { name: 'Aggiungi peach agli amici' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Altre azioni' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Sblocca' }));
+    await waitFor(() => expect(server.hits).toContain('DELETE /me/blocks/10'));
+    await waitFor(() => expect(screen.queryByText(/Hai bloccato questo giocatore/)).toBeNull());
+  });
+
+  it('impostazioni: elenco dei bloccati con Sblocca', async () => {
+    blocks = [{ id: 10, username: 'peach' }];
+    const { server } = await renderAuthenticated('/settings');
+    fireEvent.click(await screen.findByRole('button', { name: 'Sblocca peach' }));
+    await waitFor(() => expect(server.hits).toContain('DELETE /me/blocks/10'));
+    expect(await screen.findByText('Non hai bloccato nessuno.')).toBeTruthy();
+  });
+
+  it('classifica: i nomi portano al profilo, il proprio al proprio', async () => {
+    await renderAuthenticated('/leaderboard');
+    const link = await screen.findByRole('link', { name: 'VoidRook' });
+    expect(link.getAttribute('href')).toBe('/players/21');
+    const ranking = document.querySelector('[data-ranking]') as HTMLElement;
+    expect(within(ranking).getByRole('link', { name: /mario/ }).getAttribute('href')).toBe('/profile');
+  });
+
+  it('fine partita: Aggiungi agli amici l’avversario che non è amico', async () => {
+    const { sockets, server } = await renderAuthenticated('/lobby');
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: 'Gioca classificata' }));
+    });
+    await waitFor(() => expect(sockets.sockets).toHaveLength(1));
+    const state = gameState();
+    act(() => {
+      sockets.last().open();
+      sockets.last().receive({ ...state, payload: { ...state.payload, black_player: { id: 12, username: 'daisy' } } });
+    });
+    await screen.findByRole('grid', { name: 'Scacchiera' }, { timeout: 5_000 });
+    act(() => {
+      sockets.last().receive({ type: 'game_over', payload: { result: '1-0', reason: 'resign', winner: 'mario' } });
+    });
+    // Il riepilogo c'è due volte (desktop e Android): basta il primo.
+    const [add] = await screen.findAllByRole('button', { name: 'Aggiungi daisy agli amici' });
+    fireEvent.click(add as HTMLElement);
+    await waitFor(() => expect(server.hits).toContain('POST /me/friends/requests'));
   });
 });

@@ -10,8 +10,8 @@ import (
 	"github.com/lib/pq"
 )
 
-// L'elenco degli utenti per amici e sfide (F1): solo id, nome ed ELO. Senza DB
-// (test) gli utenti vivono in memoria.
+// L'elenco degli utenti per amici, ricerca e sfide (F1, A5): solo id, nome ed
+// ELO. Senza DB (test) gli utenti vivono in memoria.
 
 // UserSummary è l'identità pubblica di un utente.
 type UserSummary struct {
@@ -22,11 +22,16 @@ type UserSummary struct {
 
 // UserDirectory legge gli utenti.
 type UserDirectory interface {
-	// ListUsers restituisce al più limit utenti tranne exclude: prima quelli in
-	// first (gli attivi, così il limite non li taglia), poi per nome.
-	ListUsers(exclude int, first []int, limit int) ([]UserSummary, error)
+	// ListUsers restituisce al più limit utenti tranne quelli in exclude: prima
+	// quelli in first (gli attivi, così il limite non li taglia), poi per nome.
+	ListUsers(exclude, first []int, limit int) ([]UserSummary, error)
 	// User restituisce un utente; false se non esiste.
 	User(id int) (UserSummary, bool, error)
+	// UsersByIDs restituisce gli utenti esistenti fra ids, in un ordine qualsiasi.
+	UsersByIDs(ids []int) ([]UserSummary, error)
+	// Search cerca i nomi che contengono q (maiuscole indifferenti), tranne
+	// exclude: prima chi inizia con q, poi per nome; al più limit.
+	Search(q string, exclude []int, limit int) ([]UserSummary, error)
 }
 
 var memUsers = &memUserDirectory{}
@@ -46,19 +51,18 @@ func SetMemUsers(users []UserSummary) {
 	memUsers.users = append([]UserSummary{}, users...)
 }
 
+func nonNil(ids []int) []int {
+	if ids == nil {
+		return []int{}
+	}
+	return ids
+}
+
 // --- Postgres -------------------------------------------------------------------
 
 type pgUserDirectory struct{}
 
-func (pgUserDirectory) ListUsers(exclude int, first []int, limit int) ([]UserSummary, error) {
-	if first == nil {
-		first = []int{}
-	}
-	rows, err := DB.Query(`
-		SELECT id, username, elo FROM users
-		WHERE id <> $1
-		ORDER BY (id = ANY($2)) DESC, lower(username), id
-		LIMIT $3`, exclude, pq.Array(first), limit)
+func scanUsers(rows *sql.Rows, err error) ([]UserSummary, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -74,6 +78,14 @@ func (pgUserDirectory) ListUsers(exclude int, first []int, limit int) ([]UserSum
 	return out, rows.Err()
 }
 
+func (pgUserDirectory) ListUsers(exclude, first []int, limit int) ([]UserSummary, error) {
+	return scanUsers(DB.Query(`
+		SELECT id, username, elo FROM users
+		WHERE NOT (id = ANY($1))
+		ORDER BY (id = ANY($2)) DESC, lower(username), id
+		LIMIT $3`, pq.Array(nonNil(exclude)), pq.Array(nonNil(first)), limit))
+}
+
 func (pgUserDirectory) User(id int) (UserSummary, bool, error) {
 	var u UserSummary
 	err := DB.QueryRow(`SELECT id, username, elo FROM users WHERE id = $1`, id).Scan(&u.ID, &u.Username, &u.Elo)
@@ -86,6 +98,22 @@ func (pgUserDirectory) User(id int) (UserSummary, bool, error) {
 	return u, true, nil
 }
 
+func (pgUserDirectory) UsersByIDs(ids []int) ([]UserSummary, error) {
+	if len(ids) == 0 {
+		return []UserSummary{}, nil
+	}
+	return scanUsers(DB.Query(`SELECT id, username, elo FROM users WHERE id = ANY($1)`, pq.Array(ids)))
+}
+
+func (pgUserDirectory) Search(q string, exclude []int, limit int) ([]UserSummary, error) {
+	// strpos e starts_with invece di LIKE: niente caratteri jolly da proteggere (l'underscore è nei nomi).
+	return scanUsers(DB.Query(`
+		SELECT id, username, elo FROM users
+		WHERE strpos(lower(username), lower($1)) > 0 AND NOT (id = ANY($2))
+		ORDER BY starts_with(lower(username), lower($1)) DESC, lower(username), id
+		LIMIT $3`, q, pq.Array(nonNil(exclude)), limit))
+}
+
 // --- Memoria (test) -------------------------------------------------------------
 
 type memUserDirectory struct {
@@ -93,16 +121,29 @@ type memUserDirectory struct {
 	users []UserSummary
 }
 
-func (m *memUserDirectory) ListUsers(exclude int, first []int, limit int) ([]UserSummary, error) {
+func idSet(ids []int) map[int]bool {
+	out := make(map[int]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out
+}
+
+func byName(a, b UserSummary) bool {
+	x, y := strings.ToLower(a.Username), strings.ToLower(b.Username)
+	if x != y {
+		return x < y
+	}
+	return a.ID < b.ID
+}
+
+func (m *memUserDirectory) ListUsers(exclude, first []int, limit int) ([]UserSummary, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	active := make(map[int]bool, len(first))
-	for _, id := range first {
-		active[id] = true
-	}
+	skip, active := idSet(exclude), idSet(first)
 	out := []UserSummary{}
 	for _, u := range m.users {
-		if u.ID != exclude {
+		if !skip[u.ID] {
 			out = append(out, u)
 		}
 	}
@@ -110,11 +151,7 @@ func (m *memUserDirectory) ListUsers(exclude int, first []int, limit int) ([]Use
 		if active[out[i].ID] != active[out[j].ID] {
 			return active[out[i].ID]
 		}
-		a, b := strings.ToLower(out[i].Username), strings.ToLower(out[j].Username)
-		if a != b {
-			return a < b
-		}
-		return out[i].ID < out[j].ID
+		return byName(out[i], out[j])
 	})
 	if len(out) > limit {
 		out = out[:limit]
@@ -131,4 +168,42 @@ func (m *memUserDirectory) User(id int) (UserSummary, bool, error) {
 		}
 	}
 	return UserSummary{}, false, nil
+}
+
+func (m *memUserDirectory) UsersByIDs(ids []int) ([]UserSummary, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	want := idSet(ids)
+	out := []UserSummary{}
+	for _, u := range m.users {
+		if want[u.ID] {
+			out = append(out, u)
+		}
+	}
+	return out, nil
+}
+
+func (m *memUserDirectory) Search(q string, exclude []int, limit int) ([]UserSummary, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	needle := strings.ToLower(q)
+	skip := idSet(exclude)
+	out := []UserSummary{}
+	for _, u := range m.users {
+		if !skip[u.ID] && strings.Contains(strings.ToLower(u.Username), needle) {
+			out = append(out, u)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		pi := strings.HasPrefix(strings.ToLower(out[i].Username), needle)
+		pj := strings.HasPrefix(strings.ToLower(out[j].Username), needle)
+		if pi != pj {
+			return pi
+		}
+		return byName(out[i], out[j])
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }

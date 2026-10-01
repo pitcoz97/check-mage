@@ -3,6 +3,7 @@ import { Link, NavLink } from 'react-router';
 
 import { AppIcon, LogoMark } from '../design/components/AppIcon';
 import { useAuth } from '../store/AuthProvider';
+import { useFriendRequestCount } from '../store/PresenceProvider';
 import { NAV_ITEMS, type NavItem } from './nav';
 
 /**
@@ -15,6 +16,27 @@ function useAccount() {
   const username = useAuth((s) => s.account?.username ?? '');
   const elo = useAuth((s) => s.account?.elo ?? null);
   return { username, elo, initial: username.slice(0, 1).toUpperCase() };
+}
+
+/**
+ * Numero di richieste d'amicizia ricevute sulla voce «Amici» (A6), dal segnale di presenza. `floating`: sopra l'icona,
+ * nelle barre a icone.
+ */
+function NavBadge({ item, floating = false }: { item: NavItem; floating?: boolean }) {
+  const { t } = useTranslation();
+  const count = useFriendRequestCount();
+  if (item.key !== 'friends' || count === 0) return null;
+  return (
+    <span
+      data-nav-badge
+      className={`flex h-5 min-w-5 items-center justify-center rounded-pill bg-arcane-bright px-1.5 text-11 font-extrabold text-on-gold ${
+        floating ? 'absolute -top-1.5 -right-2.5 ring-2 ring-nav' : 'ml-auto'
+      }`}
+    >
+      <span aria-hidden="true">{count > 9 ? '9+' : count}</span>
+      <span className="sr-only">{t('friends.requests.badge', { count })}</span>
+    </span>
+  );
 }
 
 function SoonPill() {
@@ -80,6 +102,7 @@ function SideNavItem({ item }: { item: NavItem }) {
     >
       <AppIcon name={item.icon} className="size-[22px]" />
       {label}
+      <NavBadge item={item} />
     </NavLink>
   );
 }
@@ -96,7 +119,10 @@ export function MatchRail() {
       {NAV_ITEMS.map((item) => {
         const content = (
           <>
-            <AppIcon name={item.icon} className="size-[22px]" />
+            <span className="relative">
+              <AppIcon name={item.icon} className="size-[22px]" />
+              <NavBadge item={item} floating />
+            </span>
             <span className="text-11 font-semibold">{t(`nav.${item.key}`)}</span>
           </>
         );
@@ -175,7 +201,10 @@ export function MobileTabBar() {
       {NAV_ITEMS.map((item) => {
         const content = (
           <>
-            <AppIcon name={item.icon} className="size-6" />
+            <span className="relative">
+              <AppIcon name={item.icon} className="size-6" />
+              <NavBadge item={item} floating />
+            </span>
             <span className="text-11">{t(`nav.${item.key}`)}</span>
           </>
         );

@@ -316,3 +316,16 @@ Verifica: `go build ./... && go vet ./... && go test ./...`.
 | 5 | Colonna `games.rated` (aggiunta allo startup da `db.EnsureGameSchema`, e in `deploy/postgres/init.sql`); `GET /users/{id}/games` porta `white_id`, `black_id`, `rated` | Etichetta «Amichevole» nello storico |
 
 Verifica: `go build ./... && go vet ./... && go test ./...`; con il server avviato, `npm run e2e:challenge -- --http http://localhost:8080 --ws ws://localhost:8080/ws` dal client. Per le amicizie vere: `AllFriends = false` in `internal/handlers/friends.go` (lista vuota finché non ci sarà la tabella).
+
+## 20. Amicizie vere e blocchi
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | Tabelle `friend_links` e `user_blocks` create allo startup (`db.EnsureFriendSchema`) | — |
+| 2 | `GET /me/friends`: `{friends, others, incoming, outgoing, online, max_friends}`; `friends` sono gli amici veri, `others` gli altri utenti finché vale `AllFriends` | Pagina Amici con richieste e altri giocatori |
+| 3 | `POST /me/friends/requests`, `.../{id}/accept`, `DELETE /me/friends/requests/{id}`, `DELETE /me/friends/{id}`: rispondono con la lista; richiesta incrociata = amicizia; limiti 200 amici e 50 richieste inviate | Azioni d'amicizia, profilo, fine partita |
+| 4 | `GET /users/search?q=` (almeno 2 caratteri, al più 20) con la relazione | Ricerca nella pagina Amici |
+| 5 | `GET/POST /me/blocks`, `DELETE /me/blocks/{id}`: il blocco toglie i legami, chiude le sfide fra i due, li nasconde a vicenda, vieta richieste e sfide | Blocca nel profilo, elenco nelle Impostazioni |
+| 6 | `POST /me/presence` porta `friend_requests`; le sfide richiedono amicizia vera quando `AllFriends` è spento | Badge sulla voce Amici |
+
+Verifica: `go build ./... && go vet ./... && go test ./...`; con il server avviato, `npm run e2e:challenge -- --http http://localhost:8080 --ws ws://localhost:8080/ws` dal client (23 controlli).

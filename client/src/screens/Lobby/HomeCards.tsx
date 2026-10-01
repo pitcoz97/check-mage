@@ -16,7 +16,7 @@ import { useDecks } from '../Decks/useDecks';
 import { FriendAvatar } from '../Friends/FriendAvatar';
 import { FriendRow } from '../Friends/FriendRow';
 import { useChallenge } from '../Friends/useChallenge';
-import { useFriends } from '../Friends/useFriends';
+import { challengeable, useFriends } from '../Friends/useFriends';
 import { RankingRows } from '../Leaderboard/RankingRows';
 import { useLeaderboard } from '../Leaderboard/useLeaderboard';
 
@@ -48,12 +48,16 @@ export function CardTitle({ icon, title, trailing, to }: { icon: AppIconName; ti
 /** Quanti amici mostra la card: online e in partita prima, come li ordina il server. */
 const FRIENDS_IN_CARD = 4;
 
-/** Amici in breve: quanti sono online e i primi quattro, con «Sfida» per chi è online. */
+/**
+ * Amici in breve: quanti sono online, le richieste ricevute e i primi quattro (amici veri, poi gli altri giocatori),
+ * con «Sfida» per chi è online.
+ */
 export function FriendsCard() {
   const { t } = useTranslation();
   const { state } = useFriends();
   const challenges = useChallenge();
   const list = state.kind === 'ready' ? state.list : null;
+  const shown = list === null ? [] : challengeable(list).slice(0, FRIENDS_IN_CARD);
 
   return (
     <section data-friends-card className="flex flex-col gap-2 rounded-16 bg-panel p-[18px]">
@@ -65,10 +69,15 @@ export function FriendsCard() {
       />
       {state.kind === 'loading' && <Spinner label={t('friends.loading')} />}
       {state.kind === 'error' && <p className="text-14 text-muted">{t('friends.error')}</p>}
-      {list !== null && list.friends.length === 0 && <p className="text-14 text-muted">{t('friends.empty')}</p>}
-      {list !== null && list.friends.length > 0 && (
+      {list !== null && list.incoming.length > 0 && (
+        <Link to="/friends" data-friend-requests className="self-start rounded-pill bg-arcane-deep px-2.5 py-1 text-12 font-bold text-arcane-pale">
+          {t('friends.requests.count', { count: list.incoming.length })}
+        </Link>
+      )}
+      {list !== null && shown.length === 0 && <p className="text-14 text-muted">{t('friends.empty')}</p>}
+      {shown.length > 0 && (
         <ul className="flex flex-col gap-0.5">
-          {list.friends.slice(0, FRIENDS_IN_CARD).map((friend) => (
+          {shown.map((friend) => (
             <FriendRow
               key={friend.id}
               friend={friend}
@@ -98,7 +107,7 @@ const FRIENDS_IN_ROW = 6;
 export function FriendsOnlineRow() {
   const { t } = useTranslation();
   const { state } = useFriends();
-  const online = state.kind === 'ready' ? state.list.friends.filter((f) => f.status === 'online') : [];
+  const online = state.kind === 'ready' ? challengeable(state.list).filter((f) => f.status === 'online') : [];
 
   return (
     <Link to="/friends" data-friends-online className="flex flex-col gap-2.5 rounded-16 bg-panel p-4 text-primary">

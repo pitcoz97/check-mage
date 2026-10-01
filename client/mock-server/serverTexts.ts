@@ -204,6 +204,18 @@ export const HTTP = {
   challengeTargetBusy: t('Il giocatore è in partita', 'challenge_target_busy'),
   challengeSelfBusy: t('Sei già in partita', 'challenge_self_busy'),
   challengeNotFound: t('Sfida non trovata', 'challenge_not_found'),
+  // handlers/friendships.go
+  friendSelf: t('Non puoi aggiungere te stesso', 'friend_self'),
+  friendAlready: t('Siete già amici', 'friend_already'),
+  friendPending: t('Richiesta già inviata', 'friend_pending'),
+  friendLimit: t('Hai raggiunto il numero massimo di amici', 'friend_limit'),
+  friendTheirLimit: t('Il giocatore ha raggiunto il numero massimo di amici', 'friend_their_limit'),
+  friendPendingLimit: t('Hai troppe richieste in sospeso', 'friend_pending_limit'),
+  friendRequestAbsent: t('Richiesta non trovata', 'friend_request_not_found'),
+  friendAbsent: t('Amico non trovato', 'friend_not_found'),
+  blockSelf: t('Non puoi bloccare te stesso', 'block_self'),
+  blockAbsent: t('Giocatore non bloccato', 'block_not_found'),
+  searchShort: t('Ricerca troppo corta', 'search_too_short'),
   tokenMissing: t('Token mancante', 'token_missing'), // middleware/auth.go:36
   tokenInvalid: t('Token non valido o scaduto', 'token_invalid_or_expired'), // middleware/auth.go:42
   ticketInvalid: t('Ticket non valido o scaduto', 'ticket_invalid'), // middleware/wsticket.go:88

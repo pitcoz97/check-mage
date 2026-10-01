@@ -64,6 +64,14 @@ func NewRouter() *chi.Mux {
 		r.Post("/me/presence", handlers.Presence)  // segnale «sono online» + sfide ricevute
 		r.Post("/me/challenges", handlers.CreateChallenge)
 		r.Delete("/me/challenges/{id}", handlers.DeleteChallenge)
+		r.Post("/me/friends/requests", handlers.RequestFriend) // amicizie vere
+		r.Post("/me/friends/requests/{id}/accept", handlers.AcceptFriend)
+		r.Delete("/me/friends/requests/{id}", handlers.DeleteFriendRequest)
+		r.Delete("/me/friends/{id}", handlers.RemoveFriend)
+		r.Get("/users/search", handlers.SearchUsers) // ricerca per nome
+		r.Get("/me/blocks", handlers.ListBlocks)     // giocatori bloccati
+		r.Post("/me/blocks", handlers.BlockUser)
+		r.Delete("/me/blocks/{id}", handlers.UnblockUser)
 		r.Get("/users/{id}/games", handlers.GameHistory) // storico partite
 		r.Get("/ws/ticket", handlers.WSTicket)           // ticket monouso per /ws
 	})

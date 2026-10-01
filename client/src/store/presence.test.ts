@@ -21,7 +21,7 @@ const challenge = (id: string): Challenge => ({
 });
 
 function setup(replies: ApiResult<PresenceUpdate>[] = []) {
-  const sendPresence = vi.fn(async (): Promise<ApiResult<PresenceUpdate>> => replies.shift() ?? { ok: true, value: { incoming: [] } });
+  const sendPresence = vi.fn(async (): Promise<ApiResult<PresenceUpdate>> => replies.shift() ?? { ok: true, value: { incoming: [], friendRequests: 0 } });
   let hidden = false;
   const listeners = new Set<() => void>();
   const visibility: VisibilitySource = {
@@ -40,12 +40,12 @@ function setup(replies: ApiResult<PresenceUpdate>[] = []) {
 }
 
 describe('presenza', () => {
-  it('segnale subito e ogni 10 s; le sfide ricevute finiscono nello store', async () => {
-    const { presence, sendPresence } = setup([{ ok: true, value: { incoming: [challenge('a')] } }]);
+  it('segnale subito e ogni 10 s; sfide ricevute e richieste d’amicizia finiscono nello store', async () => {
+    const { presence, sendPresence } = setup([{ ok: true, value: { incoming: [challenge('a')], friendRequests: 2 } }]);
     presence.start();
     await flush();
     expect(sendPresence).toHaveBeenCalledTimes(1);
-    expect(presence.store.getState()).toEqual({ incoming: [challenge('a')], receivedAt: 1_000 });
+    expect(presence.store.getState()).toEqual({ incoming: [challenge('a')], receivedAt: 1_000, friendRequests: 2 });
     await vi.advanceTimersByTimeAsync(10_000);
     expect(sendPresence).toHaveBeenCalledTimes(2);
     expect(presence.store.getState().incoming).toEqual([]);
@@ -66,8 +66,8 @@ describe('presenza', () => {
   });
 
   it('una sfida a cui si è risposto non torna finché il server la manda; stop azzera e smette di ascoltare', async () => {
-    const open = { ok: true, value: { incoming: [challenge('a')] } } as const;
-    const { presence, sendPresence, listeners } = setup([open, open, { ok: true, value: { incoming: [] } }, open]);
+    const open = { ok: true, value: { incoming: [challenge('a')], friendRequests: 0 } } as const;
+    const { presence, sendPresence, listeners } = setup([open, open, { ok: true, value: { incoming: [], friendRequests: 0 } }, open]);
     presence.start();
     await flush();
     presence.dismiss('a');
@@ -80,7 +80,7 @@ describe('presenza', () => {
     expect(presence.store.getState().incoming).toEqual([challenge('a')]);
 
     presence.stop();
-    expect(presence.store.getState()).toEqual({ incoming: [], receivedAt: null });
+    expect(presence.store.getState()).toEqual({ incoming: [], receivedAt: null, friendRequests: 0 });
     expect(listeners.size).toBe(0);
     await vi.advanceTimersByTimeAsync(30_000);
     expect(sendPresence).toHaveBeenCalledTimes(4);
@@ -88,7 +88,7 @@ describe('presenza', () => {
 
   it('un errore di rete lascia lo stato com’era', async () => {
     const { presence } = setup([
-      { ok: true, value: { incoming: [challenge('a')] } },
+      { ok: true, value: { incoming: [challenge('a')], friendRequests: 0 } },
       { ok: false, error: { status: 0, code: 'network_error' } },
     ]);
     presence.start();

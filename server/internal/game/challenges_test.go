@@ -283,3 +283,22 @@ func TestChallenge_FriendlySnapshot(t *testing.T) {
 		t.Error("un'amichevole non è classificata")
 	}
 }
+
+func TestChallenge_CloseBetween(t *testing.T) {
+	challengeSetup(t)
+	ab := mustChallenge(t, alice, bob)
+	mustChallenge(t, carol, alice) // carol → alice resta
+	ca := newTestClient(alice.ID, alice.Username)
+	GameManager.JoinChallenge(ca, ab.ID)
+
+	GameManager.CloseChallengesBetween(bob.ID, alice.ID)
+	if code := lastErrorCode(t, drain(ca)); code != string(gameerr.ChallengeUnavailable) {
+		t.Errorf("code = %s, atteso challenge_unavailable", code)
+	}
+	if got := GameManager.IncomingChallenges(bob.ID); len(got) != 0 {
+		t.Errorf("la sfida fra i due va chiusa: %+v", got)
+	}
+	if got := GameManager.IncomingChallenges(alice.ID); len(got) != 1 {
+		t.Errorf("le sfide con altri restano: %+v", got)
+	}
+}
