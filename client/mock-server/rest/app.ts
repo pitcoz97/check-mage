@@ -4,8 +4,10 @@ import type { AccessClaims, JwtService } from '../auth/jwt';
 import type { TicketStore } from '../auth/tickets';
 import type { MockConfig } from '../config';
 import { HTTP, type ServerText } from '../serverTexts';
+import type { ChallengePlayer, ChallengeStore } from '../store/challenges';
 import type { CollectionSpell, CollectionStore } from '../store/collection';
 import type { DeckResult, DeckStore } from '../store/decks';
+import type { PresenceStore } from '../store/presence';
 import { PASSWORD_POLICY, validateRegister, type User, type UserStore } from '../store/users';
 import { clientKey, createRateLimiter } from './rateLimit';
 
@@ -23,7 +25,17 @@ export interface RestDeps {
   readonly catalog: readonly CollectionSpell[];
   readonly collections: CollectionStore;
   readonly decks: DeckStore;
+  readonly presence: PresenceStore;
+  readonly challenges: ChallengeStore;
+  /** Chi è in partita: lo sa il gateway (`GameManager.InMatch`, `PlayingIDs`). */
+  readonly matches: { inMatch(userId: number): boolean; playingIds(): number[] };
 }
+
+/** `handlers.MaxFriends`. */
+const MAX_FRIENDS = 100;
+
+type FriendStatus = 'online' | 'playing' | 'offline';
+const STATUS_RANK: Record<FriendStatus, number> = { online: 0, playing: 1, offline: 2 };
 
 type AuthedRequest = Request & { claims?: AccessClaims };
 
@@ -103,6 +115,10 @@ const ROUTES: readonly { readonly pattern: RegExp; readonly methods: readonly st
   { pattern: /^\/me\/decks$/, methods: ['GET', 'POST'] },
   { pattern: /^\/me\/decks\/[^/]+$/, methods: ['PUT', 'DELETE'] },
   { pattern: /^\/me\/decks\/[^/]+\/activate$/, methods: ['POST'] },
+  { pattern: /^\/me\/friends$/, methods: ['GET'] },
+  { pattern: /^\/me\/presence$/, methods: ['POST'] },
+  { pattern: /^\/me\/challenges$/, methods: ['POST'] },
+  { pattern: /^\/me\/challenges\/[^/]+$/, methods: ['DELETE'] },
   { pattern: /^\/ws(\/ticket)?$/, methods: ['GET'] },
 ];
 
@@ -113,7 +129,7 @@ function isAllowedOrigin(origin: string): boolean {
 
 export function createRestApp(deps: RestDeps, gate: RequestGate) {
   const { users, jwt, tickets } = deps;
-  const { collections, decks } = deps;
+  const { collections, decks, presence, challenges, matches, config } = deps;
   const app = express();
   app.disable('x-powered-by');
   app.disable('etag');
@@ -281,6 +297,63 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
     reply(res, decks.activate(req.claims.user_id, id));
   });
 
+  // handlers/friends.go (F1–F3): con `allFriends` tutti gli utenti, prima gli online, poi in partita, poi offline
+  app.get('/me/friends', requireAuth, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    const self = req.claims.user_id;
+    if (!config.allFriends) return ok(res, { friends: [], online: 0 });
+    const statuses = new Map<number, FriendStatus>();
+    for (const id of presence.onlineIds()) statuses.set(id, 'online');
+    for (const id of matches.playingIds()) statuses.set(id, 'playing');
+    const byName = (a: User, b: User) => a.username.toLowerCase().localeCompare(b.username.toLowerCase()) || a.id - b.id;
+    const friends = users
+      .all()
+      .filter((u) => u.id !== self)
+      .sort((a, b) => Number(statuses.has(b.id)) - Number(statuses.has(a.id)) || byName(a, b))
+      .slice(0, MAX_FRIENDS)
+      .map((u) => ({ id: u.id, username: u.username, elo: u.elo, status: statuses.get(u.id) ?? ('offline' as FriendStatus) }))
+      .sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status] || a.username.toLowerCase().localeCompare(b.username.toLowerCase()));
+    ok(res, { friends, online: friends.filter((f) => f.status === 'online').length });
+  });
+
+  // handlers/challenges.go: il segnale di presenza porta le sfide ricevute (F2)
+  app.post('/me/presence', requireAuth, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    presence.touch(req.claims.user_id);
+    ok(res, { incoming: challenges.incoming(req.claims.user_id) });
+  });
+
+  const player = (u: User): ChallengePlayer => ({ id: u.id, username: u.username, elo: u.elo });
+  app.post('/me/challenges', requireAuth, readJson, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    const self = req.claims.user_id;
+    const body = decodeBody(req);
+    const to = body?.['to'];
+    if (typeof to !== 'number' || !Number.isInteger(to) || to <= 0) return fail(res, 400, HTTP.invalidBody);
+    if (to === self) return fail(res, 400, HTTP.challengeSelf);
+    if (!config.allFriends) return fail(res, 404, HTTP.challengeNoPlayer);
+    const target = users.findById(to);
+    if (target === undefined) return fail(res, 404, HTTP.challengeNoPlayer);
+    const me = users.findById(self);
+    if (me === undefined) return fail(res, 500, HTTP.dbError);
+    if (matches.inMatch(self)) return fail(res, 409, HTTP.challengeSelfBusy);
+    if (matches.inMatch(to)) return fail(res, 409, HTTP.challengeTargetBusy);
+    if (!presence.online(to)) return fail(res, 409, HTTP.challengeOffline);
+    const ch = challenges.create(player(me), player(target));
+    presence.touch(self);
+    ok(res, challenges.view(ch), 201);
+  });
+
+  // Chi sfida annulla, lo sfidato rifiuta (F6)
+  app.delete('/me/challenges/:id', requireAuth, (req: AuthedRequest, res) => {
+    if (req.claims === undefined) return fail(res, 500, HTTP.dbError);
+    const ch = challenges.get(String(req.params['id']));
+    const self = req.claims.user_id;
+    if (ch === undefined || (self !== ch.from.id && self !== ch.to.id)) return fail(res, 404, HTTP.challengeNotFound);
+    challenges.close(ch, self === ch.from.id ? 'challenge_unavailable' : 'challenge_declined');
+    res.status(200).json({ success: true });
+  });
+
   // handlers/stats.go:54-108: `[]` se vuota (B8)
   app.get('/users/:id/games', requireAuth, (req, res) => {
     const id = Number(req.params['id']);
@@ -290,12 +363,15 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
       res,
       users.gamesOf(id).map((g) => ({
         id: g.id,
+        white_id: g.whiteId,
+        black_id: g.blackId,
         white: name(g.whiteId),
         black: name(g.blackId),
         result: g.result,
         time_control: g.timeControl,
         pgn: g.pgn,
         played_at: g.playedAt,
+        rated: g.rated,
       })),
     );
   });

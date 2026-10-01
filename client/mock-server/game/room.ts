@@ -78,6 +78,8 @@ export type GameResult = '1-0' | '0-1' | '1/2-1/2';
 export const CLOSE_REPLACED = 4001;
 /** `CloseDeckInvalid` (`client.go`): mazzo attivo non valido, niente coda (D6). */
 export const CLOSE_DECK_INVALID = 4002;
+/** `CloseChallenge` (`client.go`): la sfida attesa non partirà più; il codice è nell'errore (F6). */
+export const CLOSE_CHALLENGE = 4003;
 
 /** `NullMove` (`room.go:37`): mossa consumata da uno scudo, `--` nel PGN. */
 export const NULL_MOVE = '0000';
@@ -98,6 +100,8 @@ export interface RoomOptions {
   /** `room.go:1280-1281`. */
   tickMs?: number;
   broadcastMs?: number;
+  /** Partita amichevole, nata da una sfida diretta: `friendly` in `game_state`, niente ELO (F8). */
+  friendly?: boolean;
   /** Equivale alla goroutine di `announceEnd`: `SaveGame` + `RemoveRoom` (`room.go:1246-1256`). */
   onEnded?: (room: Room, result: GameResult, reason: string) => void;
 }
@@ -205,6 +209,8 @@ interface ExtraMove {
 
 export class Room {
   readonly id: string;
+  /** Amichevole: niente ELO (F8). */
+  readonly friendly: boolean;
   white: GameClient;
   black: GameClient;
   readonly board: Board;
@@ -227,6 +233,7 @@ export class Room {
   /** `room.go:76-98`. */
   constructor(private readonly options: RoomOptions) {
     this.id = options.id;
+    this.friendly = options.friendly === true;
     const fen = options.initialFen ?? START_FEN;
     this.board = { fen, moves: [], turn: sideToMove(fen), status: 'active' };
     this.white = options.white;
@@ -1393,6 +1400,7 @@ export class Room {
       triggers: effectsView.triggers,
       auras: effectsView.auras,
       ...this.moveOptionsFor(viewer),
+      ...(this.friendly ? { friendly: true } : {}),
     };
   }
 

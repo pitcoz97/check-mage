@@ -4,7 +4,7 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
 import { isScenarioName, type MockConfig } from '../config';
-import { CLOSE_DECK_INVALID, CLOSE_REPLACED, Room, type GameClient, type GameResult } from '../game/room';
+import { CLOSE_CHALLENGE, CLOSE_DECK_INVALID, CLOSE_REPLACED, Room, type GameClient, type GameResult } from '../game/room';
 import { createRateLimiter } from '../rest/rateLimit';
 import type { RequestGate } from '../rest/app';
 import { Bot } from '../scenarios/bot';
@@ -12,14 +12,16 @@ import { hostileSender } from '../scenarios/hostile';
 import { setupScenario } from '../scenarios/index';
 import type { ScenarioName } from '../scenarios/names';
 import { HTTP, WS, type GameError } from '../serverTexts';
+import type { ChallengeCloseCode, ChallengeStore, ChallengeWaiter } from '../store/challenges';
 import type { DeckStore } from '../store/decks';
+import type { PresenceStore } from '../store/presence';
 import type { UserStore } from '../store/users';
 import { createRng, type Logger } from '../util';
 import type { WireServerMessage } from '../wire';
 
 /**
  * Porting di `handlers/ws.go`, `game/client.go` e `game/manager.go`: upgrade, pump dei messaggi, heartbeat, coda
- * e riconnessione. Gli scenari con bot sono un'aggiunta del mock.
+ * e riconnessione, più le sfide dirette di `game/challenges.go`. Gli scenari con bot sono un'aggiunta del mock.
  */
 
 export interface GatewayDeps {
@@ -28,10 +30,12 @@ export interface GatewayDeps {
   gate: RequestGate;
   log: Logger;
   decks: DeckStore;
+  presence: PresenceStore;
+  challenges: ChallengeStore;
 }
 
 /** Il `Client` di Go con la sua connessione. */
-interface Connection extends GameClient {
+interface Connection extends GameClient, ChallengeWaiter {
   room: Room | null;
   ws: WebSocket;
   /** Chiuso dalla simulazione di riavvio: il processo "muore", quindi nessun `Leave`. */
@@ -58,7 +62,13 @@ function rejectUpgrade(socket: Duplex, status: number, reason: string, body: str
 
 const envelopeError = (message: string) => JSON.stringify({ success: false, error: message });
 
-export function createGateway({ config, users, gate, log, decks }: GatewayDeps) {
+const CHALLENGE_ERRORS: Record<ChallengeCloseCode, GameError> = {
+  challenge_declined: WS.challengeDeclined,
+  challenge_expired: WS.challengeExpired,
+  challenge_unavailable: WS.challengeUnavailable,
+};
+
+export function createGateway({ config, users, gate, log, decks, presence, challenges }: GatewayDeps) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
   const rooms = new Map<string, Room>();
   const userRooms = new Map<number, string>();
@@ -79,7 +89,7 @@ export function createGateway({ config, users, gate, log, decks }: GatewayDeps) 
   /** Goroutine di `announceEnd` (`game/room.go:1246-1256`): salvataggio, ELO, rimozione dal manager. */
   function onEnded(room: Room, result: GameResult, reason: string): void {
     log.info(`${room.id} finita: ${result} (${reason})`);
-    users.saveGame(room.white.userId, room.black.userId, room.pgn(), result, room.timeControl());
+    users.saveGame(room.white.userId, room.black.userId, room.pgn(), result, room.timeControl(), !room.friendly);
     // `RemoveRoom` (`game/manager.go:121-132`): l'indice utente si toglie solo se punta ancora a questa room.
     rooms.delete(room.id);
     for (const userId of [room.white.userId, room.black.userId]) {
@@ -87,11 +97,18 @@ export function createGateway({ config, users, gate, log, decks }: GatewayDeps) 
     }
   }
 
-  function newRoom(white: GameClient, black: GameClient, scenario: ScenarioName, deckOf: (c: GameClient) => readonly string[]): Room {
+  function newRoom(
+    white: GameClient,
+    black: GameClient,
+    scenario: ScenarioName,
+    deckOf: (c: GameClient) => readonly string[],
+    challengeId: string | null = null,
+  ): Room {
     roomCounter++;
     const setup = setupScenario(scenario, config);
     const room = new Room({
-      id: `room-${white.userId}-${black.userId}`,
+      id: challengeId === null ? `room-${white.userId}-${black.userId}` : `challenge-${challengeId}`,
+      friendly: challengeId !== null,
       white,
       black,
       rng: createRng(config.seed + roomCounter),
@@ -105,6 +122,8 @@ export function createGateway({ config, users, gate, log, decks }: GatewayDeps) 
     rooms.set(room.id, room);
     userRooms.set(white.userId, room.id);
     userRooms.set(black.userId, room.id);
+    // Le sfide ancora aperte dei due giocatori non possono più partire (F9).
+    challenges.closeOf(white.userId, black.userId);
     return room;
   }
 
@@ -127,26 +146,40 @@ export function createGateway({ config, users, gate, log, decks }: GatewayDeps) 
     return (existing ?? users.insert(BOT.username, BOT.email, 'MockBot123'))?.id ?? 0;
   }
 
+  /** `tryReconnectLocked` (`game/manager.go`): rientro nella partita in corso. */
+  function tryReconnect(client: Connection): boolean {
+    const roomId = userRooms.get(client.userId);
+    if (roomId === undefined) return false;
+    const room = rooms.get(roomId);
+    if (room !== undefined && room.isActive()) {
+      log.info(`${client.username} rientra in ${roomId}`);
+      client.room = room;
+      room.reconnect(client);
+      return true;
+    }
+    userRooms.delete(client.userId);
+    return false;
+  }
+
+  /** `inMatchLocked`: l'utente ha una partita attiva. */
+  function inMatch(userId: number): boolean {
+    const roomId = userRooms.get(userId);
+    const room = roomId === undefined ? undefined : rooms.get(roomId);
+    return room !== undefined && room.isActive();
+  }
+
+  /** Mazzo attivo non valido: errore e chiusura (`manager.go`, D6). */
+  function rejectInvalidDeck(client: Connection): boolean {
+    if (client.deckValid) return false;
+    client.send(errorMessage(WS.deckInvalid));
+    client.close?.(CLOSE_DECK_INVALID, 'deck_invalid');
+    return true;
+  }
+
   /** `game/manager.go:31-101`. Restituisce `true` se è una riconnessione. */
   function joinQueue(client: Connection, scenario: ScenarioName): boolean {
-    const roomId = userRooms.get(client.userId);
-    if (roomId !== undefined) {
-      const room = rooms.get(roomId);
-      if (room !== undefined && room.isActive()) {
-        log.info(`${client.username} rientra in ${roomId}`);
-        client.room = room;
-        room.reconnect(client);
-        return true;
-      }
-      userRooms.delete(client.userId);
-    }
-
-    // Mazzo attivo non valido: niente coda, errore e chiusura (`manager.go`, D6).
-    if (!client.deckValid) {
-      client.send(errorMessage(WS.deckInvalid));
-      client.close?.(CLOSE_DECK_INVALID, 'deck_invalid');
-      return false;
-    }
+    if (tryReconnect(client)) return true;
+    if (rejectInvalidDeck(client)) return false;
 
     if (scenario !== 'pvp') {
       startWithBot(client, scenario);
@@ -175,6 +208,45 @@ export function createGateway({ config, users, gate, log, decks }: GatewayDeps) 
     opponent.room = room;
     client.room = room;
     log.info(`${room.id} creata: ${opponent.username} (bianco) vs ${client.username} (nero)`);
+    room.start();
+    return false;
+  }
+
+  /** `JoinChallenge` (`game/challenges.go`): il primo aspetta nello slot, il secondo fa partire l'amichevole. */
+  function joinChallenge(client: Connection, id: string): boolean {
+    if (tryReconnect(client)) return true;
+    const ch = challenges.get(id);
+    if (ch === undefined || (client.userId !== ch.from.id && client.userId !== ch.to.id)) {
+      client.challengeClosed('challenge_unavailable');
+      return false;
+    }
+    if (rejectInvalidDeck(client)) return false;
+
+    // Una connessione dello stesso utente rimasta in coda esce dalla coda.
+    if (waiting !== null && waiting.userId === client.userId && waiting !== client) {
+      const old = waiting;
+      waiting = null;
+      old.send(errorMessage(WS.replacedByChallenge));
+      old.close?.(CLOSE_REPLACED, 'replaced_by_new_connection');
+    }
+
+    const slot = ch.slot as Connection | null;
+    if (slot === null || slot.userId === client.userId) {
+      ch.slot = client;
+      if (slot !== null && slot !== client) {
+        slot.send(errorMessage(WS.replacedInChallenge));
+        slot.close?.(CLOSE_REPLACED, 'replaced_by_new_connection');
+      }
+      log.info(`${client.username} aspetta la sfida`);
+      return false;
+    }
+
+    challenges.started(ch);
+    const [white, black] = createRng(config.seed + roomCounter)() < 0.5 ? [slot, client] : [client, slot];
+    const room = newRoom(white, black, 'pvp', (c) => (c === white ? white.deck : black.deck), ch.id);
+    white.room = room;
+    black.room = room;
+    log.info(`${room.id} amichevole: ${white.username} (bianco) vs ${black.username} (nero)`);
     room.start();
     return false;
   }
@@ -231,7 +303,8 @@ export function createGateway({ config, users, gate, log, decks }: GatewayDeps) 
     };
   }
 
-  function onConnection(ws: WebSocket, userId: number, username: string, scenario: ScenarioName): void {
+  function onConnection(ws: WebSocket, userId: number, username: string, scenario: ScenarioName, challengeId: string | null): void {
+    presence.touch(userId); // aprire il socket vale come segnale di presenza (F2)
     const sendRaw = (text: string) => {
       if (ws.readyState === ws.OPEN) ws.send(text);
     };
@@ -252,6 +325,10 @@ export function createGateway({ config, users, gate, log, decks }: GatewayDeps) 
           if (ws.readyState === ws.OPEN) ws.close(code, reason);
         }, CLOSE_DELAY_MS);
       },
+      challengeClosed(code: ChallengeCloseCode) {
+        client.send(errorMessage(CHALLENGE_ERRORS[code]));
+        client.close?.(CLOSE_CHALLENGE, code);
+      },
     };
     const limits = config.rateLimits;
     const limiter = limits === false ? null : createRateLimiter(limits.wsMessages);
@@ -263,9 +340,11 @@ export function createGateway({ config, users, gate, log, decks }: GatewayDeps) 
       if (client.killed) return;
       // `game/client.go:81-88`: `LeaveQueue` confronta la connessione, non l'utente.
       if (waiting === client) waiting = null;
+      challenges.leave(client);
       client.room?.leave(client);
     });
-    joinQueue(client, scenario);
+    if (challengeId === null) joinQueue(client, scenario);
+    else joinChallenge(client, challengeId);
   }
 
   return {
@@ -286,7 +365,16 @@ export function createGateway({ config, users, gate, log, decks }: GatewayDeps) 
         return rejectUpgrade(socket, 400, 'Bad Request', envelopeError(`scenario sconosciuto: ${requested}`));
       }
 
-      wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, auth.user_id, auth.username, requested));
+      const challengeId = url.searchParams.get('challenge');
+      wss.handleUpgrade(req, socket, head, (ws) =>
+        onConnection(ws, auth.user_id, auth.username, requested, challengeId === null || challengeId === '' ? null : challengeId),
+      );
+    },
+
+    /** Per `GET /me/friends` e le sfide: chi è in partita. */
+    inMatch,
+    playingIds(): number[] {
+      return [...userRooms.keys()].filter(inMatch);
     },
 
     close(): void {

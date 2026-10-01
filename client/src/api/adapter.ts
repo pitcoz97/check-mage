@@ -1076,6 +1076,12 @@ export const HTTP_ERROR_TEXTS: readonly ErrorTextRule<HttpErrorCode>[] = [
   { pattern: /^Il mazzo non è valido$/, code: 'deck_not_valid' },
   { pattern: /^Non puoi eliminare l'ultimo mazzo$/, code: 'deck_last' },
   { pattern: /^Mazzo non trovato$/, code: 'deck_not_found' },
+  { pattern: /^Non puoi sfidare te stesso$/, code: 'challenge_self' }, // handlers/challenges.go
+  { pattern: /^Giocatore non trovato$/, code: 'challenge_player_not_found' },
+  { pattern: /^Il giocatore non è online$/, code: 'challenge_offline' },
+  { pattern: /^Il giocatore è in partita$/, code: 'challenge_target_busy' },
+  { pattern: /^Sei già in partita$/, code: 'challenge_self_busy' },
+  { pattern: /^Sfida non trovata$/, code: 'challenge_not_found' },
   { pattern: /^Username, email e password sono obbligatori$/, code: 'missing_fields' }, // handlers/auth.go:37
   { pattern: /^username deve avere almeno \d+ caratteri$/, code: 'username_too_short' }, // validation/validation.go:64
   { pattern: /^username non può superare \d+ caratteri$/, code: 'username_too_long' }, // validation/validation.go:67

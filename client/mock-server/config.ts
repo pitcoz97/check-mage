@@ -46,6 +46,12 @@ export interface MockConfig {
   readonly quiet: boolean;
   /** `spells.UnlockAllCards` (C12): ogni utente ha tutte le carte al massimo di copie. Il set iniziale resta sotto. */
   readonly unlockAllCards: boolean;
+  /** `handlers.AllFriends` (F1): tutti gli utenti sono amici fra loro. */
+  readonly allFriends: boolean;
+  /** `presence.Window` (F2): online chi ha mandato un segnale da meno di così. */
+  readonly presenceWindowMs: number;
+  /** `game.ChallengeTTL` (F4): durata di una sfida senza risposta. */
+  readonly challengeTtlMs: number;
 }
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -68,6 +74,9 @@ export const DEFAULT_CONFIG: MockConfig = {
   botDelayMs: 150,
   quiet: false,
   unlockAllCards: true,
+  allFriends: true,
+  presenceWindowMs: 30_000,
+  challengeTtlMs: 60_000,
 };
 
 function intFromEnv(name: string, fallback: number): number {

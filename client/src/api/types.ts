@@ -156,6 +156,13 @@ export const HTTP_ERROR_CODES = [
   'deck_not_valid',
   'deck_last',
   'deck_not_found',
+  // Sfide (handlers/challenges.go)
+  'challenge_self',
+  'challenge_player_not_found',
+  'challenge_offline',
+  'challenge_target_busy',
+  'challenge_self_busy',
+  'challenge_not_found',
   // Codici generati dal client, non dal server:
   /** Server irraggiungibile (fetch fallita, timeout, offline). */
   'network_error',
