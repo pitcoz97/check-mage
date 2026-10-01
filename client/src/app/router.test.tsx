@@ -42,6 +42,9 @@ const FRIENDS = {
   max_friends: 200,
 };
 let searchRelation = 'none';
+/** Bloccati e richieste ricevute del server finto. */
+let blocks: { id: number; username: string }[] = [];
+let friendRequests = 0;
 
 /** Sfide ricevute e risposta a `POST /me/challenges` del server finto: i test le sostituiscono. */
 let incoming: unknown[] = [];
@@ -66,7 +69,19 @@ async function renderAuthenticated(path: string) {
       searchRelation = 'outgoing';
       return data({ ...FRIENDS, others: [], outgoing: [{ id: 10, username: 'peach', elo: 1250, status: 'offline' }] }, 201);
     },
-    'POST /me/presence': () => data({ incoming }),
+    'POST /me/presence': () => data({ incoming, friend_requests: friendRequests }),
+    'DELETE /me/friends/8': () => data({ ...FRIENDS, friends: [FRIENDS.friends[1]] }),
+    'GET /me/blocks': () => data(blocks),
+    'POST /me/blocks': () => {
+      blocks = [{ id: 10, username: 'peach' }];
+      return data(blocks);
+    },
+    'DELETE /me/blocks/10': () => {
+      blocks = [];
+      return data(blocks);
+    },
+    'GET /users/10': () => data({ user: { id: 10, username: 'peach', elo: 1250, created_at: '2026-02-01T10:00:00Z' }, stats: { wins: 0, losses: 0, draws: 0, total: 0 } }),
+    'GET /users/10/games': () => data([]),
     'POST /me/challenges': () => challengeReply(),
     'DELETE /me/challenges/in-1': () => data(null),
     'GET /users/8': () => data({ user: { id: 8, username: 'luigi', elo: 1300, created_at: '2026-02-01T10:00:00Z' }, stats: { wins: 5, losses: 3, draws: 1, total: 9 } }),
@@ -120,6 +135,8 @@ afterEach(async () => {
   cleanup();
   incoming = [];
   searchRelation = 'none';
+  blocks = [];
+  friendRequests = 0;
   challengeReply = () =>
     data({ id: 'ch-1', from: { id: 7, username: 'mario', elo: 1234 }, to: { id: 8, username: 'luigi', elo: 1300 }, expires_in: 60 }, 201);
   await changeLanguage('it', languageStore);
@@ -493,5 +510,87 @@ describe('amici e sfide (F1–F8)', () => {
       await router.navigate('/players/7');
     });
     expect(router.state.location.pathname).toBe('/profile');
+  });
+});
+
+describe('amicizie: profilo, fine partita, classifica, bloccati, badge (A6–A8)', () => {
+  it('badge sulla voce Amici con le richieste ricevute', async () => {
+    friendRequests = 2;
+    await renderAuthenticated('/lobby');
+    const badge = await waitFor(() => {
+      const found = document.querySelector('[data-nav="friends"] [data-nav-badge]');
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    expect(badge.textContent).toContain('2');
+  });
+
+  it('profilo: Aggiungi per un altro giocatore; Rimuovi con conferma per un amico', async () => {
+    const { router, server } = await renderAuthenticated('/players/10');
+    expect(await screen.findByRole('heading', { name: 'peach' })).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Aggiungi peach agli amici' }));
+    expect(await screen.findByRole('button', { name: 'Annulla la richiesta a peach' })).toBeTruthy();
+    expect(server.hits).toContain('POST /me/friends/requests');
+
+    await act(async () => {
+      await router.navigate('/players/8');
+    });
+    expect(await screen.findByRole('heading', { name: 'luigi' })).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Rimuovi amico' }));
+    const confirm = screen.getByRole('group', { name: 'Rimuovi amico' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Rimuovi amico' }));
+    await waitFor(() => expect(server.hits).toContain('DELETE /me/friends/8'));
+  });
+
+  it('profilo: Blocca dal menu, con conferma; poi Sblocca', async () => {
+    const { server } = await renderAuthenticated('/players/10');
+    await screen.findByRole('heading', { name: 'peach' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Altre azioni' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Blocca' }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'Blocca' })).getByRole('button', { name: 'Blocca' }));
+    expect(await screen.findByText(/Hai bloccato questo giocatore/)).toBeTruthy();
+    expect(server.hits).toContain('POST /me/blocks');
+    expect(screen.queryByRole('button', { name: 'Aggiungi peach agli amici' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Altre azioni' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Sblocca' }));
+    await waitFor(() => expect(server.hits).toContain('DELETE /me/blocks/10'));
+    await waitFor(() => expect(screen.queryByText(/Hai bloccato questo giocatore/)).toBeNull());
+  });
+
+  it('impostazioni: elenco dei bloccati con Sblocca', async () => {
+    blocks = [{ id: 10, username: 'peach' }];
+    const { server } = await renderAuthenticated('/settings');
+    fireEvent.click(await screen.findByRole('button', { name: 'Sblocca peach' }));
+    await waitFor(() => expect(server.hits).toContain('DELETE /me/blocks/10'));
+    expect(await screen.findByText('Non hai bloccato nessuno.')).toBeTruthy();
+  });
+
+  it('classifica: i nomi portano al profilo, il proprio al proprio', async () => {
+    await renderAuthenticated('/leaderboard');
+    const link = await screen.findByRole('link', { name: 'VoidRook' });
+    expect(link.getAttribute('href')).toBe('/players/21');
+    const ranking = document.querySelector('[data-ranking]') as HTMLElement;
+    expect(within(ranking).getByRole('link', { name: /mario/ }).getAttribute('href')).toBe('/profile');
+  });
+
+  it('fine partita: Aggiungi agli amici l’avversario che non è amico', async () => {
+    const { sockets, server } = await renderAuthenticated('/lobby');
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: 'Gioca classificata' }));
+    });
+    await waitFor(() => expect(sockets.sockets).toHaveLength(1));
+    const state = gameState();
+    act(() => {
+      sockets.last().open();
+      sockets.last().receive({ ...state, payload: { ...state.payload, black_player: { id: 12, username: 'daisy' } } });
+    });
+    await screen.findByRole('grid', { name: 'Scacchiera' }, { timeout: 5_000 });
+    act(() => {
+      sockets.last().receive({ type: 'game_over', payload: { result: '1-0', reason: 'resign', winner: 'mario' } });
+    });
+    // Il riepilogo c'è due volte (desktop e Android): basta il primo.
+    const [add] = await screen.findAllByRole('button', { name: 'Aggiungi daisy agli amici' });
+    fireEvent.click(add as HTMLElement);
+    await waitFor(() => expect(server.hits).toContain('POST /me/friends/requests'));
   });
 });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import type { Friend, FriendList } from '../../api/types';
+import type { Friend, FriendList, FriendStatus, Relation } from '../../api/types';
 import { useApi } from '../../store/AuthProvider';
 
 /** Ogni quanto si aggiorna la lista mentre è a schermo (la presenza sul server vale 30 s, F2). */
@@ -49,4 +49,16 @@ export function useFriends(refreshMs = FRIENDS_REFRESH_MS): { state: FriendsStat
 /** Amici veri e poi gli altri giocatori: chi si può sfidare, nell'ordine della card della home. */
 export function challengeable(list: FriendList): readonly Friend[] {
   return [...list.friends, ...list.others];
+}
+
+/** Relazione e stato di un giocatore secondo la lista: amico, richiesta ricevuta o inviata, altro giocatore o nessuno. */
+export function relationOf(list: FriendList, id: string): { relation: Relation; status: FriendStatus | null } {
+  const find = (items: readonly Friend[]) => items.find((f) => f.id === id);
+  const friend = find(list.friends);
+  if (friend !== undefined) return { relation: 'friend', status: friend.status };
+  const incoming = find(list.incoming);
+  if (incoming !== undefined) return { relation: 'incoming', status: incoming.status };
+  const outgoing = find(list.outgoing);
+  if (outgoing !== undefined) return { relation: 'outgoing', status: outgoing.status };
+  return { relation: 'none', status: find(list.others)?.status ?? null };
 }

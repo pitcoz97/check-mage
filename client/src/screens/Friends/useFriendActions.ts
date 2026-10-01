@@ -3,7 +3,7 @@ import { useState } from 'react';
 import type { ApiResult } from '../../api/endpoints';
 import type { FriendList, HttpErrorInfo } from '../../api/types';
 import { useApi } from '../../store/AuthProvider';
-import { usePresence } from '../../store/PresenceProvider';
+import { usePresenceOptional } from '../../store/PresenceProvider';
 
 /**
  * Azioni sulle amicizie (A2–A4): richiesta, accetta, rifiuta o annulla, rimuovi. Ogni risposta è la lista aggiornata:
@@ -11,7 +11,7 @@ import { usePresence } from '../../store/PresenceProvider';
  */
 export function useFriendActions(onList: (list: FriendList) => void) {
   const api = useApi();
-  const presence = usePresence();
+  const presence = usePresenceOptional();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<{ readonly userId: string; readonly info: HttpErrorInfo } | null>(null);
 
@@ -25,7 +25,7 @@ export function useFriendActions(onList: (list: FriendList) => void) {
       return false;
     }
     onList(result.value);
-    presence.setFriendRequests(result.value.incoming.length);
+    presence?.setFriendRequests(result.value.incoming.length);
     return true;
   }
 

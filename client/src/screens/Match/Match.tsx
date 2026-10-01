@@ -17,6 +17,7 @@ import { PassButton, SecondaryActions } from './Actions';
 import { ConnectionBanner } from './ConnectionBanner';
 import { HintBox } from './HintBox';
 import { ManaPanel } from './ManaPanel';
+import { AddOpponent } from './AddOpponent';
 import { MatchBoard } from './MatchBoard';
 import { MatchLayout } from './MatchLayout';
 import { MatchBottomBar } from './MatchSheet';
@@ -57,7 +58,7 @@ const OUTCOME_BAND: Record<Headline, string> = {
 };
 
 /**
- * Riepilogo di fine partita: esito, motivo, ritorno alla home. Non è nelle tavole (D20): card Pietra con la banda del
+ * Riepilogo di fine partita: esito, motivo, «Aggiungi agli amici» (A7), ritorno alla home. Non è nelle tavole (D20): card Pietra con la banda del
  * colore dell'esito e il titolo in Cinzel. Sta al posto delle azioni, così la posizione finale resta visibile.
  */
 function OutcomePanel({ outcome }: { outcome: GameOutcome }) {
@@ -72,6 +73,7 @@ function OutcomePanel({ outcome }: { outcome: GameOutcome }) {
       <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('match.over.title')}</h2>
       <p className="font-display text-28 leading-tight font-bold tracking-[0.02em]">{t(`match.over.${headline}`)}</p>
       <p className="text-14 text-tertiary">{t(`match.over.reason.${outcome.reason}`)}</p>
+      <AddOpponent />
       <Button
         size="lg"
         fullWidth
