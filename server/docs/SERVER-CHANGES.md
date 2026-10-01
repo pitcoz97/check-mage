@@ -309,7 +309,7 @@ Verifica: `go build ./... && go vet ./... && go test ./...`.
 
 | # | Cosa cambia | Azione nel client |
 |---|---|---|
-| 1 | Presenza in memoria (`internal/presence`): online chi ha mandato un segnale negli ultimi 30 s, con `POST /me/presence` o aprendo il WebSocket | Segnale ogni 10 s a pagina visibile |
+| 1 | Presenza in memoria (`internal/presence`): online chi ha mandato un segnale negli ultimi 30 s, con `POST /me/presence` o aprendo il WebSocket | Segnale ogni 5 s a pagina visibile |
 | 2 | `GET /me/friends`: `{friends: [{id, username, elo, status}], online}`; con `handlers.AllFriends` (acceso, temporaneo) tutti gli utenti sono amici | Pagina Amici, card della home, riga Android |
 | 3 | `POST /me/challenges {to}` → `201` + sfida (scade in 60 s); `DELETE /me/challenges/{id}` annulla o rifiuta; `POST /me/presence` porta le sfide ricevute | Banner delle sfide, «Sfida» |
 | 4 | `/ws?challenge=<id>`: il secondo dei due che si collega fa partire una partita amichevole (colori a caso, `friendly: true` in `game_state`, niente ELO). Sfida che non partirà più: `error challenge_declined|challenge_expired|challenge_unavailable` e chiusura `4003` | Attesa, esiti, chip «Amichevole» |

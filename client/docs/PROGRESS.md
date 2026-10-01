@@ -12,7 +12,7 @@ eseguibile).
 ## Completo
 - **Amici e sfide:** server con presenza in memoria, `GET /me/friends` (tutti amici per ora, `AllFriends`),
   `POST /me/presence`, `POST`/`DELETE /me/challenges`, `/ws?challenge=<id>` con chiusura 4003, partite amichevoli
-  senza ELO (`games.rated`). Mock allineato. Client: segnale di presenza ogni 10 s, pagina `/friends`, profilo
+  senza ELO (`games.rated`). Mock allineato. Client: segnale di presenza ogni 5 s, pagina `/friends`, profilo
   `/players/:id` con ultime partite, banner delle sfide nella shell, card «Amici» e riga Android nella home, chip
   «Amichevole» in partita. 669 test, `npm run e2e:challenge` 11/11 sul mock.
 - **Server a casa:** variante `deploy/docker-compose.home.yml` (Cloudflare Tunnel, nessuna porta aperta, attivata da

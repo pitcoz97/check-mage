@@ -508,7 +508,7 @@ massimo 100 voci, senza se stessi. Per ora (`handlers.AllFriends`, acceso) gli
 amici sono **tutti gli utenti**; spento, la lista è vuota.
 
 **Presenza**: è online chi ha mandato un segnale negli ultimi 30 s, con
-`POST /me/presence` (il client lo manda ogni ~10 s mentre l'app è in primo piano)
+`POST /me/presence` (il client lo manda ogni ~5 s mentre l'app è in primo piano)
 o aprendo il WebSocket. Solo memoria: dopo un riavvio tutti sono offline fino al
 segnale successivo.
 

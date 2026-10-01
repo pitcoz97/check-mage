@@ -6,7 +6,7 @@ import (
 )
 
 // Presenza degli utenti (F2): è online chi ha mandato un segnale negli ultimi
-// Window, con POST /me/presence (il client lo manda ogni ~10 s mentre l'app è
+// Window, con POST /me/presence (il client lo manda ogni ~5 s mentre l'app è
 // aperta) o aprendo il WebSocket. Solo memoria: dopo un riavvio del server
 // tutti risultano offline fino al segnale successivo.
 

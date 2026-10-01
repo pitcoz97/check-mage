@@ -44,7 +44,7 @@ func challengePlayer(u db.UserSummary) game.ChallengePlayer {
 }
 
 // Presence gestisce POST /me/presence: il segnale «sono online» che il client
-// manda ogni ~10 s (F2). Risponde con le sfide ricevute ancora aperte.
+// manda ogni ~5 s (F2). Risponde con le sfide ricevute ancora aperte.
 func Presence(w http.ResponseWriter, r *http.Request) {
 	userID, ok := userIDFrom(r)
 	if !ok {

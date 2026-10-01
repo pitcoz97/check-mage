@@ -413,7 +413,7 @@ I riferimenti sono al server di quel branch.
 | # | Decisione | Fonte |
 |---|---|---|
 | F1 | Finché i giocatori sono pochi tutti sono amici di tutti (`handlers.AllFriends` sul server, `allFriends` nel mock). Richieste e amicizie vere arriveranno dopo, senza cambiare l'API. | tu |
-| F2 | Presenza: segnale `POST /me/presence` ogni 10 s mentre l'app è aperta e in primo piano (anche in partita), fermo a pagina nascosta; online = segnale negli ultimi 30 s. Niente socket sempre aperto. | tu + derivata |
+| F2 | Presenza: segnale `POST /me/presence` ogni 5 s (una sfida arriva entro pochi secondi; peso trascurabile rispetto al limite di 10 richieste/s per IP) mentre l'app è aperta e in primo piano (anche in partita), fermo a pagina nascosta; online = segnale negli ultimi 30 s. Niente socket sempre aperto. | tu + derivata |
 | F3 | Stati: online, in partita (partita attiva), offline. Lista ordinata così, poi per nome, al massimo 100. | derivata |
 | F4 | Sfida solo a un amico online e non in partita; scade dopo 60 s; una nuova sfida sostituisce la precedente dello stesso sfidante. | derivata |
 | F5 | Chi riceve una sfida la vede in un banner in cima a ogni schermata della shell, col tempo residuo, «Accetta» e «Rifiuta». | derivata |

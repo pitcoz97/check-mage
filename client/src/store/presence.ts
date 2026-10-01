@@ -8,7 +8,7 @@ import type { Challenge, PresenceUpdate } from '../api/types';
  * `PRESENCE_INTERVAL_MS`; la risposta porta le sfide ricevute ancora aperte. Con la pagina nascosta il segnale si
  * ferma, e dopo 30 s il server considera l'utente offline.
  */
-export const PRESENCE_INTERVAL_MS = 10_000;
+export const PRESENCE_INTERVAL_MS = 5_000;
 
 export interface PresenceState {
   /** Sfide ricevute ancora aperte, tolte quelle a cui si è già risposto da qui. */
