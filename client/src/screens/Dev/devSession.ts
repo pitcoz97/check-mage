@@ -122,22 +122,40 @@ const DECKS = {
   deck_size: 40,
 };
 
-/** `GET /me/friends` delle anteprime: tutti amici (F1), online prima, poi in partita, poi offline. */
+/**
+ * `GET /me/friends` delle anteprime (A1–A3): due amici veri, gli altri giocatori (finché tutti sono sfidabili), una
+ * richiesta ricevuta e una inviata. In ogni lista online prima, poi in partita, poi offline.
+ */
 const FRIENDS = {
   friends: [
     { id: 8, username: 'Morgana_77', elo: 1285, status: 'online' },
+    { id: 21, username: 'VoidRook', elo: 2014, status: 'playing' },
+  ],
+  others: [
     { id: 22, username: 'Ser_Knight', elo: 1978, status: 'online' },
     { id: 24, username: 'Alchimista', elo: 1190, status: 'online' },
-    { id: 21, username: 'VoidRook', elo: 2014, status: 'playing' },
-    { id: 23, username: 'Lady_Ember', elo: 1951, status: 'offline' },
     { id: 25, username: 'Torre_Nera', elo: 1402, status: 'offline' },
   ],
+  incoming: [{ id: 26, username: 'Strega_Blu', elo: 1320, status: 'online' }],
+  outgoing: [{ id: 23, username: 'Lady_Ember', elo: 1951, status: 'offline' }],
   online: 3,
+  max_friends: 200,
 };
+
+/** `GET /users/search` delle anteprime: qualunque ricerca trova questi tre. */
+const SEARCH = [
+  { id: 25, username: 'Torre_Nera', elo: 1402, relation: 'none' },
+  { id: 23, username: 'Lady_Ember', elo: 1951, relation: 'outgoing' },
+  { id: 8, username: 'Morgana_77', elo: 1285, relation: 'friend' },
+];
+
+/** `GET /me/blocks` delle anteprime. */
+const BLOCKS = [{ id: 31, username: 'Troll_99' }];
 
 /** Una sfida in arrivo da Morgana, per vedere il banner. */
 const INCOMING = {
   incoming: [{ id: 'dev-challenge', from: { id: 8, username: 'Morgana_77', elo: 1285 }, to: { id: 7, username: 'Riccardo', elo: 1240 }, expires_in: 45 }],
+  friend_requests: 1,
 };
 
 /** Ultime partite di Morgana: una classificata vinta, un'amichevole persa, una patta. */
@@ -170,6 +188,8 @@ export async function startDevSession({
     'GET /users/8/games': () => data(GAMES),
     'GET /users/7/games': () => data(GAMES),
     'GET /me/friends': () => data(FRIENDS),
+    'GET /users/search': () => data(SEARCH),
+    'GET /me/blocks': () => data(BLOCKS),
     'POST /me/presence': () => data(INCOMING),
     'DELETE /me/challenges/dev-challenge': () => data(null),
     'GET /leaderboard': () => data(LEADERBOARD),

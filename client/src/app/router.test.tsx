@@ -26,6 +26,23 @@ let leaderboard: () => Response = () =>
     { rank: 4, id: 7, username: 'mario', elo: 1234 },
   ]);
 
+/** Amici del server finto (A1–A3): due amici veri, due altri giocatori, una richiesta ricevuta da wario. */
+const FRIENDS = {
+  friends: [
+    { id: 8, username: 'luigi', elo: 1300, status: 'online' },
+    { id: 9, username: 'toad', elo: 1100, status: 'playing' },
+  ],
+  others: [
+    { id: 12, username: 'daisy', elo: 1180, status: 'online' },
+    { id: 10, username: 'peach', elo: 1250, status: 'offline' },
+  ],
+  incoming: [{ id: 11, username: 'wario', elo: 1150, status: 'offline' }],
+  outgoing: [],
+  online: 2,
+  max_friends: 200,
+};
+let searchRelation = 'none';
+
 /** Sfide ricevute e risposta a `POST /me/challenges` del server finto: i test le sostituiscono. */
 let incoming: unknown[] = [];
 let challengeReply: () => Response = () =>
@@ -41,15 +58,14 @@ async function renderAuthenticated(path: string) {
     'GET /users/7': () => data({ user: ACCOUNT, stats: { wins: 1, losses: 0, draws: 0, total: 1 } }),
     'GET /ws/ticket': () => data({ ticket: `t${++ticket}`, expires_in: 30 }),
     'GET /leaderboard': () => leaderboard(),
-    'GET /me/friends': () =>
-      data({
-        friends: [
-          { id: 8, username: 'luigi', elo: 1300, status: 'online' },
-          { id: 9, username: 'toad', elo: 1100, status: 'playing' },
-          { id: 10, username: 'peach', elo: 1250, status: 'offline' },
-        ],
-        online: 1,
-      }),
+    'GET /me/friends': () => data(FRIENDS),
+    'POST /me/friends/requests/11/accept': () =>
+      data({ ...FRIENDS, friends: [...FRIENDS.friends, { id: 11, username: 'wario', elo: 1150, status: 'offline' }], incoming: [] }),
+    'GET /users/search': () => data([{ id: 10, username: 'peach', elo: 1250, relation: searchRelation }]),
+    'POST /me/friends/requests': () => {
+      searchRelation = 'outgoing';
+      return data({ ...FRIENDS, others: [], outgoing: [{ id: 10, username: 'peach', elo: 1250, status: 'offline' }] }, 201);
+    },
     'POST /me/presence': () => data({ incoming }),
     'POST /me/challenges': () => challengeReply(),
     'DELETE /me/challenges/in-1': () => data(null),
@@ -103,6 +119,7 @@ beforeAll(async () => {
 afterEach(async () => {
   cleanup();
   incoming = [];
+  searchRelation = 'none';
   challengeReply = () =>
     data({ id: 'ch-1', from: { id: 7, username: 'mario', elo: 1234 }, to: { id: 8, username: 'luigi', elo: 1300 }, expires_in: 60 }, 201);
   await changeLanguage('it', languageStore);
@@ -367,27 +384,47 @@ describe('amici e sfide (F1–F8)', () => {
     const { router } = await renderAuthenticated('/lobby');
     const card = await waitFor(() => {
       const found = document.querySelector('[data-friends-card]') as HTMLElement | null;
-      expect(found?.querySelectorAll('[data-friend]')).toHaveLength(3);
+      expect(found?.querySelectorAll('[data-friend]')).toHaveLength(4);
       return found as HTMLElement;
     });
-    expect(within(card).getByText('1 online')).toBeTruthy();
+    expect(within(card).getByText('2 online')).toBeTruthy();
+    expect(within(card).getByText('1 richieste')).toBeTruthy();
+    // Prima gli amici veri, poi gli altri giocatori.
+    expect([...card.querySelectorAll('[data-friend]')].map((row) => row.getAttribute('data-friend'))).toEqual(['8', '9', '12', '10']);
     await act(async () => {
       fireEvent.click(document.querySelector('[data-nav="friends"]') as HTMLElement);
     });
     expect(router.state.location.pathname).toBe('/friends');
   });
 
-  it('pagina Amici: sezioni per stato, Sfida solo per chi è online, ricerca', async () => {
-    await renderAuthenticated('/friends');
+  it('pagina Amici: richieste, amici per stato, altri giocatori; Sfida solo per chi è online; accetta', async () => {
+    const { server } = await renderAuthenticated('/friends');
     await screen.findByRole('heading', { name: 'Amici' });
-    await waitFor(() => expect(document.querySelectorAll('[data-friends-section]')).toHaveLength(3));
-    expect([...document.querySelectorAll('[data-friends-section]')].map((s) => s.getAttribute('data-friends-section'))).toEqual(['online', 'playing', 'offline']);
+    await waitFor(() => expect(document.querySelectorAll('[data-friends-section]')).toHaveLength(4));
+    expect([...document.querySelectorAll('[data-friends-section]')].map((s) => s.getAttribute('data-friends-section'))).toEqual(['incoming', 'online', 'playing', 'others']);
+    expect(screen.getByText('2 / 200 amici')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sfida luigi' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Sfida daisy' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Sfida peach' })).toBeNull();
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Cerca un amico' }), { target: { value: 'pea' } });
-    expect(document.querySelectorAll('[data-friend]')).toHaveLength(1);
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Cerca un amico' }), { target: { value: 'zzz' } });
-    expect(screen.getByText('Nessun amico con questo nome.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Aggiungi peach agli amici' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Accetta la richiesta di wario' }));
+    await waitFor(() => expect(document.querySelector('[data-friends-section="incoming"]')).toBeNull());
+    expect(server.hits).toContain('POST /me/friends/requests/11/accept');
+    expect(screen.getByText('3 / 200 amici')).toBeTruthy();
+  });
+
+  it('pagina Amici: la ricerca trova i giocatori e Aggiungi manda la richiesta', async () => {
+    const { server } = await renderAuthenticated('/friends');
+    const box = await screen.findByRole('searchbox', { name: 'Cerca un giocatore' });
+    fireEvent.change(box, { target: { value: 'p' } });
+    expect(screen.getByText('Scrivi almeno 2 caratteri.')).toBeTruthy();
+    fireEvent.change(box, { target: { value: 'pe' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Aggiungi peach agli amici' }, { timeout: 2_000 }));
+    await waitFor(() => expect(server.hits).toContain('POST /me/friends/requests'));
+    expect(await screen.findByRole('button', { name: 'Annulla la richiesta a peach' }, { timeout: 2_000 })).toBeTruthy();
+    fireEvent.change(box, { target: { value: '' } });
+    expect(await screen.findByText('Richieste inviate')).toBeTruthy();
   });
 
   it('Sfida → socket con la sfida e attesa; rifiutata → motivo e Chiudi', async () => {
