@@ -3,13 +3,19 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**`feat/friends` (da rivedere):** amici, presenza e sfide dirette amichevoli (ASSUMPTIONS §10, F1–F10). In `main`:
-catalogo, collezione, mazzi, carte sbloccate per ora (C12) e deploy (`docs/DEPLOY.md`, `docs/DEPLOY-CASA.md`).
-Decisioni in `docs/ASSUMPTIONS.md` §7–§10. Il redesign (R1–R6) è unito in `main`.
+**`feat/friendships` (da rivedere):** amicizie vere, ricerca e blocchi, con «tutti sfidabili» ancora acceso (ASSUMPTIONS
+§11, A1–A10). In `main`: catalogo, collezione, mazzi, carte sbloccate per ora (C12), deploy (`docs/DEPLOY.md`,
+`docs/DEPLOY-CASA.md`), amici, presenza e sfide amichevoli. Decisioni in `docs/ASSUMPTIONS.md` §7–§11. Il redesign (R1–R6) è unito in `main`.
 Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
 eseguibile).
 
 ## Completo
+- **Amicizie vere:** server con `friend_links` e `user_blocks`, richieste (incrociata = amicizia), accetta, rifiuta,
+  annulla, rimuovi, limiti 200/50, ricerca per nome, blocco e sblocco; `GET /me/friends` con amici, altri giocatori
+  (finché `AllFriends`), richieste; `friend_requests` nella presenza. Mock allineato. Client: pagina Amici con
+  richieste, ricerca e altri giocatori, azioni nel profilo (menu «⋯» per bloccare), «Aggiungi agli amici» a fine
+  partita, nomi della classifica verso i profili, bloccati nelle Impostazioni, badge sulla voce Amici. 693 test,
+  `e2e:challenge` 23/23 sul mock.
 - **Amici e sfide:** server con presenza in memoria, `GET /me/friends` (tutti amici per ora, `AllFriends`),
   `POST /me/presence`, `POST`/`DELETE /me/challenges`, `/ws?challenge=<id>` con chiusura 4003, partite amichevoli
   senza ELO (`games.rated`). Mock allineato. Client: segnale di presenza ogni 5 s, pagina `/friends`, profilo

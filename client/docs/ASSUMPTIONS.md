@@ -432,3 +432,26 @@ I riferimenti sono al server di quel branch.
 | S30 | I parametri di apertura del socket (`challenge`) restano nelle riconnessioni; la coda li azzera. | Una riconnessione durante l'attesa deve tornare nello slot della sfida. | `connection.ts`, `matchSession.ts` |
 | S31 | Una sfida a cui si è risposto da qui sparisce subito dal banner, anche se il server la manda ancora finché non parte o scade. | Niente banner che torna dopo «Accetta». | `presence.ts` |
 | S32 | Nello storico il lato del giocatore si riconosce da `white_id`/`black_id`; sui server che non li mandano, dal nome. | Compatibilità. | `ProfileParts.tsx` |
+
+## 11. Amicizie vere (`feat/friendships`)
+
+### Decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| A1 | Le amicizie vere esistono già, ma finché vale `AllFriends` si può sfidare chiunque: la pagina Amici mostra in cima gli amici veri e sotto «Altri giocatori» con «Aggiungi». Spento `AllFriends`, restano solo gli amici veri. | tu |
+| A2 | Richiesta d'amicizia a un giocatore; accetta, rifiuta, annulla la propria, rimuovi un amico (con conferma). | tu |
+| A3 | Una richiesta a chi te l'aveva già chiesta diventa subito amicizia. | derivata |
+| A4 | Le azioni rispondono con la lista aggiornata, che sostituisce quella a schermo; il badge delle richieste si aggiorna subito. | derivata |
+| A5 | Ricerca per nome fra tutti i giocatori (almeno 2 caratteri, 300 ms dopo l'ultima battuta, al più 20 risultati), con l'azione della relazione. | tu + derivata |
+| A6 | Le richieste ricevute si notano dal badge sulla voce «Amici» (arriva col segnale di presenza) e dalla sezione «Richieste ricevute» in cima alla pagina; nessun banner. | tu |
+| A7 | Si aggiunge un amico anche dal profilo, dalla fine partita (l'avversario) e dalla classifica (i nomi portano al profilo). | tu |
+| A8 | Blocco: dal menu «⋯» del profilo, con conferma; toglie amicizia, richieste e sfide aperte, vieta richieste e sfide in tutte e due le direzioni e nasconde i due a vicenda in liste e ricerca. Sblocco dal profilo o dalle Impostazioni («Giocatori bloccati»). Chi è stato bloccato non lo sa: riceve «Giocatore non trovato». | tu + derivata |
+| A9 | Limiti: 200 amici per utente, 50 richieste inviate in sospeso. | tu + derivata |
+| A10 | Il profilo pubblico di chi ti ha bloccato resta visibile (`GET /users/{id}` è pubblico), ma richieste e sfide rispondono «Giocatore non trovato». | derivata |
+
+### Assunzioni del client
+| # | Assunzione | Motivo | Dove |
+|---|---|---|---|
+| S33 | Senza `others`, `incoming`, `outgoing`, `max_friends` (server precedente) le liste sono vuote e il limite è 200; senza `friend_requests` il badge è 0. | Compatibilità. | `adapter.ts` |
+| S34 | La relazione nel profilo e a fine partita si ricava dalla lista degli amici (amico, ricevuta, inviata, altrimenti nessuna); i bloccati da `GET /me/blocks`. | Nessuna rotta dedicata. | `useFriends.ts`, `useBlocks.ts` |
+| S35 | Una relazione o uno stato sconosciuti valgono «nessuna» e «offline»; un risultato malformato si scarta. | Come il catalogo (G10). | `adapter.ts` |

@@ -136,7 +136,7 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
   finti: modalità **amichevole** e **contro bot** (oggi una sola coda classificata, `game/manager.go:31`; Stockfish è
   usato solo per le regole, `game/room.go:446`), **notifiche**, **chat** di partita. La **collezione**
   (`GET /me/collection`), i **mazzi** (`/me/decks`) e **amici e sfida diretta** (`feat/friends`: per ora tutti amici,
-  sfide amichevoli) ci sono; mancano i modi per ottenere carte e le amicizie vere (richieste, accetta, rimuovi).
+  sfide amichevoli) e le **amicizie vere** con blocco (`feat/friendships`) ci sono; mancano i modi per ottenere carte.
 - **Nel client:** nessun aggiramento. Le **cadenze** del design non sono incluse: per decisione di prodotto il gioco
   resterà a cadenza unica (vedi P2-1).
 

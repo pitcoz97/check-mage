@@ -491,32 +491,64 @@ WebSocket. Se non è valido il server manda `error {code: "deck_invalid"}`, non
 mette in coda e chiude con il codice `4002`. Le riconnessioni non rileggono il
 mazzo.
 
-## Amici e sfide dirette
+## Amici, amicizie e sfide dirette
 
 Rotte autenticate (`Authorization: Bearer <access_token>`):
 
 | Rotta | Corpo | Risposta |
 |---|---|---|
-| `GET /me/friends` | — | `{friends: [{id, username, elo, status}], online}` |
-| `POST /me/presence` | — | `{incoming: [challenge]}` |
+| `GET /me/friends` | — | `{friends, others, incoming, outgoing, online, max_friends}` |
+| `POST /me/presence` | — | `{incoming: [challenge], friend_requests}` |
 | `POST /me/challenges` | `{to: <id utente>}` | `201` + `challenge` |
 | `DELETE /me/challenges/{id}` | — | `{success: true}` |
+| `POST /me/friends/requests` | `{to: <id utente>}` | `201` + la lista come `GET /me/friends` |
+| `POST /me/friends/requests/{id}/accept` | — | la lista |
+| `DELETE /me/friends/requests/{id}` | — | la lista (rifiuta se ricevuta, annulla se inviata) |
+| `DELETE /me/friends/{id}` | — | la lista |
+| `GET /users/search?q=` | — | `[{id, username, elo, relation}]` |
+| `GET /me/blocks` | — | `[{id, username}]`, dal più recente |
+| `POST /me/blocks` | `{user_id}` | i bloccati |
+| `DELETE /me/blocks/{id}` | — | i bloccati |
 
-`status` vale `online`, `playing` (partita attiva, anche dormiente dopo un riavvio)
-o `offline`; la lista è ordinata online → in partita → offline, poi per nome, al
-massimo 100 voci, senza se stessi. Per ora (`handlers.AllFriends`, acceso) gli
-amici sono **tutti gli utenti**; spento, la lista è vuota.
+Ogni voce delle liste amici è `{id, username, elo, status}`; `status` vale `online`,
+`playing` (partita attiva, anche dormiente dopo un riavvio) o `offline`. Ogni lista
+è ordinata online → in partita → offline, poi per nome. `friends` sono gli amici
+veri, `incoming`/`outgoing` le richieste ricevute e inviate, `others` tutti gli altri
+utenti (al massimo 100, senza se stessi né i blocchi) finché vale
+`handlers.AllFriends` (acceso): con AllFriends acceso si può sfidare chiunque,
+spento solo gli amici veri e `others` è vuoto. `online` conta gli online in
+`friends` e `others`; `max_friends` è 200.
+
+**Amicizie**: una richiesta a chi ti aveva già chiesto l'amicizia la rende subito
+amicizia. Limiti: 200 amici (per tutti e due), 50 richieste inviate in sospeso.
+Errori: `Non puoi aggiungere te stesso` (`400`), `Giocatore non trovato` (`404`:
+inesistente o blocco in una delle due direzioni), `Siete già amici`, `Richiesta già
+inviata`, `Hai raggiunto il numero massimo di amici`, `Il giocatore ha raggiunto il
+numero massimo di amici`, `Hai troppe richieste in sospeso` (`409`), `Richiesta non
+trovata`, `Amico non trovato` (`404`), `Dati non validi`.
+
+**Ricerca**: almeno 2 caratteri (`Ricerca troppo corta`, `400`), il nome contiene `q`
+senza badare alle maiuscole, prima chi inizia con `q`, al massimo 20; mai se stessi
+né chi è bloccato in una delle due direzioni. `relation`: `none`, `friend`,
+`incoming`, `outgoing`.
+
+**Blocco**: toglie amicizia e richieste fra i due e chiude le loro sfide aperte
+(`challenge_unavailable`); poi niente richieste né sfide in nessuna direzione
+(`Giocatore non trovato`) e nessuno dei due vede l'altro in liste e ricerca. Il
+profilo pubblico `GET /users/{id}` resta leggibile. Errori: `Non puoi bloccare te
+stesso` (`400`), `Giocatore non trovato`, `Giocatore non bloccato` (`404`).
 
 **Presenza**: è online chi ha mandato un segnale negli ultimi 30 s, con
 `POST /me/presence` (il client lo manda ogni ~5 s mentre l'app è in primo piano)
 o aprendo il WebSocket. Solo memoria: dopo un riavvio tutti sono offline fino al
-segnale successivo.
+segnale successivo. La risposta porta anche `friend_requests`, il numero di
+richieste d'amicizia ricevute.
 
 `challenge` = `{id, from: {id, username, elo}, to: {id, username, elo}, expires_in}`
 (`expires_in` in secondi). Una sfida scade dopo 60 s; una nuova sfida dello stesso
 sfidante sostituisce la precedente. `DELETE` da chi sfida la annulla, dallo
 sfidato la rifiuta. Errori: `Non puoi sfidare te stesso` (`400`), `Giocatore non
-trovato` (`404`, anche se non è amico), `Il giocatore non è online`, `Il giocatore
+trovato` (`404`: non sfidabile, o blocco fra i due), `Il giocatore non è online`, `Il giocatore
 è in partita`, `Sei già in partita` (`409`), `Sfida non trovata` (`404`), `Dati
 non validi`.
 
