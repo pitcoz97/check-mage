@@ -36,7 +36,8 @@ type challengeRequest struct {
 }
 
 type presenceView struct {
-	Incoming []game.ChallengeView `json:"incoming"`
+	Incoming       []game.ChallengeView `json:"incoming"`
+	FriendRequests int                  `json:"friend_requests"` // richieste d'amicizia ricevute, per il badge (A6)
 }
 
 func challengePlayer(u db.UserSummary) game.ChallengePlayer {
@@ -44,7 +45,8 @@ func challengePlayer(u db.UserSummary) game.ChallengePlayer {
 }
 
 // Presence gestisce POST /me/presence: il segnale «sono online» che il client
-// manda ogni ~5 s (F2). Risponde con le sfide ricevute ancora aperte.
+// manda ogni ~5 s (F2). Risponde con le sfide ricevute ancora aperte e il
+// numero di richieste d'amicizia ricevute.
 func Presence(w http.ResponseWriter, r *http.Request) {
 	userID, ok := userIDFrom(r)
 	if !ok {
@@ -52,9 +54,14 @@ func Presence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	presence.Default.Touch(userID)
+	requests, err := incomingCount(userID)
+	if err != nil {
+		friendsDBFail(w, userID, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, models.APIResponse{
 		Success: true,
-		Data:    presenceView{Incoming: game.GameManager.IncomingChallenges(userID)},
+		Data:    presenceView{Incoming: game.GameManager.IncomingChallenges(userID), FriendRequests: requests},
 	})
 }
 
@@ -75,7 +82,12 @@ func CreateChallenge(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, msgChallengeSelf)
 		return
 	}
-	if !isFriend(userID, req.To) {
+	friend, err := isFriend(userID, req.To)
+	if err != nil {
+		challengeDBFail(w, userID, err)
+		return
+	}
+	if !friend {
 		fail(w, http.StatusNotFound, msgChallengeNoPlayer)
 		return
 	}

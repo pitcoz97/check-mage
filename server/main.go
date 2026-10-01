@@ -54,6 +54,10 @@ func main() {
 	if err := db.EnsureGameSchema(); err != nil {
 		logger.L.Error("Errore aggiornamento schema games", zap.Error(err))
 	}
+	// Amicizie e blocchi
+	if err := db.EnsureFriendSchema(); err != nil {
+		logger.L.Error("Errore creazione schema friend_links/user_blocks", zap.Error(err))
+	}
 
 	// Monitora la salute del DB ogni 30 secondi
 	go func() {

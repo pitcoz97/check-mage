@@ -125,6 +125,18 @@ func (m *Manager) closeChallengesOfLocked(userIDs ...int) {
 	}
 }
 
+// CloseChallengesBetween chiude le sfide aperte fra a e b, in una delle due
+// direzioni: uno dei due ha bloccato l'altro (A8).
+func (m *Manager) CloseChallengesBetween(a, b int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ch := range m.challengesLocked() {
+		if (ch.From.ID == a && ch.To.ID == b) || (ch.From.ID == b && ch.To.ID == a) {
+			m.closeChallengeLocked(ch, gameerr.ChallengeUnavailable)
+		}
+	}
+}
+
 // CreateChallenge apre una sfida da from a to. Nessuno dei due deve essere in
 // partita; una sfida precedente di from viene sostituita (F5).
 func (m *Manager) CreateChallenge(from, to ChallengePlayer) (ChallengeView, error) {
