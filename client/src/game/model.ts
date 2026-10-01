@@ -135,6 +135,8 @@ export interface PublicGameState {
   /** `null` solo se il server non la manda (difesa, ASSUMPTIONS C1): il client non deduce mai il colore. */
   readonly players: MatchPlayers | null;
   readonly timeControl: TimeControl | null;
+  /** Amichevole, nata da una sfida diretta: niente ELO (F8). Assente sul filo = classificata. */
+  readonly friendly: boolean;
 }
 
 export interface HandCard {

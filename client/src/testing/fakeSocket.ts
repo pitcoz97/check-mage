@@ -8,7 +8,7 @@ export interface FakeSocket {
   open(): void;
   receive(frame: string | object): void;
   /** Chiusura lato server (o di rete). */
-  drop(code?: number): void;
+  drop(code?: number, reason?: string): void;
 }
 
 export function fakeSockets() {
@@ -20,7 +20,7 @@ export function fakeSockets() {
       closedWith: null,
       open: () => handlers.onOpen(),
       receive: (frame) => handlers.onMessage(typeof frame === 'string' ? frame : JSON.stringify(frame)),
-      drop: (code = 1006) => handlers.onClose(code),
+      drop: (code = 1006, reason?: string) => handlers.onClose(code, reason),
     };
     sockets.push(socket);
     return {

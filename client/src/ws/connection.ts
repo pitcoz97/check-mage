@@ -51,6 +51,8 @@ export async function resolveSocketUrl(source: TicketSource, wsBaseUrl: string):
 export const CLOSE_REPLACED = 4001;
 /** Mazzo attivo non valido: niente coda (`CloseDeckInvalid`, `game/client.go`, D6). */
 export const CLOSE_DECK_INVALID = 4002;
+/** La sfida attesa non partirà più (`CloseChallenge`, `game/client.go`, F6): il motivo è nel reason. */
+export const CLOSE_CHALLENGE = 4003;
 const CLOSE_NORMAL = 1000;
 /** Chiusura senza saluti: handshake rifiutato o connessione caduta (lo stesso codice che usa il browser). */
 const CLOSE_ABNORMAL = 1006;
@@ -58,7 +60,8 @@ const CLOSE_ABNORMAL = 1006;
 export interface SocketHandlers {
   onOpen(): void;
   onMessage(data: string): void;
-  onClose(code: number): void;
+  /** `reason`: il motivo della chiusura, se il server lo manda (4003 porta il codice della sfida). */
+  onClose(code: number, reason?: string): void;
 }
 
 export interface SocketHandle {
@@ -79,16 +82,17 @@ export type SocketFactory = (url: string, handlers: SocketHandlers) => SocketHan
 export const nativeSocketFactory: SocketFactory = (url, handlers) => {
   const ws = new WebSocket(url);
   let ended = false;
-  const end = (code: number) => {
+  const end = (code: number, reason?: string) => {
     if (ended) return;
     ended = true;
-    handlers.onClose(code);
+    if (reason === undefined || reason === '') handlers.onClose(code);
+    else handlers.onClose(code, reason);
   };
   ws.onopen = () => handlers.onOpen();
   ws.onmessage = (event: MessageEvent) => {
     if (typeof event.data === 'string') handlers.onMessage(event.data);
   };
-  ws.onclose = (event: CloseEvent) => end(event.code);
+  ws.onclose = (event: CloseEvent) => end(event.code, event.reason);
   ws.onerror = () => end(CLOSE_ABNORMAL);
   return {
     send: (data) => ws.send(data),
@@ -114,9 +118,20 @@ export type ConnectionStatus =
   | { readonly kind: 'replaced' }
   /** Il server non mette in coda: il mazzo attivo non è valido (4002). */
   | { readonly kind: 'deck_invalid' }
+  /** La sfida attesa non partirà più (4003): rifiutata, scaduta o non più disponibile. */
+  | { readonly kind: 'challenge_closed'; readonly reason: ChallengeCloseReason }
   /** Ticket rifiutato anche dopo il refresh: la sessione è scaduta. */
   | { readonly kind: 'unauthorized' }
   | { readonly kind: 'closed' };
+
+export const CHALLENGE_CLOSE_REASONS = ['declined', 'expired', 'unavailable'] as const;
+export type ChallengeCloseReason = (typeof CHALLENGE_CLOSE_REASONS)[number];
+
+/** Il reason della chiusura 4003 è il codice dell'errore (`challenge_declined`…); sconosciuto = non disponibile. */
+export function challengeCloseReason(reason: string | undefined): ChallengeCloseReason {
+  const value = reason?.replace(/^challenge_/, '');
+  return CHALLENGE_CLOSE_REASONS.find((known) => known === value) ?? 'unavailable';
+}
 
 export const BACKOFF = { baseMs: 1_000, capMs: 30_000, jitter: 0.25 } as const;
 /** Distanza minima tra due messaggi in uscita: sotto i 5/s del server, con margine. */
@@ -146,8 +161,11 @@ export interface ConnectionDeps {
 export interface Connection {
   getStatus(): ConnectionStatus;
   subscribe(listener: (status: ConnectionStatus) => void): () => void;
-  /** Apre la connessione (o la riapre dopo `replaced`/`closed`/`unauthorized`). No-op se è già aperta o in corso. */
-  open(): void;
+  /**
+   * Apre la connessione (o la riapre dopo `replaced`/`closed`/`unauthorized`). No-op se è già aperta o in corso.
+   * `params` (es. `{challenge}`) restano per le riconnessioni; senza, valgono quelli dell'apertura precedente.
+   */
+  open(params?: Readonly<Record<string, string>>): void;
   /** Chiusura voluta: nessuna riconnessione. */
   close(): void;
   /** Se sta aspettando il prossimo tentativo, lo anticipa (evento `online`). */
@@ -182,6 +200,7 @@ export function createConnection(deps: ConnectionDeps): Connection {
   let silenceTimer: ReturnType<typeof setTimeout> | null = null;
   let expecting = false;
   let nextSendAt = 0;
+  let openParams: Readonly<Record<string, string>> = {};
 
   function setStatus(next: ConnectionStatus): void {
     status = next;
@@ -245,7 +264,7 @@ export function createConnection(deps: ConnectionDeps): Connection {
     }
 
     const url = new URL(resolved.url);
-    for (const [key, value] of Object.entries(deps.extraParams ?? {})) url.searchParams.set(key, value);
+    for (const [key, value] of Object.entries({ ...deps.extraParams, ...openParams })) url.searchParams.set(key, value);
     socket = createSocket(url.toString(), {
       onOpen() {
         if (gen !== generation) return;
@@ -260,7 +279,7 @@ export function createConnection(deps: ConnectionDeps): Connection {
         armSilence();
         deps.onFrame(data);
       },
-      onClose(code) {
+      onClose(code, reason) {
         if (gen !== generation) return;
         socket = null;
         silenceTimer = clearTimer(silenceTimer);
@@ -272,6 +291,11 @@ export function createConnection(deps: ConnectionDeps): Connection {
         if (code === CLOSE_DECK_INVALID) {
           logger.debug('mazzo attivo non valido (4002)');
           setStatus({ kind: 'deck_invalid' });
+          return;
+        }
+        if (code === CLOSE_CHALLENGE) {
+          logger.debug('sfida chiusa (4003)', reason);
+          setStatus({ kind: 'challenge_closed', reason: challengeCloseReason(reason) });
           return;
         }
         scheduleRetry();
@@ -287,8 +311,9 @@ export function createConnection(deps: ConnectionDeps): Connection {
       return () => listeners.delete(listener);
     },
 
-    open() {
+    open(params) {
       if (status.kind === 'open' || status.kind === 'connecting' || status.kind === 'reconnecting') return;
+      if (params !== undefined) openParams = params;
       attempt = 0;
       disconnectedSince = null;
       void connect();
@@ -311,7 +336,7 @@ export function createConnection(deps: ConnectionDeps): Connection {
 
     wake() {
       // Ferma per scelta (mai aperta, chiusa, sessione scaduta, sostituita da un'altra scheda): non si tocca.
-      if (status.kind === 'idle' || status.kind === 'closed' || status.kind === 'unauthorized' || status.kind === 'replaced' || status.kind === 'deck_invalid') {
+      if (status.kind === 'idle' || status.kind === 'closed' || status.kind === 'unauthorized' || status.kind === 'replaced' || status.kind === 'deck_invalid' || status.kind === 'challenge_closed') {
         return;
       }
       generation++;

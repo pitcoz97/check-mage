@@ -61,23 +61,28 @@ import {
   type ServerEventOf,
   type ServerMessageType,
 } from '../ws/protocol';
-import type {
-  AuthSession,
-  CardCollection,
-  CollectionCard,
-  Deck,
-  DeckList,
-  CredentialPolicy,
-  GameHistoryEntry,
-  HttpErrorCode,
-  HttpErrorInfo,
-  LeaderboardEntry,
-  PublicProfile,
-  Registration,
-  ServerStatus,
-  TokenPair,
-  UserAccount,
-  WsTicket,
+import {
+  FRIEND_STATUSES,
+  type AuthSession,
+  type CardCollection,
+  type Challenge,
+  type CollectionCard,
+  type Deck,
+  type DeckList,
+  type CredentialPolicy,
+  type Friend,
+  type FriendList,
+  type GameHistoryEntry,
+  type HttpErrorCode,
+  type HttpErrorInfo,
+  type LeaderboardEntry,
+  type PresenceUpdate,
+  type PublicProfile,
+  type Registration,
+  type ServerStatus,
+  type TokenPair,
+  type UserAccount,
+  type WsTicket,
 } from './types';
 
 // ===================================================================================================
@@ -96,6 +101,8 @@ const WARNING_ASSUMPTION = {
   catalog_entry_invalid: 'G10',
   collection_entry_invalid: 'G10',
   deck_entry_invalid: 'G10',
+  friend_entry_invalid: 'G10',
+  challenge_entry_invalid: 'G10',
   enum_unknown: 'A15',
   number_out_of_range: 'A15',
   value_invalid: 'A15',
@@ -511,6 +518,7 @@ const gameStateSchema = z.object({
   white_player: loose,
   black_player: loose,
   time_control: loose,
+  friendly: loose,
 });
 
 const decodeGameState: Decoder<'game_state'> = (payload, ctx) =>
@@ -545,6 +553,7 @@ const decodeGameState: Decoder<'game_state'> = (payload, ctx) =>
         reconnected: core.reconnected === true,
         players: decodePlayers(ctx, core.white_player, core.black_player),
         timeControl: decodeTimeControl(ctx, core.time_control),
+        friendly: core.friendly === true,
       },
     };
   });
@@ -1291,6 +1300,9 @@ export function encodeDeck(name: string, cards: ReadonlyMap<string, number>): st
 export function normalizeGameHistory(data: unknown): Normalized<readonly GameHistoryEntry[]> {
   const entry = z.object({
     id: wireId,
+    white_id: wireId.optional(),
+    black_id: wireId.optional(),
+    rated: z.boolean().optional(),
     white: z.string(),
     black: z.string(),
     result: z.string(),
@@ -1303,6 +1315,9 @@ export function normalizeGameHistory(data: unknown): Normalized<readonly GameHis
   if (!parsed.ok) return { ok: false, issues: parsed.issues };
   const value = parsed.data.map((g) => ({
     id: g.id,
+    whiteId: g.white_id ?? null,
+    blackId: g.black_id ?? null,
+    rated: g.rated ?? true,
     white: g.white,
     black: g.black,
     result: readEnum(ctx, g.result, GAME_RESULTS, 'result'),
@@ -1311,6 +1326,60 @@ export function normalizeGameHistory(data: unknown): Normalized<readonly GameHis
     playedAt: g.played_at,
   }));
   return { ok: true, value, warnings: ctx.warnings };
+}
+
+const wireChallengePlayer = z.object({ id: wireId, username: nonEmptyString, elo: z.number() });
+const wireChallengeSchema = z.object({ id: nonEmptyString, from: wireChallengePlayer, to: wireChallengePlayer, expires_in: count });
+
+function toChallenge(wire: z.output<typeof wireChallengeSchema>): Challenge {
+  return { id: wire.id, from: wire.from, to: wire.to, expiresInSeconds: Math.max(0, wire.expires_in) };
+}
+
+/**
+ * `GET /me/friends` (`handlers/friends.go`): una voce malformata si scarta con un warning; uno stato sconosciuto
+ * vale offline (non si può sfidare).
+ */
+export function normalizeFriendList(data: unknown): Normalized<FriendList> {
+  const schema = z.object({ friends: nullableList(z.unknown()), online: count.min(0) });
+  const entry = z.object({ id: wireId, username: nonEmptyString, elo: z.number(), status: z.string() });
+  const ctx = createCtx();
+  const parsed = parseWith(schema, data);
+  if (!parsed.ok) return { ok: false, issues: parsed.issues };
+  const friends: Friend[] = [];
+  parsed.data.friends.forEach((raw, index) => {
+    const friend = parseWith(entry, raw);
+    if (!friend.ok) {
+      warn(ctx, 'friend_entry_invalid', `[${index}] ${friend.issues.join('; ')}`);
+      return;
+    }
+    const status = readEnum(ctx, friend.data.status, FRIEND_STATUSES, 'status');
+    friends.push({ ...friend.data, status: status === 'unknown' ? 'offline' : status });
+  });
+  return { ok: true, value: { friends, online: parsed.data.online }, warnings: ctx.warnings };
+}
+
+/** `POST /me/challenges` (`handlers/challenges.go`). */
+export function normalizeChallenge(data: unknown): Normalized<Challenge> {
+  return normalize(wireChallengeSchema, data, toChallenge);
+}
+
+/** `POST /me/presence` → `{incoming}`: una sfida malformata si scarta. */
+export function normalizePresence(data: unknown): Normalized<PresenceUpdate> {
+  const ctx = createCtx();
+  const parsed = parseWith(z.object({ incoming: nullableList(z.unknown()) }), data);
+  if (!parsed.ok) return { ok: false, issues: parsed.issues };
+  const incoming: Challenge[] = [];
+  parsed.data.incoming.forEach((raw, index) => {
+    const challenge = parseWith(wireChallengeSchema, raw);
+    if (challenge.ok) incoming.push(toChallenge(challenge.data));
+    else warn(ctx, 'challenge_entry_invalid', `[${index}] ${challenge.issues.join('; ')}`);
+  });
+  return { ok: true, value: { incoming }, warnings: ctx.warnings };
+}
+
+/** Corpo di `POST /me/challenges`: l'id dell'amico, numerico come sul server. */
+export function encodeChallenge(userId: string): string {
+  return JSON.stringify({ to: Number(userId) });
 }
 
 /** `GET /status` (`handlers/status.go`): risponde con `data` anche in 503. Il corpo va passato grezzo. */
