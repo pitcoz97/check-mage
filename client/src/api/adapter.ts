@@ -63,6 +63,8 @@ import {
 } from '../ws/protocol';
 import {
   FRIEND_STATUSES,
+  RELATIONS,
+  type BlockedUser,
   type AuthSession,
   type CardCollection,
   type Challenge,
@@ -77,6 +79,7 @@ import {
   type HttpErrorInfo,
   type LeaderboardEntry,
   type PresenceUpdate,
+  type UserSearchResult,
   type PublicProfile,
   type Registration,
   type ServerStatus,
@@ -102,6 +105,7 @@ const WARNING_ASSUMPTION = {
   collection_entry_invalid: 'G10',
   deck_entry_invalid: 'G10',
   friend_entry_invalid: 'G10',
+  search_entry_invalid: 'G10',
   challenge_entry_invalid: 'G10',
   enum_unknown: 'A15',
   number_out_of_range: 'A15',
@@ -1351,22 +1355,74 @@ function toChallenge(wire: z.output<typeof wireChallengeSchema>): Challenge {
  * vale offline (non si può sfidare).
  */
 export function normalizeFriendList(data: unknown): Normalized<FriendList> {
-  const schema = z.object({ friends: nullableList(z.unknown()), online: count.min(0) });
+  // others, incoming, outgoing e max_friends mancano sui server precedenti alle amicizie vere: liste vuote, limite 200.
+  const schema = z.object({
+    friends: nullableList(z.unknown()),
+    others: nullableList(z.unknown()),
+    incoming: nullableList(z.unknown()),
+    outgoing: nullableList(z.unknown()),
+    online: count.min(0),
+    max_friends: count.min(1).optional(),
+  });
   const entry = z.object({ id: wireId, username: nonEmptyString, elo: z.number(), status: z.string() });
   const ctx = createCtx();
   const parsed = parseWith(schema, data);
   if (!parsed.ok) return { ok: false, issues: parsed.issues };
-  const friends: Friend[] = [];
-  parsed.data.friends.forEach((raw, index) => {
-    const friend = parseWith(entry, raw);
-    if (!friend.ok) {
-      warn(ctx, 'friend_entry_invalid', `[${index}] ${friend.issues.join('; ')}`);
+  const list = (raws: readonly unknown[], field: string): Friend[] => {
+    const out: Friend[] = [];
+    raws.forEach((raw, index) => {
+      const friend = parseWith(entry, raw);
+      if (!friend.ok) {
+        warn(ctx, 'friend_entry_invalid', `${field}[${index}] ${friend.issues.join('; ')}`);
+        return;
+      }
+      const status = readEnum(ctx, friend.data.status, FRIEND_STATUSES, 'status');
+      out.push({ ...friend.data, status: status === 'unknown' ? 'offline' : status });
+    });
+    return out;
+  };
+  const d = parsed.data;
+  return {
+    ok: true,
+    value: {
+      friends: list(d.friends, 'friends'),
+      others: list(d.others, 'others'),
+      incoming: list(d.incoming, 'incoming'),
+      outgoing: list(d.outgoing, 'outgoing'),
+      online: d.online,
+      maxFriends: d.max_friends ?? 200,
+    },
+    warnings: ctx.warnings,
+  };
+}
+
+/** `GET /users/search` (A5): un risultato malformato si scarta; una relazione sconosciuta vale «nessuna». */
+export function normalizeUserSearch(data: unknown): Normalized<readonly UserSearchResult[]> {
+  const entry = z.object({ id: wireId, username: nonEmptyString, elo: z.number(), relation: z.string() });
+  const ctx = createCtx();
+  const parsed = parseWith(nullableList(z.unknown()), data);
+  if (!parsed.ok) return { ok: false, issues: parsed.issues };
+  const out: UserSearchResult[] = [];
+  parsed.data.forEach((raw, index) => {
+    const result = parseWith(entry, raw);
+    if (!result.ok) {
+      warn(ctx, 'search_entry_invalid', `[${index}] ${result.issues.join('; ')}`);
       return;
     }
-    const status = readEnum(ctx, friend.data.status, FRIEND_STATUSES, 'status');
-    friends.push({ ...friend.data, status: status === 'unknown' ? 'offline' : status });
+    const relation = readEnum(ctx, result.data.relation, RELATIONS, 'relation');
+    out.push({ ...result.data, relation: relation === 'unknown' ? 'none' : relation });
   });
-  return { ok: true, value: { friends, online: parsed.data.online }, warnings: ctx.warnings };
+  return { ok: true, value: out, warnings: ctx.warnings };
+}
+
+/** `GET /me/blocks` e le risposte di blocco e sblocco (A8). */
+export function normalizeBlocks(data: unknown): Normalized<readonly BlockedUser[]> {
+  return normalize(nullableList(z.object({ id: wireId, username: nonEmptyString })), data, (list) => list);
+}
+
+/** Corpo di `POST /me/blocks`: l'id numerico, come sul server. */
+export function encodeBlock(userId: string): string {
+  return JSON.stringify({ user_id: Number(userId) });
 }
 
 /** `POST /me/challenges` (`handlers/challenges.go`). */
@@ -1377,7 +1433,8 @@ export function normalizeChallenge(data: unknown): Normalized<Challenge> {
 /** `POST /me/presence` → `{incoming}`: una sfida malformata si scarta. */
 export function normalizePresence(data: unknown): Normalized<PresenceUpdate> {
   const ctx = createCtx();
-  const parsed = parseWith(z.object({ incoming: nullableList(z.unknown()) }), data);
+  // friend_requests manca sui server precedenti alle amicizie vere: nessuna richiesta.
+  const parsed = parseWith(z.object({ incoming: nullableList(z.unknown()), friend_requests: count.min(0).optional() }), data);
   if (!parsed.ok) return { ok: false, issues: parsed.issues };
   const incoming: Challenge[] = [];
   parsed.data.incoming.forEach((raw, index) => {
@@ -1385,10 +1442,10 @@ export function normalizePresence(data: unknown): Normalized<PresenceUpdate> {
     if (challenge.ok) incoming.push(toChallenge(challenge.data));
     else warn(ctx, 'challenge_entry_invalid', `[${index}] ${challenge.issues.join('; ')}`);
   });
-  return { ok: true, value: { incoming }, warnings: ctx.warnings };
+  return { ok: true, value: { incoming, friendRequests: parsed.data.friend_requests ?? 0 }, warnings: ctx.warnings };
 }
 
-/** Corpo di `POST /me/challenges`: l'id dell'amico, numerico come sul server. */
+/** Corpo di `POST /me/challenges` e `POST /me/friends/requests`: l'id del giocatore, numerico come sul server. */
 export function encodeChallenge(userId: string): string {
   return JSON.stringify({ to: Number(userId) });
 }

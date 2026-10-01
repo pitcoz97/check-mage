@@ -110,10 +110,36 @@ export interface Friend {
   readonly status: FriendStatus;
 }
 
-/** `GET /me/friends`: online, poi in partita, poi offline (l'ordine è del server). */
+/**
+ * `GET /me/friends` (A1–A3): amici veri, altri giocatori (solo finché sul server tutti sono sfidabili), richieste
+ * ricevute e inviate. In ogni lista: online, poi in partita, poi offline (l'ordine è del server).
+ */
 export interface FriendList {
   readonly friends: readonly Friend[];
+  readonly others: readonly Friend[];
+  readonly incoming: readonly Friend[];
+  readonly outgoing: readonly Friend[];
+  /** Online fra amici e altri giocatori. */
   readonly online: number;
+  readonly maxFriends: number;
+}
+
+/** Relazione con un altro giocatore (ricerca, profilo, fine partita). */
+export const RELATIONS = ['none', 'friend', 'incoming', 'outgoing'] as const;
+export type Relation = (typeof RELATIONS)[number];
+
+/** Un risultato di `GET /users/search` (A5). */
+export interface UserSearchResult {
+  readonly id: UserId;
+  readonly username: Username;
+  readonly elo: number;
+  readonly relation: Relation;
+}
+
+/** Un giocatore bloccato (`GET /me/blocks`, A8). */
+export interface BlockedUser {
+  readonly id: UserId;
+  readonly username: Username;
 }
 
 export interface ChallengePlayer {
@@ -133,6 +159,8 @@ export interface Challenge {
 /** Risposta del segnale di presenza `POST /me/presence`: le sfide ricevute ancora aperte. */
 export interface PresenceUpdate {
   readonly incoming: readonly Challenge[];
+  /** Richieste d'amicizia ricevute in attesa, per il badge (A6). */
+  readonly friendRequests: number;
 }
 
 /** `GET /ws/ticket` (`handlers/ws.go:23-42`): ticket monouso per aprire il WebSocket. */

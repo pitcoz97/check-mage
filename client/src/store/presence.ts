@@ -15,6 +15,8 @@ export interface PresenceState {
   readonly incoming: readonly Challenge[];
   /** Istante dell'ultima risposta: serve al tempo residuo delle sfide. */
   readonly receivedAt: number | null;
+  /** Richieste d'amicizia ricevute in attesa: il badge della voce «Amici» (A6). */
+  readonly friendRequests: number;
 }
 
 /** Sorgente della visibilità della pagina (di default `document`); i test ne iniettano una finta. */
@@ -36,6 +38,8 @@ export interface Presence {
   stop(): void;
   /** Manda subito il segnale (dopo una sfida, o per aggiornare le sfide in arrivo). */
   refresh(): Promise<void>;
+  /** Il numero di richieste ricevute è cambiato da qui (accettata, rifiutata): il badge non aspetta il segnale. */
+  setFriendRequests(count: number): void;
   /** La sfida ha già una risposta (accettata o rifiutata): non va più mostrata. */
   dismiss(challengeId: string): void;
 }
@@ -55,7 +59,7 @@ export function createPresence(deps: PresenceDeps): Presence {
   const intervalMs = deps.intervalMs ?? PRESENCE_INTERVAL_MS;
   const visibility = deps.visibility === undefined ? documentVisibility : deps.visibility;
   const now = deps.now ?? Date.now;
-  const store = createStore<PresenceState>()(() => ({ incoming: [], receivedAt: null }));
+  const store = createStore<PresenceState>()(() => ({ incoming: [], receivedAt: null, friendRequests: 0 }));
   const dismissed = new Set<string>();
   let timer: ReturnType<typeof setInterval> | null = null;
   let unsubscribe: (() => void) | null = null;
@@ -66,7 +70,7 @@ export function createPresence(deps: PresenceDeps): Presence {
     if (!running || !result.ok) return;
     const open = new Set(result.value.incoming.map((c) => c.id));
     for (const id of dismissed) if (!open.has(id)) dismissed.delete(id);
-    store.setState({ incoming: result.value.incoming.filter((c) => !dismissed.has(c.id)), receivedAt: now() });
+    store.setState({ incoming: result.value.incoming.filter((c) => !dismissed.has(c.id)), receivedAt: now(), friendRequests: result.value.friendRequests });
   }
 
   function stopTimer(): void {
@@ -101,7 +105,11 @@ export function createPresence(deps: PresenceDeps): Presence {
       stopTimer();
       unsubscribe?.();
       unsubscribe = null;
-      store.setState({ incoming: [], receivedAt: null });
+      store.setState({ incoming: [], receivedAt: null, friendRequests: 0 });
+    },
+
+    setFriendRequests(count) {
+      store.setState({ friendRequests: count });
     },
 
     dismiss(challengeId) {

@@ -1,10 +1,12 @@
 import {
+  encodeBlock,
   encodeChallenge,
   encodeDeck,
   encodeLogin,
   encodeRefresh,
   encodeRegister,
   normalizeAccount,
+  normalizeBlocks,
   normalizeChallenge,
   normalizeCollection,
   normalizeDeck,
@@ -19,6 +21,7 @@ import {
   normalizeRegistration,
   normalizeSpellCatalog,
   normalizeTokenPair,
+  normalizeUserSearch,
   normalizeWsTicket,
   type HttpOutcome,
   type Normalized,
@@ -27,6 +30,7 @@ import type { HttpClient } from './http';
 import type { Spell } from '../spells/schema';
 import type {
   AuthSession,
+  BlockedUser,
   CardCollection,
   Challenge,
   Deck,
@@ -41,6 +45,7 @@ import type {
   Registration,
   TokenPair,
   UserAccount,
+  UserSearchResult,
   WsTicket,
 } from './types';
 
@@ -134,6 +139,42 @@ export function createApi(http: HttpClient) {
         value: null,
         warnings: [],
       }));
+    },
+
+    /** Richiesta d'amicizia (A2); se l'altro aveva già chiesto diventate subito amici (A3). Risponde con la lista. */
+    async requestFriend(userId: string): Promise<ApiResult<FriendList>> {
+      return toResult(await http.request('POST', '/me/friends/requests', { auth: true, body: encodeChallenge(userId) }), normalizeFriendList);
+    },
+
+    async acceptFriend(userId: string): Promise<ApiResult<FriendList>> {
+      return toResult(await http.request('POST', `/me/friends/requests/${encodeURIComponent(userId)}/accept`, { auth: true }), normalizeFriendList);
+    },
+
+    /** Rifiuta la richiesta ricevuta da `userId`, o annulla quella inviata (A4). */
+    async deleteFriendRequest(userId: string): Promise<ApiResult<FriendList>> {
+      return toResult(await http.request('DELETE', `/me/friends/requests/${encodeURIComponent(userId)}`, { auth: true }), normalizeFriendList);
+    },
+
+    async removeFriend(userId: string): Promise<ApiResult<FriendList>> {
+      return toResult(await http.request('DELETE', `/me/friends/${encodeURIComponent(userId)}`, { auth: true }), normalizeFriendList);
+    },
+
+    /** Ricerca per nome (A5), almeno 2 caratteri. */
+    async searchUsers(query: string): Promise<ApiResult<readonly UserSearchResult[]>> {
+      return toResult(await http.request('GET', `/users/search?q=${encodeURIComponent(query)}`, { auth: true }), normalizeUserSearch);
+    },
+
+    async fetchBlocks(): Promise<ApiResult<readonly BlockedUser[]>> {
+      return toResult(await http.request('GET', '/me/blocks', { auth: true }), normalizeBlocks);
+    },
+
+    /** Blocca (A8): toglie amicizia e richieste. Risponde coi bloccati. */
+    async blockUser(userId: string): Promise<ApiResult<readonly BlockedUser[]>> {
+      return toResult(await http.request('POST', '/me/blocks', { auth: true, body: encodeBlock(userId) }), normalizeBlocks);
+    },
+
+    async unblockUser(userId: string): Promise<ApiResult<readonly BlockedUser[]>> {
+      return toResult(await http.request('DELETE', `/me/blocks/${encodeURIComponent(userId)}`, { auth: true }), normalizeBlocks);
     },
 
     /** Ultime partite di un giocatore (`handlers/stats.go:54-108`), più recenti prima. */

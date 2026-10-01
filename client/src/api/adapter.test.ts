@@ -14,9 +14,11 @@ import {
   normalizeCollection,
   normalizeDeck,
   normalizeDeckList,
+  encodeBlock,
   encodeChallenge,
   encodeDeck,
   FALLBACK_CREDENTIAL_POLICY,
+  normalizeBlocks,
   normalizeChallenge,
   normalizeFriendList,
   normalizePresence,
@@ -29,6 +31,7 @@ import {
   normalizeSpellCatalog,
   normalizeStatus,
   normalizeTokenPair,
+  normalizeUserSearch,
   normalizeWsTicket,
   type AdapterWarningCode,
 } from './adapter';
@@ -798,6 +801,44 @@ describe('REST', () => {
     });
     expect(result.ok && result.warnings.map((w) => w.code)).toEqual(['friend_entry_invalid', 'enum_unknown']);
     expect(normalizeFriendList({ friends: [] })).toMatchObject({ ok: false });
+    // Server precedente alle amicizie vere: niente altri giocatori né richieste, limite 200.
+    expect(result).toMatchObject({ value: { others: [], incoming: [], outgoing: [], maxFriends: 200 } });
+  });
+
+  it('amicizie vere (A1–A3): amici, altri giocatori e richieste in liste separate', () => {
+    const entry = (id: number, status = 'offline') => ({ id, username: `u${id}`, elo: 1200, status });
+    const result = normalizeFriendList({
+      friends: [entry(1, 'online')],
+      others: [entry(2, 'playing')],
+      incoming: [entry(3)],
+      outgoing: [entry(4), { id: 5 }],
+      online: 1,
+      max_friends: 150,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      value: { friends: [{ id: '1' }], others: [{ id: '2', status: 'playing' }], incoming: [{ id: '3' }], outgoing: [{ id: '4' }], maxFriends: 150 },
+    });
+    expect(result.ok && result.warnings.map((w) => w.detail?.split(' ')[0])).toEqual(['outgoing[1]']);
+  });
+
+  it('ricerca (A5) e bloccati (A8): relazione sconosciuta = nessuna; corpo del blocco con l’id numerico', () => {
+    const search = normalizeUserSearch([
+      { id: 2, username: 'bruno', elo: 1300, relation: 'outgoing' },
+      { id: 3, username: 'carla', elo: 1100, relation: 'rivale' },
+      { id: 4 },
+    ]);
+    expect(search).toMatchObject({
+      ok: true,
+      value: [
+        { id: '2', relation: 'outgoing' },
+        { id: '3', relation: 'none' },
+      ],
+    });
+    expect(search.ok && search.warnings.map((w) => w.code)).toEqual(['enum_unknown', 'search_entry_invalid']);
+    expect(normalizeBlocks([{ id: 2, username: 'bruno' }])).toEqual({ ok: true, value: [{ id: '2', username: 'bruno' }], warnings: [] });
+    expect(normalizeBlocks(null)).toEqual({ ok: true, value: [], warnings: [] });
+    expect(JSON.parse(encodeBlock('2'))).toEqual({ user_id: 2 });
   });
 
   it('sfide e presenza (F4): ids come stringhe, sfida malformata scartata; corpo con l’id numerico', () => {
@@ -807,7 +848,8 @@ describe('REST', () => {
     const presence = normalizePresence({ incoming: [wire, { id: '' }] });
     expect(presence).toMatchObject({ ok: true, value: { incoming: [expected] } });
     expect(presence.ok && presence.warnings.map((w) => w.code)).toEqual(['challenge_entry_invalid']);
-    expect(normalizePresence({ incoming: null })).toEqual({ ok: true, value: { incoming: [] }, warnings: [] });
+    expect(normalizePresence({ incoming: null })).toEqual({ ok: true, value: { incoming: [], friendRequests: 0 }, warnings: [] });
+    expect(normalizePresence({ incoming: [], friend_requests: 3 })).toMatchObject({ ok: true, value: { friendRequests: 3 } });
     expect(JSON.parse(encodeChallenge('8'))).toEqual({ to: 8 });
   });
 
