@@ -15,17 +15,23 @@ import (
 // Manager gestisce tutte le room attive e il matchmaking
 // Il sync.RWMutex serve perché più goroutine accedono alla mappa contemporaneamente
 type Manager struct {
-	rooms     map[string]*Room
-	waiting   *Client
-	userRooms map[int]string // userID -> roomID, per la riconnessione
-	mu        sync.RWMutex
+	rooms      map[string]*Room
+	waiting    *Client
+	userRooms  map[int]string        // userID -> roomID, per la riconnessione
+	challenges map[string]*Challenge // sfide dirette aperte (challenges.go), creata alla prima
+	mu         sync.RWMutex
+}
+
+// NewManager crea un manager vuoto.
+func NewManager() *Manager {
+	return &Manager{
+		rooms:     make(map[string]*Room),
+		userRooms: make(map[int]string),
+	}
 }
 
 // Istanza globale del manager
-var GameManager = &Manager{
-	rooms:     make(map[string]*Room),
-	userRooms: make(map[int]string),
-}
+var GameManager = NewManager()
 
 // JoinQueue aggiunge un client alla coda di matchmaking
 func (m *Manager) JoinQueue(client *Client) bool {
@@ -33,18 +39,8 @@ func (m *Manager) JoinQueue(client *Client) bool {
 	defer m.mu.Unlock()
 
 	// Controlla se il giocatore ha una partita in corso
-	if roomID, exists := m.userRooms[client.UserID]; exists {
-		room, roomExists := m.rooms[roomID]
-		if roomExists && room.isActive() {
-			logger.L.Info("Riconnessione in corso",
-				zap.String("player", client.Username),
-				zap.String("room", roomID),
-			)
-			room.Reconnect(client)
-			return true // è una riconnessione
-		}
-		// La room non esiste più, pulisci
-		delete(m.userRooms, client.UserID)
+	if m.tryReconnectLocked(client) {
+		return true // è una riconnessione
 	}
 
 	// Mazzo attivo non valido: niente coda, errore e chiusura (D6).
@@ -96,6 +92,8 @@ func (m *Manager) JoinQueue(client *Client) bool {
 	// Registra la room per entrambi i giocatori
 	m.userRooms[opponent.UserID] = roomID
 	m.userRooms[client.UserID] = roomID
+	// Le sfide ancora aperte dei due giocatori non possono più partire (F9).
+	m.closeChallengesOfLocked(opponent.UserID, client.UserID)
 
 	logger.L.Info("Partita creata",
 		zap.String("room", roomID),
@@ -105,6 +103,56 @@ func (m *Manager) JoinQueue(client *Client) bool {
 
 	// L'identità dei giocatori arriva nel primo game_state (white_player/black_player).
 	return false
+}
+
+// tryReconnectLocked riporta il client nella sua partita se ne ha una attiva, e
+// ripulisce l'indice se la room non c'è più. Va invocata con m.mu tenuto.
+func (m *Manager) tryReconnectLocked(client *Client) bool {
+	roomID, exists := m.userRooms[client.UserID]
+	if !exists {
+		return false
+	}
+	if room, roomExists := m.rooms[roomID]; roomExists && room.isActive() {
+		logger.L.Info("Riconnessione in corso",
+			zap.String("player", client.Username),
+			zap.String("room", roomID),
+		)
+		room.Reconnect(client)
+		return true
+	}
+	// La room non esiste più, pulisci
+	delete(m.userRooms, client.UserID)
+	return false
+}
+
+// inMatchLocked dice se l'utente ha una partita attiva. Va invocata con m.mu tenuto.
+func (m *Manager) inMatchLocked(userID int) bool {
+	roomID, exists := m.userRooms[userID]
+	if !exists {
+		return false
+	}
+	room, roomExists := m.rooms[roomID]
+	return roomExists && room.isActive()
+}
+
+// InMatch dice se l'utente ha una partita attiva (stato "playing" degli amici).
+func (m *Manager) InMatch(userID int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.inMatchLocked(userID)
+}
+
+// PlayingIDs restituisce gli utenti con una partita attiva.
+func (m *Manager) PlayingIDs() []int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]int, 0, len(m.userRooms))
+	for userID := range m.userRooms {
+		if m.inMatchLocked(userID) {
+			out = append(out, userID)
+		}
+	}
+	return out
 }
 
 // LeaveQueue rimuove un client dalla coda se è ancora in attesa. Il confronto è

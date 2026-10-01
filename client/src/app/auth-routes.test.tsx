@@ -156,8 +156,8 @@ describe('registrazione', () => {
     });
     expect(await screen.findByRole('heading', { name: 'Bentornato, mario' })).toBeTruthy();
     expect(router.state.location.pathname).toBe('/lobby');
-    // La home chiede anche la classifica (card in basso): qui conta che la registrazione faccia un solo login.
-    expect(server.hits.filter((hit) => hit.startsWith('POST'))).toEqual(['POST /auth/register', 'POST /auth/login']);
+    // La home chiede anche classifica e presenza: qui conta che la registrazione faccia un solo login.
+    expect(server.hits.filter((hit) => hit.startsWith('POST /auth'))).toEqual(['POST /auth/register', 'POST /auth/login']);
   });
 
   it('i requisiti seguono GET /auth/password-policy', async () => {

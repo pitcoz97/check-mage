@@ -4,9 +4,11 @@ import { createBrowserRouter, type RouteObject } from 'react-router';
 import { Login } from '../screens/Auth/Login';
 import { Collection } from '../screens/Collection/Collection';
 import { Decks } from '../screens/Decks/Decks';
+import { Friends } from '../screens/Friends/Friends';
 import { Register } from '../screens/Auth/Register';
 import { Lobby } from '../screens/Lobby/Lobby';
 import { Leaderboard } from '../screens/Leaderboard/Leaderboard';
+import { PlayerProfile } from '../screens/Player/PlayerProfile';
 import { Profile } from '../screens/Profile/Profile';
 import { Settings } from '../screens/Settings/Settings';
 import { AppShell } from './AppShell';
@@ -96,6 +98,8 @@ export const routes: RouteObject[] = [
               { path: 'collection', element: <Collection /> },
               { path: 'decks', element: <Decks /> },
               { path: 'decks/:id', element: <Decks /> },
+              { path: 'friends', element: <Friends /> },
+              { path: 'players/:id', element: <PlayerProfile /> },
               { path: 'settings', element: <Settings /> },
             ],
           },

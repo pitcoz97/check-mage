@@ -24,6 +24,8 @@ export interface GameRow {
   result: '1-0' | '0-1' | '1/2-1/2';
   timeControl: string;
   playedAt: string;
+  /** `games.rated`: false per le amichevoli (F8). */
+  rated: boolean;
 }
 
 const EMAIL = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/; // validation/validation.go:22
@@ -129,9 +131,15 @@ export function createUserStore() {
       return { wins, losses, draws };
     },
 
-    /** `db/db.go:51-90`: salva la partita e aggiorna gli ELO. */
-    saveGame(whiteId: number, blackId: number, pgn: string, result: GameRow['result'], timeControl: string): void {
-      games.push({ id: nextGameId++, whiteId, blackId, pgn, result, timeControl, playedAt: new Date().toISOString() });
+    /** Tutti gli utenti, per `GET /me/friends` (`db/users.go`). */
+    all(): User[] {
+      return [...users.values()];
+    },
+
+    /** `db/db.go`: salva la partita e, se è classificata, aggiorna gli ELO (F8). */
+    saveGame(whiteId: number, blackId: number, pgn: string, result: GameRow['result'], timeControl: string, rated = true): void {
+      games.push({ id: nextGameId++, whiteId, blackId, pgn, result, timeControl, playedAt: new Date().toISOString(), rated });
+      if (!rated) return;
       const white = users.get(whiteId);
       const black = users.get(blackId);
       if (white === undefined || black === undefined) return;

@@ -7,6 +7,8 @@ import { fakeSockets } from '../testing/fakeSocket';
 import {
   BACKOFF,
   backoffDelay,
+  challengeCloseReason,
+  CLOSE_CHALLENGE,
   CLOSE_DECK_INVALID,
   CLOSE_REPLACED,
   createConnection,
@@ -123,6 +125,46 @@ describe('connessione', () => {
     connection.open();
     await flush();
     expect(sockets.sockets).toHaveLength(2);
+  });
+
+  it('sfida: il parametro challenge resta nelle riconnessioni; open() senza parametri li tiene, open({}) li toglie', async () => {
+    const { connection, sockets } = setup();
+    connection.open({ challenge: 'abc' });
+    await flush();
+    expect(sockets.last().url).toBe('ws://mock/ws?ticket=t1&challenge=abc');
+    sockets.last().open();
+    sockets.last().drop(1006);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(sockets.last().url).toBe('ws://mock/ws?ticket=t2&challenge=abc');
+    connection.close();
+    connection.open();
+    await flush();
+    expect(sockets.last().url).toBe('ws://mock/ws?ticket=t3&challenge=abc');
+    connection.close();
+    connection.open({});
+    await flush();
+    expect(sockets.last().url).toBe('ws://mock/ws?ticket=t4');
+  });
+
+  it('4003: sfida chiusa col motivo, nessuna riconnessione', async () => {
+    const { connection, sockets } = setup();
+    connection.open({ challenge: 'abc' });
+    await flush();
+    sockets.last().open();
+    sockets.last().drop(CLOSE_CHALLENGE, 'challenge_declined');
+    expect(connection.getStatus()).toEqual({ kind: 'challenge_closed', reason: 'declined' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(sockets.sockets).toHaveLength(1);
+    connection.wake();
+    await flush();
+    expect(sockets.sockets).toHaveLength(1);
+  });
+
+  it('motivo della chiusura 4003: codice del server, sconosciuto = non disponibile', () => {
+    expect(challengeCloseReason('challenge_expired')).toBe('expired');
+    expect(challengeCloseReason('challenge_unavailable')).toBe('unavailable');
+    expect(challengeCloseReason(undefined)).toBe('unavailable');
+    expect(challengeCloseReason('altro')).toBe('unavailable');
   });
 
   it('4001: connessione sostituita, nessuna riconnessione', async () => {

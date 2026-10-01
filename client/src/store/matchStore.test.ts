@@ -26,6 +26,7 @@ function publicState(overrides: Partial<PublicGameState> = {}): PublicGameState 
     playerEffects: { triggers: [], auras: [] },
     moveOptions: { specialMoves: [], extraMove: null },
     reconnected: false,
+    friendly: false,
     players: { white: { id: '1', username: 'mario' }, black: { id: '2', username: 'luigi' } },
     timeControl: { baseMs: 600_000, incrementMs: 5_000 },
     ...overrides,

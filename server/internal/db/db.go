@@ -49,8 +49,19 @@ func Connect() {
 	)
 }
 
-// SaveGame salva una partita nel database e aggiorna gli ELO
-func SaveGame(whiteID, blackID int, pgn, result, timeControl string) error {
+// EnsureGameSchema aggiunge a games la colonna rated (false per le amichevoli,
+// F8) se manca: le tabelle create prima delle sfide non ce l'hanno.
+func EnsureGameSchema() error {
+	if DB == nil {
+		return nil
+	}
+	_, err := DB.Exec(`ALTER TABLE games ADD COLUMN IF NOT EXISTS rated BOOLEAN NOT NULL DEFAULT TRUE`)
+	return err
+}
+
+// SaveGame salva una partita nel database e, se è classificata, aggiorna gli
+// ELO (un'amichevole non li tocca, F8).
+func SaveGame(whiteID, blackID int, pgn, result, timeControl string, rated bool) error {
 	if DB == nil {
 		return nil // DB non configurato (es. nei test)
 	}
@@ -62,12 +73,15 @@ func SaveGame(whiteID, blackID int, pgn, result, timeControl string) error {
 
 	// Salva la partita
 	_, err = tx.Exec(`
-        INSERT INTO games (white_id, black_id, pgn, result, time_control)
-        VALUES ($1, $2, $3, $4, $5)`,
-		whiteID, blackID, pgn, result, timeControl,
+        INSERT INTO games (white_id, black_id, pgn, result, time_control, rated)
+        VALUES ($1, $2, $3, $4, $5, $6)`,
+		whiteID, blackID, pgn, result, timeControl, rated,
 	)
 	if err != nil {
 		return err
+	}
+	if !rated {
+		return tx.Commit()
 	}
 
 	// Prendi gli ELO attuali

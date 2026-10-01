@@ -95,6 +95,45 @@ describe('sessione di partita', () => {
     expect(map.has('checkmage:active-match')).toBe(false);
   });
 
+  it('sfida diretta: la coda si chiude, URL con challenge, attesa; la partita parte amichevole e azzera l’attesa', async () => {
+    const { session, sockets } = await setup();
+    session.findMatch();
+    await flush();
+    sockets.last().open();
+    expect(session.status.getState().pending).toEqual({ kind: 'queue' });
+
+    session.joinChallenge('abc', 'luigi', 'accepted');
+    await flush();
+    expect(sockets.sockets[0]?.closedWith).toBe(1000);
+    expect(sockets.last().url).toBe('ws://api/ws?ticket=t2&challenge=abc');
+    expect(session.status.getState().pending).toEqual({ kind: 'challenge', id: 'abc', opponent: 'luigi', role: 'accepted' });
+    expect(session.match.getState().lifecycle).toBe('queued');
+
+    sockets.last().open();
+    sockets.last().receive({ ...gameState(), payload: { ...gameState().payload, friendly: true } });
+    await flush();
+    expect(session.match.getState().game?.friendly).toBe(true);
+    expect(session.status.getState().pending).toBeNull();
+  });
+
+  it('sfida rifiutata: 4003 col motivo, l’attesa resta finché non si annulla', async () => {
+    const { session, sockets } = await setup();
+    session.joinChallenge('abc', 'luigi', 'sent');
+    await flush();
+    sockets.last().open();
+    sockets.last().drop(4003, 'challenge_declined');
+    expect(session.status.getState()).toEqual({
+      connection: { kind: 'challenge_closed', reason: 'declined' },
+      pending: { kind: 'challenge', id: 'abc', opponent: 'luigi', role: 'sent' },
+    });
+    session.cancel();
+    expect(session.status.getState().pending).toBeNull();
+    // Una nuova ricerca in coda non porta più il parametro della sfida.
+    session.findMatch();
+    await flush();
+    expect(sockets.last().url).toBe('ws://api/ws?ticket=t2');
+  });
+
   it('Annulla chiude la connessione (uscita dalla coda) e azzera lo stato', async () => {
     const { session, sockets } = await setup();
     session.findMatch();

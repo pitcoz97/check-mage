@@ -5,6 +5,7 @@ import { Navigate, Outlet, useLocation } from 'react-router';
 import { Button } from '../design/components/Button';
 import { Spinner } from '../design/components/Spinner';
 import { useAuth } from '../store/AuthProvider';
+import { PresenceProvider } from '../store/PresenceProvider';
 import { StatePage } from './StatePage';
 
 /** Stato di navigazione passato al login: pagina da riaprire, email da precompilare, account appena creato. */
@@ -64,7 +65,12 @@ export function RequireAuth() {
     const state: LoginRedirectState = { from: `${location.pathname}${location.search}` };
     return <Navigate to="/login" replace state={state} />;
   }
-  return <Outlet />;
+  // Presenza e sfide in arrivo valgono in tutta l'app autenticata, partita compresa (F2).
+  return (
+    <PresenceProvider>
+      <Outlet />
+    </PresenceProvider>
+  );
 }
 
 /** Login e registrazione: chi è già autenticato prosegue verso la destinazione richiesta. */

@@ -7,6 +7,7 @@ import { Button } from '../../design/components/Button';
 import { Panel } from '../../design/components/Panel';
 import { Spinner } from '../../design/components/Spinner';
 import { useApi, useAuth } from '../../store/AuthProvider';
+import { RecentGames, StatsGrid } from './ProfileParts';
 
 const DATE_FORMAT: Intl.DateTimeFormatOptions = { dateStyle: 'long' };
 
@@ -61,12 +62,6 @@ export function Profile() {
 
   const { account, profile } = state;
   const joined = account.createdAt === null ? null : new Date(account.createdAt);
-  const stats = [
-    ['wins', profile.stats.wins],
-    ['losses', profile.stats.losses],
-    ['draws', profile.stats.draws],
-    ['total', profile.stats.total],
-  ] as const;
 
   return (
     <div className="flex max-w-3xl flex-col gap-6">
@@ -102,17 +97,8 @@ export function Profile() {
         </dl>
       </Panel>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('profile.stats')}</h2>
-        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:gap-5">
-          {stats.map(([key, value]) => (
-            <div key={key} data-stat={key} className="flex flex-col-reverse gap-1 rounded-16 bg-panel p-[18px]">
-              <dt className="text-12 font-bold tracking-[0.08em] text-muted uppercase">{t(`profile.${key}`)}</dt>
-              <dd className="font-display text-[34px] leading-none font-extrabold text-gold-bright">{value}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
+      <StatsGrid stats={profile.stats} />
+      <RecentGames userId={account.id} username={account.username} />
     </div>
   );
 }

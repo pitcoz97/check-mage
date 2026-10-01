@@ -1,6 +1,6 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
-import type { UserId } from '../game/model';
+import type { UserId, Username } from '../game/model';
 import { log as defaultLog, type Logger } from '../lib/log';
 import { STORAGE_KEYS, type KeyValueStorage } from '../lib/storage';
 import { createConnection, type Connection, type ConnectionStatus, type SocketFactory, type TicketSource } from '../ws/connection';
@@ -23,8 +23,17 @@ import { createMatchStore, type MatchStoreState } from './matchStore';
  */
 export const RECONNECT_WINDOW_MS = 30_000;
 
+/**
+ * Cosa sta aspettando la sessione prima della partita: la coda, o una sfida diretta (F7) inviata (`sent`) o accettata
+ * (`accepted`). Torna `null` quando la partita parte o si esce.
+ */
+export type PendingMatch =
+  | { readonly kind: 'queue' }
+  | { readonly kind: 'challenge'; readonly id: string; readonly opponent: Username; readonly role: 'sent' | 'accepted' };
+
 export interface SessionState {
   readonly connection: ConnectionStatus;
+  readonly pending: PendingMatch | null;
 }
 
 /**
@@ -40,6 +49,11 @@ export interface MatchSession {
   readonly status: StoreApi<SessionState>;
   /** Entra in coda (nuova connessione). */
   findMatch(): void;
+  /**
+   * Si collega a una sfida diretta (`/ws?challenge=<id>`): chi sfida subito dopo averla creata, lo sfidato per
+   * accettarla. Una ricerca in coda in corso si chiude prima.
+   */
+  joinChallenge(id: string, opponent: Username, role: 'sent' | 'accepted'): void;
   /** Esce dalla coda chiudendo la connessione (`LeaveQueue`, `game/client.go:81-88`). */
   cancel(): void;
   /** Riapre la connessione: dopo una sostituzione (4001) o per riprendere una partita salvata. */
@@ -83,7 +97,7 @@ export function createMatchSession(deps: MatchSessionDeps): MatchSession {
     ...(deps.silenceMs === undefined ? {} : { silenceMs: deps.silenceMs }),
     ...(deps.extraParams === undefined ? {} : { extraParams: deps.extraParams }),
   });
-  const status = createStore<SessionState>()(() => ({ connection: connection.getStatus() }));
+  const status = createStore<SessionState>()(() => ({ connection: connection.getStatus(), pending: null }));
   const unsubscribers: (() => void)[] = [];
   unsubscribers.push(connection.subscribe((next) => status.setState({ connection: next })));
 
@@ -92,6 +106,7 @@ export function createMatchSession(deps: MatchSessionDeps): MatchSession {
     match.subscribe((next, previous) => {
       if (next.lifecycle === previous.lifecycle) return;
       connection.expectTraffic(next.lifecycle === 'playing');
+      if (next.lifecycle === 'playing' || next.lifecycle === 'idle') status.setState({ pending: null });
       if (next.lifecycle === 'playing' && next.selfId !== null) void deps.storage.set(STORAGE_KEYS.activeMatch, next.selfId);
       if (next.lifecycle === 'over') void deps.storage.remove(STORAGE_KEYS.activeMatch);
     }),
@@ -122,8 +137,17 @@ export function createMatchSession(deps: MatchSessionDeps): MatchSession {
     status,
 
     findMatch() {
+      connection.close();
       match.getState().enterQueue();
-      connection.open();
+      status.setState({ pending: { kind: 'queue' } });
+      connection.open({});
+    },
+
+    joinChallenge(id, opponent, role) {
+      connection.close();
+      match.getState().enterQueue();
+      status.setState({ pending: { kind: 'challenge', id, opponent, role } });
+      connection.open({ challenge: id });
     },
 
     cancel() {

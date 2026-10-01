@@ -131,7 +131,7 @@ export class E2EClient {
    * su header di autorizzazione diversi da quello della sessione (`authorization: null` = nessun header).
    */
   async raw(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'DELETE',
     path: string,
     options: { body?: string; authorization?: string | null } = {},
   ): Promise<{ status: number; body: string }> {
@@ -213,8 +213,11 @@ export class E2EClient {
     return this.store?.getState() ?? null;
   }
 
-  /** Apre (o riapre) la connessione e attende che il socket sia aperto. `scenario` vale solo alla prima apertura. */
-  async connect(scenario?: string): Promise<void> {
+  /**
+   * Apre (o riapre) la connessione e attende che il socket sia aperto. `scenario` vale solo alla prima apertura;
+   * `params` (es. `{challenge}`) restano per le riconnessioni, come nella sessione del client.
+   */
+  async connect(scenario?: string, params?: Readonly<Record<string, string>>): Promise<void> {
     if (this.tokens === null || this.account === null) throw new Error('connect senza sessione');
     if (this.store === null) {
       this.store = createMatchStore(this.account.id);
@@ -247,7 +250,7 @@ export class E2EClient {
       });
     }
     await this.pacer.ws();
-    this.connection.open();
+    this.connection.open(params);
     await this.until(() => this.connected, 'apertura del socket');
   }
 

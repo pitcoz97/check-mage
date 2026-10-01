@@ -13,6 +13,9 @@ export const GAME_ERROR_CODES = [
   'game_over',
   'replaced_by_new_connection',
   'deck_invalid',
+  'challenge_declined',
+  'challenge_expired',
+  'challenge_unavailable',
   'not_your_turn',
   'wrong_phase',
   'illegal_move',
@@ -56,6 +59,12 @@ export const WS = {
   replacedInQueue: e('replaced_by_new_connection', "Sei entrato in coda da un'altra connessione"), // manager.go:56
   replacedInGame: e('replaced_by_new_connection', "La partita è stata ripresa da un'altra connessione"), // room.go:1117
   deckInvalid: e('deck_invalid', 'Il mazzo attivo non è valido'), // manager.go (D6)
+  // game/challenges.go: sfide dirette (chiusura 4003)
+  challengeDeclined: e('challenge_declined', 'La sfida è stata rifiutata'),
+  challengeExpired: e('challenge_expired', 'La sfida è scaduta'),
+  challengeUnavailable: e('challenge_unavailable', 'La sfida non è più disponibile'),
+  replacedByChallenge: e('replaced_by_new_connection', "Hai accettato una sfida da un'altra connessione"),
+  replacedInChallenge: e('replaced_by_new_connection', "La sfida è stata ripresa da un'altra connessione"),
   // game/room.go
   gameOver: e('game_over', 'La partita è terminata'), // :361
   malformedMove: e('invalid_payload', 'Formato mossa non valido'), // :373
@@ -188,6 +197,13 @@ export const HTTP = {
   deckNotValid: t('Il mazzo non è valido', 'deck_not_valid'),
   deckLast: t("Non puoi eliminare l'ultimo mazzo", 'deck_last'),
   deckNotFound: t('Mazzo non trovato', 'deck_not_found'),
+  // handlers/challenges.go
+  challengeSelf: t('Non puoi sfidare te stesso', 'challenge_self'),
+  challengeNoPlayer: t('Giocatore non trovato', 'challenge_player_not_found'),
+  challengeOffline: t('Il giocatore non è online', 'challenge_offline'),
+  challengeTargetBusy: t('Il giocatore è in partita', 'challenge_target_busy'),
+  challengeSelfBusy: t('Sei già in partita', 'challenge_self_busy'),
+  challengeNotFound: t('Sfida non trovata', 'challenge_not_found'),
   tokenMissing: t('Token mancante', 'token_missing'), // middleware/auth.go:36
   tokenInvalid: t('Token non valido o scaduto', 'token_invalid_or_expired'), // middleware/auth.go:42
   ticketInvalid: t('Ticket non valido o scaduto', 'ticket_invalid'), // middleware/wsticket.go:88
@@ -207,6 +223,11 @@ export function wsErrorSamples(): GameError[] {
     WS.replacedInQueue,
     WS.replacedInGame,
     WS.deckInvalid,
+    WS.challengeDeclined,
+    WS.challengeExpired,
+    WS.challengeUnavailable,
+    WS.replacedByChallenge,
+    WS.replacedInChallenge,
     WS.gameOver,
     WS.malformedMove,
     WS.malformedCast,

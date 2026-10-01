@@ -50,6 +50,10 @@ func main() {
 	if err := db.EnsureDeckSchema(); err != nil {
 		logger.L.Error("Errore creazione schema user_decks", zap.Error(err))
 	}
+	// Colonna rated di games (amichevoli senza ELO)
+	if err := db.EnsureGameSchema(); err != nil {
+		logger.L.Error("Errore aggiornamento schema games", zap.Error(err))
+	}
 
 	// Monitora la salute del DB ogni 30 secondi
 	go func() {

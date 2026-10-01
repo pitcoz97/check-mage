@@ -135,6 +135,8 @@ export interface PublicGameState {
   /** `null` solo se il server non la manda (difesa, ASSUMPTIONS C1): il client non deduce mai il colore. */
   readonly players: MatchPlayers | null;
   readonly timeControl: TimeControl | null;
+  /** Amichevole, nata da una sfida diretta: niente ELO (F8). Assente sul filo = classificata. */
+  readonly friendly: boolean;
 }
 
 export interface HandCard {
@@ -261,6 +263,9 @@ export const PROTOCOL_ERROR_CODES = [
   'game_over',
   'replaced_by_new_connection',
   'deck_invalid',
+  'challenge_declined',
+  'challenge_expired',
+  'challenge_unavailable',
   'not_your_turn',
   'wrong_phase',
   'illegal_move',

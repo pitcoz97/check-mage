@@ -86,12 +86,53 @@ export interface DeckList {
 
 export interface GameHistoryEntry {
   readonly id: string;
+  /** Assenti sui server precedenti alle sfide: si riconosce il lato dal nome. */
+  readonly whiteId: UserId | null;
+  readonly blackId: UserId | null;
   readonly white: Username;
   readonly black: Username;
   readonly result: GameResult;
   readonly timeControl: string;
   readonly pgn: string;
   readonly playedAt: string;
+  /** `false` per le amichevoli (F8); assente = classificata. */
+  readonly rated: boolean;
+}
+
+/** Stato di un amico (`handlers/friends.go`, F3). */
+export const FRIEND_STATUSES = ['online', 'playing', 'offline'] as const;
+export type FriendStatus = (typeof FRIEND_STATUSES)[number];
+
+export interface Friend {
+  readonly id: UserId;
+  readonly username: Username;
+  readonly elo: number;
+  readonly status: FriendStatus;
+}
+
+/** `GET /me/friends`: online, poi in partita, poi offline (l'ordine è del server). */
+export interface FriendList {
+  readonly friends: readonly Friend[];
+  readonly online: number;
+}
+
+export interface ChallengePlayer {
+  readonly id: UserId;
+  readonly username: Username;
+  readonly elo: number;
+}
+
+/** Una sfida diretta aperta (`game/challenges.go`, F4). */
+export interface Challenge {
+  readonly id: string;
+  readonly from: ChallengePlayer;
+  readonly to: ChallengePlayer;
+  readonly expiresInSeconds: number;
+}
+
+/** Risposta del segnale di presenza `POST /me/presence`: le sfide ricevute ancora aperte. */
+export interface PresenceUpdate {
+  readonly incoming: readonly Challenge[];
 }
 
 /** `GET /ws/ticket` (`handlers/ws.go:23-42`): ticket monouso per aprire il WebSocket. */
@@ -156,6 +197,13 @@ export const HTTP_ERROR_CODES = [
   'deck_not_valid',
   'deck_last',
   'deck_not_found',
+  // Sfide (handlers/challenges.go)
+  'challenge_self',
+  'challenge_player_not_found',
+  'challenge_offline',
+  'challenge_target_busy',
+  'challenge_self_busy',
+  'challenge_not_found',
   // Codici generati dal client, non dal server:
   /** Server irraggiungibile (fetch fallita, timeout, offline). */
   'network_error',

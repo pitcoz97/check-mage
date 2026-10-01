@@ -149,6 +149,7 @@ export function PlayerRow({ side }: { side: 'self' | 'opponent' }) {
   const activePlayer = useMatch((s) => s.game?.activePlayer ?? null);
   const opponentConnected = useMatch((s) => s.opponentConnected);
   const playerEffects = useMatch((s) => s.game?.playerEffects ?? NO_EFFECTS);
+  const friendly = useMatch((s) => s.game?.friendly === true);
 
   const color: Color = myColor === null ? (side === 'self' ? 'white' : 'black') : side === 'self' ? myColor : myColor === 'white' ? 'black' : 'white';
   const player = players?.[color] ?? null;
@@ -177,6 +178,12 @@ export function PlayerRow({ side }: { side: 'self' | 'opponent' }) {
           <span className="text-14 font-bold lg:text-15">{name}</span>
           <span className="sr-only">{t(color === 'white' ? 'match.colorWhite' : 'match.colorBlack')}</span>
           {elo !== null && <span className="text-14 font-medium text-muted lg:text-13 lg:font-normal">{t('match.panel.eloShort', { elo })}</span>}
+          {/* Amichevole (F8): accanto all'avversario, niente ELO in gioco. */}
+          {side === 'opponent' && friendly && (
+            <span data-friendly className="self-center rounded-pill bg-arcane-deep px-1.5 py-px text-11 font-bold text-arcane-pale">
+              {t('match.friendly')}
+            </span>
+          )}
         </span>
 
         {/* Desktop: grimorio. */}

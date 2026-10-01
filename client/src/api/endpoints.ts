@@ -1,15 +1,20 @@
 import {
+  encodeChallenge,
   encodeDeck,
   encodeLogin,
   encodeRefresh,
   encodeRegister,
   normalizeAccount,
+  normalizeChallenge,
   normalizeCollection,
   normalizeDeck,
   normalizeDeckList,
+  normalizeFriendList,
+  normalizeGameHistory,
   normalizeLeaderboard,
   normalizeLogin,
   normalizePasswordPolicy,
+  normalizePresence,
   normalizePublicProfile,
   normalizeRegistration,
   normalizeSpellCatalog,
@@ -23,11 +28,15 @@ import type { Spell } from '../spells/schema';
 import type {
   AuthSession,
   CardCollection,
+  Challenge,
   Deck,
   DeckList,
   CredentialPolicy,
+  FriendList,
+  GameHistoryEntry,
   HttpErrorInfo,
   LeaderboardEntry,
+  PresenceUpdate,
   PublicProfile,
   Registration,
   TokenPair,
@@ -101,6 +110,35 @@ export function createApi(http: HttpClient) {
 
     async activateDeck(id: string): Promise<ApiResult<DeckList>> {
       return toResult(await http.request('POST', `/me/decks/${encodeURIComponent(id)}/activate`, { auth: true }), normalizeDeckList);
+    },
+
+    /** Amici con lo stato (`handlers/friends.go`); per ora tutti gli utenti (F1). */
+    async fetchFriends(): Promise<ApiResult<FriendList>> {
+      return toResult(await http.request('GET', '/me/friends', { auth: true }), normalizeFriendList);
+    },
+
+    /** Segnale «sono online» (F2): risponde con le sfide ricevute ancora aperte. */
+    async sendPresence(): Promise<ApiResult<PresenceUpdate>> {
+      return toResult(await http.request('POST', '/me/presence', { auth: true }), normalizePresence);
+    },
+
+    /** Sfida un amico online (`handlers/challenges.go`); poi si apre `/ws?challenge=<id>`. */
+    async createChallenge(userId: string): Promise<ApiResult<Challenge>> {
+      return toResult(await http.request('POST', '/me/challenges', { auth: true, body: encodeChallenge(userId) }), normalizeChallenge);
+    },
+
+    /** Chi sfida annulla, lo sfidato rifiuta (F6). */
+    async deleteChallenge(id: string): Promise<ApiResult<null>> {
+      return toResult(await http.request('DELETE', `/me/challenges/${encodeURIComponent(id)}`, { auth: true }), () => ({
+        ok: true,
+        value: null,
+        warnings: [],
+      }));
+    },
+
+    /** Ultime partite di un giocatore (`handlers/stats.go:54-108`), più recenti prima. */
+    async fetchGameHistory(userId: string): Promise<ApiResult<readonly GameHistoryEntry[]>> {
+      return toResult(await http.request('GET', `/users/${encodeURIComponent(userId)}/games`, { auth: true }), normalizeGameHistory);
     },
 
     /** Primi dieci per ELO (`handlers/stats.go:14-51`). Pubblico: niente posizione propria né stagione (P2-20). */

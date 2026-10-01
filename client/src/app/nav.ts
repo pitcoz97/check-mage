@@ -3,7 +3,7 @@ import type { AppIconName } from '../design/components/AppIcon';
 /**
  * Voci di navigazione delle tavole, uniche per tutte le barre (laterale, verticale della partita, inferiore Android).
  * Quelle senza una rotta sono funzioni che il server non ha: visibili ma disattivate, «Presto» (REDESIGN_PLAN.md D9,
- * BACKEND-REQUESTS P2-21).
+ * BACKEND-REQUESTS P2-21). Oggi hanno tutte una rotta.
  */
 export interface NavItem {
   readonly key: 'play' | 'decks' | 'collection' | 'ranking' | 'friends';
@@ -17,5 +17,5 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { key: 'decks', icon: 'decks', to: '/decks' },
   { key: 'collection', icon: 'collection', to: '/collection' },
   { key: 'ranking', icon: 'ranking', to: '/leaderboard' },
-  { key: 'friends', icon: 'friends', to: null },
+  { key: 'friends', icon: 'friends', to: '/friends' },
 ];

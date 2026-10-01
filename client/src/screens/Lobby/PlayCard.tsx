@@ -27,12 +27,14 @@ export function PlayCard({ wide }: { wide: boolean }) {
   const session = useMatchSession();
   const lifecycle = useMatch((s) => s.lifecycle);
   const connection = useSessionStatus((s) => s.connection);
+  // Una sfida diretta in attesa si mostra nel banner delle sfide, non qui (F7).
+  const queued = useSessionStatus((s) => s.pending?.kind === 'queue') && lifecycle === 'queued';
   const modeLabel = useId();
 
   const stopped = connection.kind === 'replaced' || connection.kind === 'closed' || connection.kind === 'deck_invalid';
-  const searching = lifecycle === 'queued' && !stopped;
-  const moved = lifecycle === 'queued' && connection.kind === 'replaced';
-  const deckInvalid = lifecycle === 'queued' && connection.kind === 'deck_invalid';
+  const searching = queued && !stopped;
+  const moved = queued && connection.kind === 'replaced';
+  const deckInvalid = queued && connection.kind === 'deck_invalid';
 
   return (
     <section data-play className={`flex grow flex-col gap-3 rounded-16 bg-panel p-[18px] lg:gap-3.5 lg:p-7 ${wide ? '' : 'lg:min-w-0'}`}>

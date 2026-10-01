@@ -167,6 +167,7 @@ CREATE TABLE games (
     pgn          TEXT,
     result       VARCHAR(10),
     time_control VARCHAR(20),
+    rated        BOOLEAN NOT NULL DEFAULT TRUE,
     played_at    TIMESTAMP DEFAULT NOW()
 );
 
@@ -221,6 +222,10 @@ CREATE TABLE user_decks (
 );
 CREATE UNIQUE INDEX user_decks_one_active ON user_decks (user_id) WHERE active;
 ```
+
+The `games.rated` column (`false` for friendly games from a direct challenge) is
+added at startup to databases created before it (`db.EnsureGameSchema`).
+Presence and challenges live in memory only.
 
 ### 4. Run
 

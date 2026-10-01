@@ -14,8 +14,12 @@ import {
   normalizeCollection,
   normalizeDeck,
   normalizeDeckList,
+  encodeChallenge,
   encodeDeck,
   FALLBACK_CREDENTIAL_POLICY,
+  normalizeChallenge,
+  normalizeFriendList,
+  normalizePresence,
   normalizeGameHistory,
   normalizeLeaderboard,
   normalizeLogin,
@@ -127,10 +131,16 @@ describe('game_state', () => {
         playerEffects: { triggers: [], auras: [] },
         moveOptions: { specialMoves: [], extraMove: null },
         reconnected: false,
+        friendly: false,
         players: { white: { id: '42', username: 'mario' }, black: { id: '7', username: 'luigi' } },
         timeControl: { baseMs: 600000, incrementMs: 5000 },
       },
     });
+  });
+
+  it('amichevole (F8): friendly true solo se il server lo manda', () => {
+    expect(decodeOk(frame('game_state', publicState({ friendly: true }))).event).toMatchObject({ state: { friendly: true } });
+    expect(decodeOk(frame('game_state', publicState({ friendly: 'sì' }))).event).toMatchObject({ state: { friendly: false } });
   });
 
   it('riconnessione; giocatori o time control mancanti → null + warning, il colore non si deduce (C1)', () => {
@@ -763,6 +773,51 @@ describe('REST', () => {
       cards: [
         { spell_id: 'frost', copies: 2 },
         { spell_id: 'shield', copies: 1 },
+      ],
+    });
+  });
+
+  it('amici (F1–F3): voce malformata scartata, stato sconosciuto = offline', () => {
+    const result = normalizeFriendList({
+      friends: [
+        { id: 8, username: 'luigi', elo: 1300, status: 'online' },
+        { id: 9, username: '', elo: 1000, status: 'online' },
+        { id: 10, username: 'peach', elo: 1100, status: 'away' },
+      ],
+      online: 1,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        friends: [
+          { id: '8', username: 'luigi', elo: 1300, status: 'online' },
+          { id: '10', username: 'peach', elo: 1100, status: 'offline' },
+        ],
+        online: 1,
+      },
+    });
+    expect(result.ok && result.warnings.map((w) => w.code)).toEqual(['friend_entry_invalid', 'enum_unknown']);
+    expect(normalizeFriendList({ friends: [] })).toMatchObject({ ok: false });
+  });
+
+  it('sfide e presenza (F4): ids come stringhe, sfida malformata scartata; corpo con l’id numerico', () => {
+    const wire = { id: 'abc', from: { id: 7, username: 'mario', elo: 1200 }, to: { id: 8, username: 'luigi', elo: 1300 }, expires_in: 42 };
+    const expected = { id: 'abc', from: { id: '7', username: 'mario', elo: 1200 }, to: { id: '8', username: 'luigi', elo: 1300 }, expiresInSeconds: 42 };
+    expect(normalizeChallenge(wire)).toEqual({ ok: true, value: expected, warnings: [] });
+    const presence = normalizePresence({ incoming: [wire, { id: '' }] });
+    expect(presence).toMatchObject({ ok: true, value: { incoming: [expected] } });
+    expect(presence.ok && presence.warnings.map((w) => w.code)).toEqual(['challenge_entry_invalid']);
+    expect(normalizePresence({ incoming: null })).toEqual({ ok: true, value: { incoming: [] }, warnings: [] });
+    expect(JSON.parse(encodeChallenge('8'))).toEqual({ to: 8 });
+  });
+
+  it('storico partite: id dei lati e rated, assenti sui server precedenti', () => {
+    const base = { id: 1, white: 'mario', black: 'luigi', result: '1-0', time_control: '10+5', pgn: '', played_at: '2026-10-01T10:00:00Z' };
+    expect(normalizeGameHistory([{ ...base, white_id: 7, black_id: 8, rated: false }, base])).toMatchObject({
+      ok: true,
+      value: [
+        { whiteId: '7', blackId: '8', rated: false },
+        { whiteId: null, blackId: null, rated: true },
       ],
     });
   });

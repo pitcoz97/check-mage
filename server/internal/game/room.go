@@ -58,6 +58,9 @@ type Room struct {
 	ended             bool                // la partita è conclusa: nessuna azione è più accettata
 	mu                sync.Mutex          // protegge lo stato durante il timer
 
+	// Partita amichevole, nata da una sfida diretta: niente ELO (F8).
+	Friendly bool
+
 	// Persistenza dei match live: le scritture partono in goroutine, quindi
 	// vanno ordinate (uno snapshot vecchio non sovrascrive uno nuovo) e nessuna
 	// deve arrivare dopo la rimozione della partita conclusa.
@@ -75,12 +78,19 @@ type Board struct {
 	Status string   `json:"status"` // vedi le costanti Status*
 }
 
+// NewRoom crea e avvia una partita classificata (dalla coda).
 func NewRoom(id string, white, black *Client, baseTime, increment time.Duration) *Room {
+	return newRoom(id, white, black, baseTime, increment, false)
+}
+
+// newRoom crea e avvia una partita; friendly vale per le sfide dirette (F8).
+func newRoom(id string, white, black *Client, baseTime, increment time.Duration, friendly bool) *Room {
 	room := &Room{
-		ID:    id,
-		White: white,
-		Black: black,
-		Board: &Board{
+		ID:       id,
+		White:    white,
+		Black:    black,
+		Friendly: friendly,
+		Board:    &Board{
 			// FEN iniziale = posizione di partenza degli scacchi
 			FEN:    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
 			Moves:  []string{},
@@ -189,6 +199,8 @@ type roomSnapshot struct {
 	SquareEffects []effects.SquareEffectInfo `json:"square_effects,omitempty"`
 	// Seconda mossa di Fretta concessa o in corso (Step 6).
 	ExtraMove *extraMove `json:"extra_move,omitempty"`
+	// Partita amichevole (F8); assente negli snapshot precedenti alle sfide.
+	Friendly bool `json:"friendly,omitempty"`
 }
 
 // buildSnapshot cattura lo stato corrente. Va invocata con r.mu tenuto (o in
@@ -213,6 +225,7 @@ func (r *Room) buildSnapshot() roomSnapshot {
 		SquareEffects: r.Tracker.SquareEffects(),
 		PosCounts:     r.posCounts,
 		ExtraMove:     r.extra,
+		Friendly:      r.Friendly,
 	}
 }
 
@@ -323,6 +336,7 @@ func roomFromSnapshot(snap roomSnapshot) *Room {
 		timerStop:         make(chan struct{}),
 		disconnectedTimer: make(map[int]*time.Timer),
 		posCounts:         snap.PosCounts,
+		Friendly:          snap.Friendly,
 	}
 	if room.posCounts == nil {
 		room.posCounts = make(map[string]int)
@@ -2126,6 +2140,7 @@ type gameEnd struct {
 	result, reason, winner string
 	whiteID, blackID       int
 	pgn, timeControl       string
+	rated                  bool // false per le amichevoli: niente ELO (F8)
 }
 
 // finishLocked conclude la partita: la segna come finita (una sola volta),
@@ -2153,6 +2168,7 @@ func (r *Room) finishLocked(result, reason, status string) *gameEnd {
 		blackID:     r.Black.UserID,
 		pgn:         r.PGN(),
 		timeControl: r.TimeControl(),
+		rated:       !r.Friendly,
 	}
 	switch result {
 	case models.ResultWhiteWins:
@@ -2172,7 +2188,7 @@ func (r *Room) announceEnd(end *gameEnd) {
 
 	// Salva nel DB in una goroutine per non bloccare
 	go func() {
-		if err := db.SaveGame(end.whiteID, end.blackID, end.pgn, end.result, end.timeControl); err != nil {
+		if err := db.SaveGame(end.whiteID, end.blackID, end.pgn, end.result, end.timeControl, end.rated); err != nil {
 			logger.L.Warn("Errore salvataggio partita", zap.String("room", r.ID), zap.Error(err))
 		} else {
 			logger.L.Info("Partita salvata nel DB", zap.String("room", r.ID))
@@ -2295,7 +2311,7 @@ func (r *Room) publicState(viewer match.Player) map[string]interface{} {
 	board.Moves = append([]string{}, r.Board.Moves...)
 	effectsView := r.playerEffectsFor(viewer)
 	options := r.moveOptionsFor(viewer)
-	return map[string]interface{}{
+	state := map[string]interface{}{
 		"board":        board,
 		"white_player": playerInfo{ID: r.White.UserID, Username: r.White.Username},
 		"black_player": playerInfo{ID: r.Black.UserID, Username: r.Black.Username},
@@ -2325,6 +2341,10 @@ func (r *Room) publicState(viewer match.Player) map[string]interface{} {
 		"special_moves":   options.SpecialMoves,
 		"extra_move":      options.ExtraMove,
 	}
+	if r.Friendly {
+		state["friendly"] = true // solo per le amichevoli (F8)
+	}
+	return state
 }
 
 // handleResign gestisce la resa di un giocatore
