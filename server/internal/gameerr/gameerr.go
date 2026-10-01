@@ -22,6 +22,11 @@ const (
 	ReplacedByNewConnection Code = "replaced_by_new_connection" // un'altra connessione dello stesso utente ha preso il posto di questa
 	DeckInvalid             Code = "deck_invalid"               // il mazzo attivo non è valido: niente coda
 
+	// Sfide dirette (chiusura 4003)
+	ChallengeDeclined    Code = "challenge_declined"    // lo sfidato ha rifiutato
+	ChallengeExpired     Code = "challenge_expired"     // la sfida è scaduta senza risposta
+	ChallengeUnavailable Code = "challenge_unavailable" // sfida annullata, sconosciuta o superata da un'altra partita
+
 	// Turno e fasi
 	NotYourTurn Code = "not_your_turn"
 	WrongPhase  Code = "wrong_phase" // details: phase

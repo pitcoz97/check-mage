@@ -15,17 +15,23 @@ import (
 // Manager gestisce tutte le room attive e il matchmaking
 // Il sync.RWMutex serve perché più goroutine accedono alla mappa contemporaneamente
 type Manager struct {
-	rooms     map[string]*Room
-	waiting   *Client
-	userRooms map[int]string // userID -> roomID, per la riconnessione
-	mu        sync.RWMutex
+	rooms      map[string]*Room
+	waiting    *Client
+	userRooms  map[int]string        // userID -> roomID, per la riconnessione
+	challenges map[string]*Challenge // sfide dirette aperte (challenges.go), creata alla prima
+	mu         sync.RWMutex
+}
+
+// NewManager crea un manager vuoto.
+func NewManager() *Manager {
+	return &Manager{
+		rooms:     make(map[string]*Room),
+		userRooms: make(map[int]string),
+	}
 }
 
 // Istanza globale del manager
-var GameManager = &Manager{
-	rooms:     make(map[string]*Room),
-	userRooms: make(map[int]string),
-}
+var GameManager = NewManager()
 
 // JoinQueue aggiunge un client alla coda di matchmaking
 func (m *Manager) JoinQueue(client *Client) bool {
@@ -86,6 +92,8 @@ func (m *Manager) JoinQueue(client *Client) bool {
 	// Registra la room per entrambi i giocatori
 	m.userRooms[opponent.UserID] = roomID
 	m.userRooms[client.UserID] = roomID
+	// Le sfide ancora aperte dei due giocatori non possono più partire (F9).
+	m.closeChallengesOfLocked(opponent.UserID, client.UserID)
 
 	logger.L.Info("Partita creata",
 		zap.String("room", roomID),

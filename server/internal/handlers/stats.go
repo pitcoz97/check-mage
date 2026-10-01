@@ -64,12 +64,15 @@ func GameHistory(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.DB.Query(`
         SELECT
             g.id,
+            g.white_id,
+            g.black_id,
             w.username AS white,
             b.username AS black,
             g.result,
             g.time_control,
             g.pgn,
-            g.played_at
+            g.played_at,
+            g.rated
         FROM games g
         JOIN users w ON w.id = g.white_id
         JOIN users b ON b.id = g.black_id
@@ -86,18 +89,21 @@ func GameHistory(w http.ResponseWriter, r *http.Request) {
 
 	type GameEntry struct {
 		ID          int    `json:"id"`
+		WhiteID     int    `json:"white_id"`
+		BlackID     int    `json:"black_id"`
 		White       string `json:"white"`
 		Black       string `json:"black"`
 		Result      string `json:"result"`
 		TimeControl string `json:"time_control"`
 		PGN         string `json:"pgn"`
 		PlayedAt    string `json:"played_at"`
+		Rated       bool   `json:"rated"` // false per le amichevoli (F8)
 	}
 
 	games := make([]GameEntry, 0) // [] e non null se vuota
 	for rows.Next() {
 		var g GameEntry
-		rows.Scan(&g.ID, &g.White, &g.Black, &g.Result, &g.TimeControl, &g.PGN, &g.PlayedAt)
+		rows.Scan(&g.ID, &g.WhiteID, &g.BlackID, &g.White, &g.Black, &g.Result, &g.TimeControl, &g.PGN, &g.PlayedAt, &g.Rated)
 		games = append(games, g)
 	}
 

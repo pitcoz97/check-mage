@@ -167,6 +167,7 @@ CREATE TABLE games (
     pgn          TEXT,
     result       VARCHAR(10),
     time_control VARCHAR(20),
+    rated        BOOLEAN NOT NULL DEFAULT TRUE,
     played_at    TIMESTAMP DEFAULT NOW()
 );
 

@@ -100,10 +100,17 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		DeckInvalid: !valid,
 	}
 
-	// JoinQueue decide se è una nuova partita o una riconnessione
+	// JoinQueue (o JoinChallenge, con ?challenge=<id>: sfida diretta, F7)
+	// decide se è una nuova partita o una riconnessione
 	// In caso di nuova partita avvia le goroutine qui
 	// In caso di riconnessione le avvia Reconnect()
-	if !game.GameManager.JoinQueue(client) {
+	var reconnected bool
+	if challengeID := r.URL.Query().Get("challenge"); challengeID != "" {
+		reconnected = game.GameManager.JoinChallenge(client, challengeID)
+	} else {
+		reconnected = game.GameManager.JoinQueue(client)
+	}
+	if !reconnected {
 		go client.WritePump()
 		go client.ReadPump()
 	}

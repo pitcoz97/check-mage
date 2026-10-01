@@ -61,6 +61,9 @@ func NewRouter() *chi.Mux {
 		r.Delete("/me/decks/{id}", handlers.DeleteDeck)
 		r.Post("/me/decks/{id}/activate", handlers.ActivateDeck)
 		r.Get("/me/friends", handlers.ListFriends) // amici con lo stato (online, in partita)
+		r.Post("/me/presence", handlers.Presence)  // segnale «sono online» + sfide ricevute
+		r.Post("/me/challenges", handlers.CreateChallenge)
+		r.Delete("/me/challenges/{id}", handlers.DeleteChallenge)
 		r.Get("/users/{id}/games", handlers.GameHistory) // storico partite
 		r.Get("/ws/ticket", handlers.WSTicket)           // ticket monouso per /ws
 	})
