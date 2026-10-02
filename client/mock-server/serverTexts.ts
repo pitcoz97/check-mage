@@ -204,6 +204,11 @@ export const HTTP = {
   challengeTargetBusy: t('Il giocatore è in partita', 'challenge_target_busy'),
   challengeSelfBusy: t('Sei già in partita', 'challenge_self_busy'),
   challengeNotFound: t('Sfida non trovata', 'challenge_not_found'),
+  // handlers/privacy.go, handlers/auth.go (P1–P10)
+  consentRequired: t('Devi accettare i termini e confermare di avere almeno 14 anni', 'consent_required'),
+  termsVersion: t('Versione dei termini non valida', 'terms_version_invalid'),
+  wrongPassword: t('Password non corretta', 'wrong_password'),
+  accountAbsent: t('Account non trovato', 'account_not_found'),
   // handlers/friendships.go
   friendSelf: t('Non puoi aggiungere te stesso', 'friend_self'),
   friendAlready: t('Siete già amici', 'friend_already'),

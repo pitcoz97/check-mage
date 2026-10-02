@@ -14,6 +14,10 @@ export function createPresenceStore(windowMs: number, now: () => number = Date.n
       const at = seen.get(userId);
       return at !== undefined && fresh(at);
     },
+    /** Torna subito offline (account cancellato, P3). */
+    forget(userId: number): void {
+      seen.delete(userId);
+    },
     onlineIds(): number[] {
       return [...seen].filter(([, at]) => fresh(at)).map(([id]) => id);
     },
