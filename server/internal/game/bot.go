@@ -44,7 +44,13 @@ var (
 		return engine.Bot
 	}
 	// botLegalMoves elenca le mosse legali degli scacchi (Stockfish delle regole).
-	botLegalMoves = func(fen string) []string { return engine.SF.LegalMoves(fen) }
+	// Senza motore (test) nessuna mossa: il bot aspetta invece di andare in panic.
+	botLegalMoves = func(fen string) []string {
+		if engine.SF == nil {
+			return nil
+		}
+		return engine.SF.LegalMoves(fen)
+	}
 	// botDelay è la pausa prima di ogni azione: più naturale di una risposta istantanea.
 	botDelay = func(rng *mrand.Rand) time.Duration {
 		return 600*time.Millisecond + time.Duration(rng.IntN(900))*time.Millisecond

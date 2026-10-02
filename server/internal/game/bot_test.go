@@ -28,7 +28,27 @@ func botSetup(t *testing.T) {
 	botAvailable = func() bool { return true }
 	botEngine = func() bot.Engine { return nil }
 	botDelay = func(*mrand.Rand) time.Duration { return time.Hour }
-	t.Cleanup(func() { botAvailable, botEngine, botDelay = prevAvailable, prevEngine, prevDelay })
+	t.Cleanup(func() {
+		endBotRooms()
+		botAvailable, botEngine, botDelay = prevAvailable, prevEngine, prevDelay
+	})
+}
+
+// endBotRooms chiude le partite create dal test: si fermano i timer e i bot
+// ricevono game_over, così nessun bot resta ad agire nei test successivi.
+func endBotRooms() {
+	GameManager.mu.Lock()
+	rooms := make([]*Room, 0, len(GameManager.rooms))
+	for _, r := range GameManager.rooms {
+		rooms = append(rooms, r)
+	}
+	GameManager.mu.Unlock()
+	for _, r := range rooms {
+		r.mu.Lock()
+		end := r.finishLocked(models.ResultDraw, "agreement", StatusDraw)
+		r.mu.Unlock()
+		r.announceEnd(end)
+	}
 }
 
 // playerOf legge white_player o black_player dal primo game_state.
@@ -213,6 +233,7 @@ func TestBotRestoredFromSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	endBotRooms() // la room originale non deve restare attiva dopo il reset del manager
 	resetManager()
 	room := roomFromSnapshot(back)
 	if room.Bot == nil || room.botLevelOf(match.PlayerBlack) != "advanced" {
