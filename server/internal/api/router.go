@@ -15,7 +15,7 @@ func NewRouter() *chi.Mux {
 	r := chi.NewRouter()
 
 	// Middleware globali (vengono eseguiti per ogni richiesta)
-	r.Use(middleware.Logger)    // logga ogni richiesta nel terminale
+	r.Use(mw.RequestLogger)     // logga ogni richiesta nel terminale, senza query string (niente token nei log)
 	r.Use(middleware.Recoverer) // se un handler va in panic, non crasha il server
 	r.Use(cors.Handler(cors.Options{
 		// Origini da CORS_ALLOWED_ORIGINS; il default ammette http(s)://* e
