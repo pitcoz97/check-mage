@@ -441,6 +441,7 @@ export const en: Translation = {
         draw: 'Draw',
         rune: 'Rune',
         effect: 'Effect',
+        timeout: 'Time',
       },
     },
     mana: {
@@ -467,6 +468,7 @@ export const en: Translation = {
       cards: '{{count}} cards in hand',
       disconnected: 'Disconnected',
       clock: '{{name}}’s clock',
+      strikes: 'Phases timed out in a row for {{name}}: {{count}} of {{max}}',
     },
     action: {
       pass: 'Pass phase',
@@ -500,6 +502,8 @@ export const en: Translation = {
     notice: {
       drawDeclined: 'The opponent declined the draw.',
       drawLapsed: 'The draw offer lapsed: the opponent moved.',
+      timeoutYou: 'Time ran out: {{phase}} skipped ({{count}}/{{max}}). A third in a row loses the game.',
+      timeoutOpponent: 'Time ran out for the opponent: {{phase}} skipped ({{count}}/{{max}}).',
     },
     refusal: {
       not_connected: 'You are not connected to the game.',
@@ -600,7 +604,8 @@ export const en: Translation = {
         draw: 'Draw by rule.',
         agreement: 'Draw by agreement.',
         resign: 'Resignation.',
-        timeout: 'Time ran out.',
+        timeout: 'Time for the move ran out.',
+        timeout_strikes: 'Time ran out in three phases in a row.',
         abandonment: 'The player did not rejoin in time.',
         unknown: 'Reason not available.',
       },

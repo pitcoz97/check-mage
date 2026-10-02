@@ -2,6 +2,7 @@ import type { TFunction } from 'i18next';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { MAX_STRIKES } from '../../game/clock';
 import { piecesOf } from '../../game/fen';
 import type { Color, PieceKind, Square } from '../../game/model';
 import { useCatalog } from '../../spells/CatalogProvider';
@@ -21,7 +22,7 @@ import { protocolErrorMessage } from './errorMessage';
 
 export const NOTICE_MS = 5_000;
 
-export type NoticeKind = 'cast' | 'refused' | 'draw' | 'rune' | 'effect';
+export type NoticeKind = 'cast' | 'refused' | 'draw' | 'rune' | 'effect' | 'timeout';
 
 export interface Notice {
   readonly kind: NoticeKind;
@@ -43,6 +44,7 @@ export function useNotice(): { notice: Notice | null; show(text: string): void; 
   const lastRune = useMatch((s) => s.lastRune);
   const lastTrigger = useMatch((s) => s.lastTrigger);
   const lastAura = useMatch((s) => s.lastAura);
+  const lastTimeout = useMatch((s) => s.lastTimeout);
   const fen = useMatch((s) => s.game?.fen ?? null);
   const myColor = useMatch((s) => s.myColor);
   const byId = useCatalog((s) => s.byId);
@@ -83,6 +85,19 @@ export function useNotice(): { notice: Notice | null; show(text: string): void; 
   }
   if (lastAura !== null) {
     candidates.push({ kind: 'effect', text: auraNotice(t, lastAura, myColor), key: `aura:${lastAura.seq}`, order: lastAura.seq });
+  }
+  if (lastTimeout !== null) {
+    // Fase Magie scaduta e passata dal server, propria o dell'avversario, con le scadenze di fila (T3).
+    candidates.push({
+      kind: 'timeout',
+      text: t(lastTimeout.player === myColor ? 'match.notice.timeoutYou' : 'match.notice.timeoutOpponent', {
+        phase: t(`match.phase.${lastTimeout.phase}`),
+        count: lastTimeout.strikes,
+        max: MAX_STRIKES,
+      }),
+      key: `timeout:${lastTimeout.seq}`,
+      order: lastTimeout.seq,
+    });
   }
   if (drawNotice !== null) {
     candidates.push({

@@ -1,22 +1,27 @@
 import { useTranslation } from 'react-i18next';
 
-import { formatClock, isLowTime } from '../../game/clock';
+import { formatClock, isLowTime, MAX_STRIKES } from '../../game/clock';
 import type { Color } from '../../game/model';
+import { useMatch } from '../../store/MatchProvider';
 import { useClock } from './useClock';
 
 /**
- * Orologio del design: attivo su pergamena con l'anello verde (e l'icona su desktop), inattivo spento. Sotto il
- * minuto (D19, non disegnato) l'anello passa all'arancio "Mitica" e le cifre al rosso: sempre AA.
+ * Orologio del design col tempo per fase (T1–T4): attivo su pergamena con l'anello verde (e l'icona su desktop), fermo
+ * e spento sul tempo pieno della prossima fase. Sotto i 15 s (D19, non disegnato) l'anello passa all'arancio
+ * "Mitica" e le cifre al rosso: sempre AA. Accanto, i segni delle fasi scadute di fila (●●○).
  */
 export function Clock({ side, color, active, name }: { side: 'self' | 'opponent'; color: Color; active: boolean; name: string }) {
   const { t } = useTranslation();
-  const remaining = useClock(color);
-  const low = remaining !== null && isLowTime(remaining);
+  const { remaining, idle } = useClock(color);
+  const strikes = useMatch((s) => s.game?.timeouts[color] ?? 0);
+  const low = remaining !== null && !idle && isLowTime(remaining);
   const tone = active
     ? `bg-parchment ${low ? 'text-danger-surface shadow-ring-clock-low' : 'text-app shadow-ring-play'}`
     : `bg-quiet ${low ? 'text-danger' : 'text-muted'}`;
   return (
-    <span
+    <span className="flex shrink-0 items-center gap-1.5">
+      <Strikes count={strikes} name={name} />
+      <span
       role="timer"
       data-clock={side}
       data-active={active}
@@ -41,6 +46,20 @@ export function Clock({ side, color, active, name }: { side: 'self' | 'opponent'
         </svg>
       )}
       <span>{remaining === null ? '—' : formatClock(remaining)}</span>
+      </span>
+    </span>
+  );
+}
+
+/** Tre segni, pieni quanti sono le fasi Magie scadute di fila: alla terza si perde. */
+function Strikes({ count, name }: { count: number; name: string }) {
+  const { t } = useTranslation();
+  const filled = Math.min(count, MAX_STRIKES);
+  return (
+    <span role="img" data-strikes={filled} aria-label={t('match.panel.strikes', { name, count: filled, max: MAX_STRIKES })} className="flex flex-col gap-[3px] lg:flex-row">
+      {Array.from({ length: MAX_STRIKES }, (_, i) => (
+        <span key={i} aria-hidden="true" className={`size-[6px] rounded-pill ${i < filled ? 'bg-danger' : 'bg-quiet'}`} />
+      ))}
     </span>
   );
 }

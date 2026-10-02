@@ -44,6 +44,7 @@ export type WireServerType =
   | 'move_options'
   | 'rune_triggered'
   | 'timer_update'
+  | 'phase_timeout'
   | 'game_over'
   | 'error'
   | 'draw_offer'

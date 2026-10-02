@@ -51,7 +51,7 @@ afterEach(() => {
 const EXPENSIVE = ['shatter', 'shatter', 'shatter', 'shatter'];
 const NOTHING_CASTABLE: MatchOverrides = { hand: { white: EXPENSIVE, black: EXPENSIVE }, deckTop: { white: EXPENSIVE, black: EXPENSIVE } };
 
-function setup(opts: { overrides?: MatchOverrides; fen?: string; baseTimeMs?: number } = {}) {
+function setup(opts: { overrides?: MatchOverrides; fen?: string; mainTimeMs?: number; moveTimeMs?: number } = {}) {
   const white = new FakeClient(1, 'mario');
   const black = new FakeClient(2, 'luigi');
   const ended: string[] = [];
@@ -60,8 +60,8 @@ function setup(opts: { overrides?: MatchOverrides; fen?: string; baseTimeMs?: nu
     white,
     black,
     rng: createRng(7),
-    baseTimeMs: opts.baseTimeMs ?? 600_000,
-    incrementMs: 5_000,
+    mainTimeMs: opts.mainTimeMs ?? 90_000,
+    moveTimeMs: opts.moveTimeMs ?? 120_000,
     reconnectTimeoutMs: 30_000,
     overrides: opts.overrides ?? NOTHING_CASTABLE,
     ...(opts.fen === undefined ? {} : { initialFen: opts.fen }),
@@ -93,7 +93,10 @@ describe('avvio (room.go:76-121)', () => {
       white_hand_size: 4,
       white_player: { id: 1, username: 'mario' },
       black_player: { id: 2, username: 'luigi' },
-      time_control: { base_ms: 600_000, increment_ms: 5_000 },
+      time_control: { main_ms: 90_000, move_ms: 120_000 },
+      phase_time: 90_000,
+      white_timeouts: 0,
+      black_timeouts: 0,
     });
     expect(white.all('phase_changed').map((p) => p['phase'])).toEqual(['main1', 'move']);
     expect(white.last('hand')).toEqual({ hand: ['shatter', 'shatter', 'shatter', 'shatter'], mana: 1, max_mana: 1, deck_size: 36 });
@@ -124,8 +127,8 @@ describe('mosse (room.go:423-570)', () => {
     expect(white.last('error')).toEqual({ message: 'Tipo messaggio sconosciuto: chat', code: 'unknown_message_type', details: { type: 'chat' } });
   });
 
-  it('mossa → game_state → main2 → rollover al nero con mana e pesca privata; incremento', () => {
-    const { room, white, black, send } = setup();
+  it('mossa → game_state → main2 → rollover al nero con mana e pesca privata', () => {
+    const { white, black, send } = setup();
     white.clear();
     black.clear();
     send(white, 'move', { move: 'e2e4' });
@@ -148,7 +151,6 @@ describe('mosse (room.go:423-570)', () => {
       ['main1', 'black', 2],
       ['move', 'black', 2],
     ]);
-    expect(room.whiteTime).toBe(605_000);
   });
 
   it('scudo che assorbe la cattura: nessun pezzo si muove, mossa registrata come 0000, il turno passa', () => {
@@ -894,17 +896,51 @@ describe('connessioni e fine partita', () => {
     expect(room.isActive()).toBe(false);
   });
 
-  it('orologio del giocatore attivo, timer_update ogni secondo, timeout con status timeout', () => {
-    const { white } = setup({ baseTimeMs: 2_000 });
+  it('tempo della fase del giocatore attivo, timer_update ogni secondo; Mossa scaduta = sconfitta (timeout)', () => {
+    // Senza carte lanciabili il Bianco parte già nella fase Mossa.
+    const { white } = setup({ moveTimeMs: 2_000 });
     vi.advanceTimersByTime(1_000);
     // Come in Go, l'ordine tra il ticker da 100 ms e quello da 1 s nello stesso istante non è garantito.
     const update = white.last('timer_update');
-    expect(update).toMatchObject({ black_time: 2_000, turn: 'white' });
-    expect([1_000, 1_100]).toContain(update?.['white_time']);
+    expect(update).toMatchObject({ turn: 'white', phase: 'move' });
+    expect([1_000, 1_100]).toContain(update?.['phase_time']);
     vi.advanceTimersByTime(1_000);
     expect(white.types().slice(-3)).toEqual(['timer_update', 'game_state', 'game_over']);
-    expect(white.last('game_state')).toMatchObject({ white_time: 0, board: { status: 'timeout' } });
+    expect(white.last('game_state')).toMatchObject({ phase_time: 0, board: { status: 'timeout' } });
     expect(white.last('game_over')).toEqual({ result: '0-1', reason: 'timeout', winner: 'luigi' });
+  });
+
+  it('Magie scadute: fase passata e una scadenza; la mossa non azzera; alla terza di fila si perde (timeout_strikes)', () => {
+    const castable: MatchOverrides = { hand: { white: ['frost'], black: EXPENSIVE }, deckTop: { white: EXPENSIVE, black: EXPENSIVE } };
+    const { room, white, black, send } = setup({ overrides: castable, mainTimeMs: 1_000 });
+    vi.advanceTimersByTime(1_000);
+    expect(black.last('phase_timeout')).toEqual({ player: 'white', phase: 'main1', strikes: 1 });
+    expect(room.match.currentPhase).toBe('move');
+
+    // Il tempo riparte a ogni fase: la Mossa ha il suo.
+    vi.advanceTimersByTime(500);
+    expect(room.phaseLeft).toBeGreaterThan(100_000);
+    send(white, 'move', { move: 'e2e4' });
+    vi.advanceTimersByTime(1_000);
+    expect(black.last('phase_timeout')).toEqual({ player: 'white', phase: 'main2', strikes: 2 });
+
+    send(black, 'move', { move: 'e7e5' });
+    expect(room.match.activePlayer).toBe('white');
+    vi.advanceTimersByTime(1_000);
+    expect(black.last('phase_timeout')).toEqual({ player: 'white', phase: 'main1', strikes: 3 });
+    expect(black.last('game_state')).toMatchObject({ white_timeouts: 3, board: { status: 'timeout' } });
+    expect(black.last('game_over')).toEqual({ result: '0-1', reason: 'timeout_strikes', winner: 'luigi' });
+  });
+
+  it('un passa o una magia azzerano le scadenze di fila', () => {
+    const castable: MatchOverrides = { hand: { white: ['frost', 'frost'], black: EXPENSIVE }, deckTop: { white: EXPENSIVE, black: EXPENSIVE } };
+    const { room, white, send } = setup({ overrides: castable, mainTimeMs: 1_000 });
+    vi.advanceTimersByTime(1_000);
+    expect(room.strikes.white).toBe(1);
+    send(white, 'move', { move: 'e2e4' });
+    send(white, 'pass_phase');
+    expect(room.strikes.white).toBe(0);
+    expect(white.last('game_state')).toMatchObject({ white_timeouts: 1 });
   });
 
   it('B1: la partita si chiude una volta sola (resa, poi disconnessione)', () => {
@@ -952,12 +988,12 @@ describe('connessioni e fine partita', () => {
     expect(black.last('game_state')).toMatchObject({ board: { moves: [] } });
   });
 
-  it('PGN numerato in UCI e time control "minuti+secondi"', () => {
+  it('PGN numerato in UCI e time control "magie/mossa/magie" in secondi', () => {
     const { room, white, black, send } = setup();
     send(white, 'move', { move: 'e2e4' });
     send(black, 'move', { move: 'e7e5' });
     send(white, 'move', { move: 'g1f3' });
     expect(room.pgn()).toBe('1. e2e4 e7e5 2. g1f3');
-    expect(room.timeControl()).toBe('10+5');
+    expect(room.timeControl()).toBe('90/120/90');
   });
 });

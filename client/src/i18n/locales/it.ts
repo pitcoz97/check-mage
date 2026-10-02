@@ -443,6 +443,7 @@ export const it = {
         draw: 'Patta',
         rune: 'Runa',
         effect: 'Effetto',
+        timeout: 'Tempo',
       },
     },
     mana: {
@@ -469,6 +470,7 @@ export const it = {
       cards: '{{count}} carte in mano',
       disconnected: 'Disconnesso',
       clock: 'Tempo di {{name}}',
+      strikes: 'Fasi scadute di fila per {{name}}: {{count}} su {{max}}',
     },
     action: {
       pass: 'Passa fase',
@@ -502,6 +504,8 @@ export const it = {
     notice: {
       drawDeclined: 'L’avversario ha rifiutato la patta.',
       drawLapsed: 'L’offerta di patta è decaduta: l’avversario ha mosso.',
+      timeoutYou: 'Tempo scaduto: {{phase}} saltata ({{count}}/{{max}}). Alla terza di fila perdi.',
+      timeoutOpponent: 'Tempo scaduto per l’avversario: {{phase}} saltata ({{count}}/{{max}}).',
     },
     refusal: {
       not_connected: 'Non sei collegato alla partita.',
@@ -603,7 +607,8 @@ export const it = {
         draw: 'Patta per regolamento.',
         agreement: 'Patta concordata.',
         resign: 'Abbandono.',
-        timeout: 'Tempo scaduto.',
+        timeout: 'Tempo della mossa scaduto.',
+        timeout_strikes: 'Tempo scaduto in tre fasi di fila.',
         abandonment: 'Il giocatore non è rientrato in tempo.',
         unknown: 'Motivo non disponibile.',
       },

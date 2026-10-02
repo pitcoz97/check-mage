@@ -289,21 +289,44 @@ function decodePlayers(ctx: Ctx, white: unknown, black: unknown): MatchPlayers |
   return { white: player(w.data, 'white_player.bot'), black: player(b.data, 'black_player.bot') };
 }
 
-// --- Time control (`game/room.go:1367-1370`) -------------------------------------------------------
+// --- Tempo per fase (`game/clock.go`) --------------------------------------------------------------
 
-const wireTimeControlSchema = z.object({ base_ms: count, increment_ms: count });
+const wireTimeControlSchema = z.object({ main_ms: count, move_ms: count });
 
+/** `time_control {main_ms, move_ms}`; quello di un server precedente (`base_ms`/`increment_ms`) vale come assente. */
 function decodeTimeControl(ctx: Ctx, raw: unknown): TimeControl | null {
   if (raw === undefined || raw === null) return null;
+  if (typeof raw === 'object' && 'base_ms' in raw && !('main_ms' in raw)) return null;
   const parsed = parseWith(wireTimeControlSchema, raw);
   if (!parsed.ok) {
     warn(ctx, 'value_invalid', `time_control: ${parsed.issues.join('; ')}`);
     return null;
   }
   return {
-    baseMs: clampNonNegative(ctx, parsed.data.base_ms, 'time_control.base_ms'),
-    incrementMs: clampNonNegative(ctx, parsed.data.increment_ms, 'time_control.increment_ms'),
+    mainMs: clampNonNegative(ctx, parsed.data.main_ms, 'time_control.main_ms'),
+    moveMs: clampNonNegative(ctx, parsed.data.move_ms, 'time_control.move_ms'),
   };
+}
+
+/** `phase_time`; senza, l'orologio globale del giocatore attivo di un server precedente; altrimenti `null`. */
+function decodePhaseTime(ctx: Ctx, raw: unknown, legacy: unknown): number | null {
+  const value = raw ?? legacy;
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    warn(ctx, 'value_invalid', `phase_time=${JSON.stringify(value)}`);
+    return null;
+  }
+  return clampNonNegative(ctx, value, 'phase_time');
+}
+
+/** Scadenze di fila: assenti (server precedente) = 0. */
+function decodeStrikes(ctx: Ctx, raw: unknown, field: string): number {
+  if (raw === undefined || raw === null) return 0;
+  if (typeof raw !== 'number' || !Number.isInteger(raw)) {
+    warn(ctx, 'value_invalid', `${field}=${JSON.stringify(raw)}`);
+    return 0;
+  }
+  return clampNonNegative(ctx, raw, field);
 }
 
 // --- Mosse giocate (`game/room.go:37,488-490`) ------------------------------------------------------
@@ -511,8 +534,12 @@ const gameStateSchema = z.object({
     turn: loose,
     status: loose,
   }),
-  white_time: z.number(),
-  black_time: z.number(),
+  // Prima del tempo per fase: orologi globali (`white_time`/`black_time`), letti come tempo della fase (ASSUMPTIONS S41).
+  white_time: loose,
+  black_time: loose,
+  phase_time: loose,
+  white_timeouts: loose,
+  black_timeouts: loose,
   phase: loose,
   active_player: loose,
   turn_number: count,
@@ -550,7 +577,8 @@ const decodeGameState: Decoder<'game_state'> = (payload, ctx) =>
         moves: decodeMoves(core.board.moves),
         turn: readEnum(ctx, core.board.turn, COLORS, 'board.turn'),
         status: readEnum(ctx, core.board.status, BOARD_STATUSES, 'board.status'),
-        clocks: perColor(n(core.white_time, 'white_time'), n(core.black_time, 'black_time')),
+        phaseTime: decodePhaseTime(ctx, core.phase_time, core.active_player === 'black' ? core.black_time : core.white_time),
+        timeouts: perColor(decodeStrikes(ctx, core.white_timeouts, 'white_timeouts'), decodeStrikes(ctx, core.black_timeouts, 'black_timeouts')),
         phase: readEnum(ctx, core.phase, PHASES, 'phase'),
         activePlayer: readEnum(ctx, core.active_player, COLORS, 'active_player'),
         turnNumber: n(core.turn_number, 'turn_number'),
@@ -895,14 +923,34 @@ const decodeEffectExpired: Decoder<'effect_expired'> = (payload, ctx) =>
     },
   );
 
+// `game/clock.go`: il tempo della fase del giocatore attivo. Un server precedente manda gli orologi globali: vale
+// quello del giocatore attivo (ASSUMPTIONS S41).
 const decodeTimerUpdate: Decoder<'timer_update'> = (payload, ctx) =>
-  withCore(z.object({ white_time: z.number(), black_time: z.number(), turn: loose }), payload, (core) => ({
-    type: 'timer_update',
-    clocks: {
-      white: clampNonNegative(ctx, core.white_time, 'white_time'),
-      black: clampNonNegative(ctx, core.black_time, 'black_time'),
-    },
-    turn: readEnum(ctx, core.turn, COLORS, 'turn'),
+  withCore(
+    z.union([
+      z.object({ phase_time: z.number(), turn: loose, phase: loose }),
+      z.object({ white_time: z.number(), black_time: z.number(), turn: loose }).transform((legacy) => ({
+        phase_time: legacy.turn === 'black' ? legacy.black_time : legacy.white_time,
+        turn: legacy.turn,
+        phase: undefined,
+      })),
+    ]),
+    payload,
+    (core) => ({
+      type: 'timer_update',
+      phaseTime: clampNonNegative(ctx, core.phase_time, 'phase_time'),
+      turn: readEnum(ctx, core.turn, COLORS, 'turn'),
+      phase: core.phase === undefined || core.phase === null ? null : readEnum(ctx, core.phase, PHASES, 'phase'),
+    }),
+  );
+
+// `game/clock.go`: una fase Magie scaduta, passata dal server; `strikes` = scadenze di fila del giocatore.
+const decodePhaseTimeout: Decoder<'phase_timeout'> = (payload, ctx) =>
+  withCore(z.object({ player: z.enum(['white', 'black']), phase: loose, strikes: count }), payload, (core) => ({
+    type: 'phase_timeout',
+    player: core.player,
+    phase: readEnum(ctx, core.phase, PHASES, 'phase'),
+    strikes: core.strikes,
   }));
 
 // `game/room.go:1258-1265`: `winner` assente in caso di patta.
@@ -941,6 +989,7 @@ const DECODERS: { readonly [K in ServerMessageType]: Decoder<K> } = {
   aura_changed: decodeAuraChanged,
   move_options: decodeMoveOptionsEvent,
   timer_update: decodeTimerUpdate,
+  phase_timeout: decodePhaseTimeout,
   game_over: decodeGameOver,
   error: decodeError,
   draw_offer: decodeDrawOffer,

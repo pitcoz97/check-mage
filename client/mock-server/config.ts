@@ -27,8 +27,9 @@ export interface MockConfig {
   readonly scenario: ScenarioName;
   readonly seed: number;
   /** `config/config.go`: 10' + 5". */
-  readonly baseTimeMs: number;
-  readonly incrementMs: number;
+  /** `PHASE_TIME_MAIN` e `PHASE_TIME_MOVE` (`config/config.go`): tempo di una fase Magie e della Mossa. */
+  readonly phaseMainMs: number;
+  readonly phaseMoveMs: number;
   readonly reconnectTimeoutMs: number;
   /** `handlers/auth.go:168,180`. */
   readonly accessTokenTtlSeconds: number;
@@ -58,8 +59,8 @@ export const DEFAULT_CONFIG: MockConfig = {
   port: 8080,
   scenario: 'pvp',
   seed: 42,
-  baseTimeMs: 10 * 60_000,
-  incrementMs: 5_000,
+  phaseMainMs: 90_000,
+  phaseMoveMs: 120_000,
   reconnectTimeoutMs: 30_000,
   accessTokenTtlSeconds: 24 * 3600,
   refreshTokenTtlSeconds: 30 * 24 * 3600,
@@ -111,8 +112,8 @@ export function configFromEnv(): MockConfig {
     port: intFromEnv('MOCK_PORT', DEFAULT_CONFIG.port),
     scenario,
     seed: intFromEnv('MOCK_SEED', DEFAULT_CONFIG.seed),
-    baseTimeMs: intFromEnv('MOCK_BASE_TIME_MS', DEFAULT_CONFIG.baseTimeMs),
-    incrementMs: intFromEnv('MOCK_INCREMENT_MS', DEFAULT_CONFIG.incrementMs),
+    phaseMainMs: intFromEnv('MOCK_PHASE_MAIN_MS', DEFAULT_CONFIG.phaseMainMs),
+    phaseMoveMs: intFromEnv('MOCK_PHASE_MOVE_MS', DEFAULT_CONFIG.phaseMoveMs),
     reconnectTimeoutMs: intFromEnv('MOCK_RECONNECT_TIMEOUT_MS', DEFAULT_CONFIG.reconnectTimeoutMs),
     accessTokenTtlSeconds: intFromEnv('MOCK_ACCESS_TTL_S', DEFAULT_CONFIG.accessTokenTtlSeconds),
     trustedProxies: listFromEnv('MOCK_TRUSTED_PROXIES', DEFAULT_CONFIG.trustedProxies),

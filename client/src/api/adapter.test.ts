@@ -66,9 +66,10 @@ function publicState(overrides: Record<string, unknown> = {}) {
     board: { fen: START_FEN, moves: [], turn: 'white', status: 'active' },
     white_player: { id: 42, username: 'mario' },
     black_player: { id: 7, username: 'luigi' },
-    time_control: { base_ms: 600000, increment_ms: 5000 },
-    white_time: 600000,
-    black_time: 600000,
+    time_control: { main_ms: 90000, move_ms: 120000 },
+    phase_time: 90000,
+    white_timeouts: 0,
+    black_timeouts: 1,
     phase: 'draw',
     active_player: 'white',
     turn_number: 1,
@@ -124,7 +125,8 @@ describe('game_state', () => {
         moves: [],
         turn: 'white',
         status: 'active',
-        clocks: { white: 600000, black: 600000 },
+        phaseTime: 90000,
+        timeouts: { white: 0, black: 1 },
         phase: 'main1',
         activePlayer: 'white',
         turnNumber: 1,
@@ -139,7 +141,7 @@ describe('game_state', () => {
         reconnected: false,
         friendly: false,
         players: { white: { id: '42', username: 'mario' }, black: { id: '7', username: 'luigi' } },
-        timeControl: { baseMs: 600000, incrementMs: 5000 },
+        timeControl: { mainMs: 90000, moveMs: 120000 },
       },
     });
   });
@@ -168,7 +170,7 @@ describe('game_state', () => {
     const { event, codes } = decodeOk(frame('game_state', legacy));
     expect(event).toMatchObject({ state: { players: null, timeControl: null } });
     expect(codes).toEqual(['players_missing']);
-    const bad = decodeOk(frame('game_state', publicState({ time_control: { base_ms: '10' } })));
+    const bad = decodeOk(frame('game_state', publicState({ time_control: { main_ms: '10' } })));
     expect(bad.event).toMatchObject({ state: { timeControl: null } });
     expect(bad.codes).toEqual(['value_invalid']);
   });
@@ -561,12 +563,31 @@ describe('magie ed effetti', () => {
 });
 
 describe('orologio, fine partita, patta, connessione', () => {
-  it('timer_update: turn è il giocatore attivo', () => {
-    expect(decodeOk(frame('timer_update', { white_time: 598000, black_time: -1, turn: 'white' })).event).toEqual({
+  it('timer_update: il tempo della fase del giocatore attivo (turn); phase_timeout con le scadenze', () => {
+    expect(decodeOk(frame('timer_update', { phase_time: 58000, turn: 'white', phase: 'move' })).event).toEqual({
       type: 'timer_update',
-      clocks: { white: 598000, black: 0 },
+      phaseTime: 58000,
       turn: 'white',
+      phase: 'move',
     });
+    expect(decodeOk(frame('phase_timeout', { player: 'black', phase: 'main1', strikes: 2 })).event).toEqual({
+      type: 'phase_timeout',
+      player: 'black',
+      phase: 'main1',
+      strikes: 2,
+    });
+  });
+
+  it('server precedente al tempo per fase: vale l’orologio globale del giocatore attivo, senza time control (S41)', () => {
+    expect(decodeOk(frame('timer_update', { white_time: 598000, black_time: -1, turn: 'black' })).event).toMatchObject({
+      phaseTime: 0,
+      turn: 'black',
+      phase: null,
+    });
+    const { phase_time: _p, white_timeouts: _w, black_timeouts: _b, ...rest } = publicState();
+    const legacy = decodeOk(frame('game_state', { ...rest, time_control: { base_ms: 600000, increment_ms: 5000 }, white_time: 512000, black_time: 600000 }));
+    expect(legacy.event).toMatchObject({ state: { phaseTime: 512000, timeouts: { white: 0, black: 0 }, timeControl: null } });
+    expect(legacy.codes).toEqual([]);
   });
 
   it('game_over: winner assente in caso di patta', () => {

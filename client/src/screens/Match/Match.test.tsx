@@ -35,9 +35,10 @@ function gameState(overrides: Record<string, unknown> = {}) {
       board: { fen: START, moves: [], turn: 'white', status: 'active' },
       white_player: { id: 7, username: 'mario' },
       black_player: { id: 8, username: 'luigi' },
-      time_control: { base_ms: 600000, increment_ms: 5000 },
-      white_time: 600000,
-      black_time: 595000,
+      time_control: { main_ms: 90000, move_ms: 120000 },
+      phase_time: 115000,
+      white_timeouts: 0,
+      black_timeouts: 2,
       phase: 'move',
       active_player: 'white',
       turn_number: 1,
@@ -106,7 +107,7 @@ const hint = () => (document.querySelector('[data-hint-box="panel"]') as HTMLEle
 const passButton = () => document.querySelector('[data-region="side"] [data-action="pass"]') as HTMLButtonElement;
 
 describe('schermata di partita', () => {
-  it('pannelli: nomi, colori, ELO e orologi dal server', async () => {
+  it('pannelli: nomi, colori, ELO, orologio della fase e scadenze di fila', async () => {
     await setup();
     const self = document.querySelector('[data-player="self"]') as HTMLElement;
     const opponent = document.querySelector('[data-player="opponent"]') as HTMLElement;
@@ -114,7 +115,11 @@ describe('schermata di partita', () => {
     expect(self.textContent).toContain('Bianco');
     expect(opponent.textContent).toContain('luigi');
     expect(await waitFor(() => self.textContent)).toContain('(1250)');
-    expect((document.querySelector('[data-clock="opponent"]') as HTMLElement).textContent).toBe('9:55');
+    // Tocca al Bianco (Mossa, 1:55); l'orologio dell'avversario è fermo sul tempo pieno di una fase Magie.
+    expect((document.querySelector('[data-region="main"] [data-clock="self"]') as HTMLElement).textContent).toMatch(/^1:5[45]$/);
+    expect((document.querySelector('[data-clock="opponent"]') as HTMLElement).textContent).toBe('1:30');
+    expect(opponent.querySelector('[data-strikes]')?.getAttribute('data-strikes')).toBe('2');
+    expect(opponent.querySelector('[data-strikes]')?.getAttribute('aria-label')).toBe('Fasi scadute di fila per luigi: 2 su 3');
     expect(self.dataset['active']).toBe('true');
   });
 
@@ -358,12 +363,14 @@ describe('schermata di partita', () => {
     expect(items[1]).toContain('luigi');
   });
 
-  it('orologio in esaurimento: sotto il minuto è segnato (D19)', async () => {
+  it('orologio in esaurimento: sotto i 15 secondi della fase è segnato (D19); avviso di fase scaduta', async () => {
     const { receive } = await setup();
-    receive(gameState({ white_time: 45_000 }));
+    receive(gameState({ phase_time: 12_000 }));
     const clock = document.querySelector('[data-region="main"] [data-clock="self"]') as HTMLElement;
     expect(clock.dataset['low']).toBe('true');
     expect((document.querySelector('[data-clock="opponent"]') as HTMLElement).dataset['low']).toBe('false');
+    receive({ type: 'phase_timeout', payload: { player: 'black', phase: 'main1', strikes: 1 } });
+    expect(await screen.findAllByText('Tempo scaduto per l’avversario: Magie 1 saltata (1/3).')).not.toHaveLength(0);
   });
 
   it('Android: la barra apre il foglio sulla scheda scelta, Esc lo chiude; la Chat è «Presto» (D17, D9)', async () => {

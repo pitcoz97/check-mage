@@ -37,7 +37,7 @@ function ResumeLink({ compact = false }: { compact?: boolean }) {
 }
 
 function LiveClock({ color }: { color: Color }) {
-  const remaining = useClock(color);
+  const { remaining } = useClock(color);
   return <>{remaining === null ? '—' : formatClock(remaining)}</>;
 }
 
