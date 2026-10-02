@@ -1,4 +1,4 @@
-import type { Hosting } from './config';
+import type { ContactMail, Hosting } from './config';
 
 /** Un blocco di testo: un paragrafo o un elenco puntato. */
 export type LegalBlock = string | { readonly list: readonly string[] };
@@ -23,6 +23,7 @@ export type LegalTexts = Readonly<Record<LegalDocKey, LegalDocument>>;
 export interface LegalContext {
   readonly owner: string;
   readonly email: string;
+  readonly mail: ContactMail;
   readonly hosting: Hosting;
   /** Data di entrata in vigore, già formattata nella lingua. */
   readonly effectiveDate: string;

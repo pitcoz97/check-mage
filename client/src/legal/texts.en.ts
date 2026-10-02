@@ -11,8 +11,16 @@ export function englishTexts(c: LegalContext): LegalTexts {
       : 'The server runs on a computer owned by the controller. Traffic goes through Cloudflare, Inc., which provides the encrypted connection (HTTPS) and network protection and processes data in transit (including IP address and request content) as a processor (Art. 28 GDPR).';
   const transfers =
     c.hosting.kind === 'vps'
-      ? 'If the provider’s data centre is outside the European Economic Area, the transfer relies on an adequacy decision of the European Commission or on the standard contractual clauses of the agreement with the provider. There are no other transfers outside the EU.'
+      ? 'If the provider’s data centre is outside the European Economic Area, the transfer relies on an adequacy decision of the European Commission or on the standard contractual clauses of the agreement with the provider.'
       : 'Cloudflare, Inc. is based in the United States and participates in the EU-U.S. Data Privacy Framework: transfers rely on it and on the standard contractual clauses of its data processing agreement.';
+  const mailRecipients =
+    c.mail.kind === 'cloudflare-gmail'
+      ? `Messages sent to ${c.email} are forwarded by Cloudflare, Inc. (Email Routing service), as a processor, to a Gmail mailbox of the controller provided by Google, where they are stored.`
+      : `Messages sent to ${c.email} arrive in a mailbox provided by ${c.mail.provider}, with servers in ${c.mail.country}, where they are stored.`;
+  const mailTransfers =
+    c.mail.kind === 'cloudflare-gmail'
+      ? 'Messages sent to the contact address may be processed in the United States by Cloudflare, Inc. and Google LLC, which participate in the EU-U.S. Data Privacy Framework: the transfer relies on it.'
+      : 'If the mail provider’s servers are outside the European Economic Area, the transfer of messages relies on an adequacy decision of the European Commission or on the provider’s standard contractual clauses.';
 
   return {
     privacy: {
@@ -30,6 +38,7 @@ export function englishTexts(c: LegalContext): LegalTexts {
                 'Social data: friendships, friend requests, blocked players and challenges (the latter only in memory, for at most 60 seconds).',
                 'Online status: while the app is open your device sends a signal every few seconds; the status (online, in a game, offline) is kept only in memory and is lost after 30 seconds without signals or when the server restarts. You can hide it in Settings.',
                 'Technical data: your IP address, used only in memory to limit excessive requests and never stored in the database; server technical logs (method, path, result and duration of requests, without their parameters), kept on a rotating basis with a limited maximum size.',
+                `Correspondence: if you write to ${c.email}, your email address, the content of your message and our replies.`,
               ],
             },
             'We do not collect payment data, location, contacts or special categories of data, and we use no analytics, advertising or profiling tools.',
@@ -42,6 +51,7 @@ export function englishTexts(c: LegalContext): LegalTexts {
               list: [
                 'Creating and managing your account, letting you play, computing the ranking and providing social features: performance of the contract, i.e. the Terms of service you accept when signing up (Art. 6(1)(b) GDPR).',
                 'Protecting the service from abuse and attacks (request limits, technical logs, suspension of accounts that break the Terms): the controller’s legitimate interest in the security of the service (Art. 6(1)(f) GDPR).',
+                'Replying to your messages: a legal obligation for requests about your data (Art. 6(1)(c) and Articles 12–22 GDPR); the controller’s legitimate interest in replying for reports and other questions (Art. 6(1)(f) GDPR).',
                 'Complying with legal obligations and, if needed, defending legal claims (Art. 6(1)(c) and (f) GDPR).',
               ],
             },
@@ -54,8 +64,8 @@ export function englishTexts(c: LegalContext): LegalTexts {
             'Your username, ELO, sign-up date and game statistics are public: they appear on your profile and in the ranking, visible even without an account. Registered users can also see your game history and your online status (unless you hide it), and can find you by searching your name. Your email address is never shown to others.',
           ],
         },
-        { title: 'Who receives the data', body: [recipients, 'We do not sell or hand over data to third parties. We may disclose it to authorities only when the law requires it.'] },
-        { title: 'Transfers outside the European Union', body: [transfers] },
+        { title: 'Who receives the data', body: [recipients, mailRecipients, 'We do not sell or hand over data to third parties. We may disclose it to authorities only when the law requires it.'] },
+        { title: 'Transfers outside the European Union', body: [transfers, mailTransfers] },
         {
           title: 'How long we keep it',
           body: [
@@ -65,6 +75,7 @@ export function englishTexts(c: LegalContext): LegalTexts {
                 'On deletion: email, password, decks, collection, friendships, requests and blocks are removed immediately; games already played stay in your opponents’ history, with your name replaced by “Deleted player”.',
                 'Online status and challenges: only in memory, for a few seconds or minutes.',
                 'Technical logs: rotating, overwritten when they reach a maximum size.',
+                'Messages to the contact address: as long as needed to reply and to prove we did, at most 2 years; then we delete them.',
                 `Database backups: kept for ${c.backupDays} days and then deleted; until then they may still contain an account that has been deleted.`,
               ],
             },

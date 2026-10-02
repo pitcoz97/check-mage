@@ -467,7 +467,7 @@ I riferimenti sono al server di quel branch.
 | P4 | Informativa privacy (con memoria locale e cookie: solo tecnici, nessun banner), Termini, cancellazione dell'account e Crediti come pagine pubbliche (`/privacy`, `/terms`, `/account-deletion`, `/credits`), in italiano e inglese, generate da `src/legal/config.ts`. Il deploy si rifiuta di costruire con i segnaposto. | tu + derivata |
 | P5 | «Scarica i miei dati»: JSON con account, collezione salvata, mazzi, tutte le partite, amicizie e bloccati; sul web un file, su Android negli appunti (i download della WebView non arrivano all'utente). | tu + derivata |
 | P6 | «Nascondi il mio stato online»: agli altri sempre offline, quindi niente sfide. | tu |
-| P7 | L'hosting nell'informativa è configurabile: VPS (provider e paese) o casa (Cloudflare, EU-US DPF). | tu |
+| P7 | L'hosting nell'informativa è configurabile: VPS (provider e paese) o casa (Cloudflare, EU-US DPF). Così anche la posta di contatto: inoltro Cloudflare Email Routing a Gmail (EU-US DPF) o casella di un provider (provider e paese); l'informativa dichiara i messaggi tra i dati trattati, conservati al massimo 2 anni. | tu |
 | P8 | I log delle richieste non contengono la query string (niente token). | derivata |
 | P9 | I testi sono bozze da far rileggere a un professionista; la lista di controllo prima della pubblicazione è `docs/legal/README.md`. | derivata |
 

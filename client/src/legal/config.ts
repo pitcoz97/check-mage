@@ -14,11 +14,19 @@ export type Hosting =
   /** Computer del titolare, esposto su internet con Cloudflare Tunnel (docs/DEPLOY-CASA.md). */
   | { readonly kind: 'home' };
 
+/** Dove arriva la posta dell'indirizzo di contatto: cambia destinatari e trasferimenti elencati nell'informativa. */
+export type ContactMail =
+  /** Indirizzo inoltrato da Cloudflare Email Routing a una casella Gmail. */
+  | { readonly kind: 'cloudflare-gmail' }
+  /** Casella fornita direttamente da un provider di posta. */
+  | { readonly kind: 'mailbox'; readonly provider: string; readonly country: string };
+
 export interface LegalConfig {
   /** Nome e cognome del titolare del trattamento (persona fisica) o ragione sociale. */
   readonly owner: string;
   /** Email per privacy, segnalazioni e richieste degli utenti: meglio un indirizzo dedicato. */
   readonly contactEmail: string;
+  readonly contactMail: ContactMail;
   readonly hosting: Hosting;
   /** Data di entrata in vigore dei testi correnti, AAAA-MM-GG. */
   readonly effectiveDate: string;
@@ -27,6 +35,7 @@ export interface LegalConfig {
 export const LEGAL_CONFIG: LegalConfig = {
   owner: 'Riccardo Picozzi',
   contactEmail: 'info@check-mage.com',
+  contactMail: { kind: 'cloudflare-gmail' },
   hosting: { kind: 'home' },
   effectiveDate: '2026-10-02',
 };
@@ -45,6 +54,12 @@ export const BACKUP_RETENTION_DAYS = 14;
 
 /** Segnaposto rimasti nella configurazione: vuoto = pronta per la pubblicazione. */
 export function unfilledPlaceholders(config: LegalConfig = LEGAL_CONFIG): string[] {
-  const values = [config.owner, config.contactEmail, config.effectiveDate, ...(config.hosting.kind === 'vps' ? [config.hosting.provider, config.hosting.country] : [])];
+  const values = [
+    config.owner,
+    config.contactEmail,
+    config.effectiveDate,
+    ...(config.contactMail.kind === 'mailbox' ? [config.contactMail.provider, config.contactMail.country] : []),
+    ...(config.hosting.kind === 'vps' ? [config.hosting.provider, config.hosting.country] : []),
+  ];
   return values.filter((value) => /\[[^\]]*\]/.test(value) || value.trim() === '');
 }

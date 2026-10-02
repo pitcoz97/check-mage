@@ -15,6 +15,7 @@ export function legalTexts(language: string, config: LegalConfig = LEGAL_CONFIG)
   const context = {
     owner: config.owner,
     email: config.contactEmail,
+    mail: config.contactMail,
     hosting: config.hosting,
     effectiveDate,
     minimumAge: MINIMUM_AGE,

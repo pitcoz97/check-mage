@@ -12,8 +12,16 @@ export function italianTexts(c: LegalContext): LegalTexts {
       : 'Il server funziona su un computer del titolare. Il traffico passa attraverso Cloudflare, Inc., che fornisce la connessione cifrata (HTTPS) e la protezione della rete e tratta i dati in transito (tra cui indirizzo IP e contenuto delle richieste) come responsabile del trattamento (art. 28 GDPR).';
   const transfers =
     c.hosting.kind === 'vps'
-      ? 'Se il data center del provider si trova fuori dallo Spazio economico europeo, il trasferimento avviene sulla base di una decisione di adeguatezza della Commissione europea o delle clausole contrattuali tipo previste dall’accordo con il provider. Non ci sono altri trasferimenti fuori dall’UE.'
+      ? 'Se il data center del provider si trova fuori dallo Spazio economico europeo, il trasferimento avviene sulla base di una decisione di adeguatezza della Commissione europea o delle clausole contrattuali tipo previste dall’accordo con il provider.'
       : 'Cloudflare, Inc. ha sede negli Stati Uniti e aderisce all’EU-U.S. Data Privacy Framework: i trasferimenti avvengono su questa base e sulle clausole contrattuali tipo del suo accordo sul trattamento dei dati.';
+  const mailRecipients =
+    c.mail.kind === 'cloudflare-gmail'
+      ? `I messaggi inviati a ${c.email} sono inoltrati da Cloudflare, Inc. (servizio Email Routing), come responsabile del trattamento, a una casella Gmail del titolare fornita da Google, dove sono conservati.`
+      : `I messaggi inviati a ${c.email} arrivano in una casella fornita da ${c.mail.provider}, con server in ${c.mail.country}, dove sono conservati.`;
+  const mailTransfers =
+    c.mail.kind === 'cloudflare-gmail'
+      ? 'I messaggi inviati all’indirizzo di contatto possono essere trattati negli Stati Uniti da Cloudflare, Inc. e da Google LLC, che aderiscono all’EU-U.S. Data Privacy Framework: il trasferimento avviene su questa base.'
+      : 'Se i server del fornitore della posta si trovano fuori dallo Spazio economico europeo, il trasferimento dei messaggi avviene sulla base di una decisione di adeguatezza della Commissione europea o delle clausole contrattuali tipo del fornitore.';
 
   return {
     privacy: {
@@ -34,6 +42,7 @@ export function italianTexts(c: LegalContext): LegalTexts {
                 'Dati sociali: amicizie, richieste d’amicizia, giocatori bloccati e sfide (queste ultime solo in memoria, al massimo per 60 secondi).',
                 'Stato online: mentre l’app è aperta il dispositivo invia un segnale ogni pochi secondi; lo stato (online, in partita, offline) è tenuto solo in memoria e si perde dopo 30 secondi senza segnali o al riavvio del server. Puoi nasconderlo nelle Impostazioni.',
                 'Dati tecnici: l’indirizzo IP, usato solo in memoria per limitare le richieste eccessive e mai salvato nel database; i log tecnici del server (metodo, percorso, esito e durata delle richieste, senza i loro parametri), conservati a rotazione con una dimensione massima limitata.',
+                `Corrispondenza: se scrivi a ${c.email}, il tuo indirizzo email, il contenuto del messaggio e le nostre risposte.`,
               ],
             },
             'Non raccogliamo dati di pagamento, posizione, contatti o dati di categorie particolari, e non usiamo strumenti di analisi, pubblicità o profilazione.',
@@ -46,6 +55,7 @@ export function italianTexts(c: LegalContext): LegalTexts {
               list: [
                 'Creare e gestire il tuo account, farti giocare, calcolare la classifica e offrirti le funzioni social: esecuzione del contratto, cioè dei Termini di servizio che accetti alla registrazione (art. 6.1.b GDPR).',
                 'Proteggere il servizio da abusi e attacchi (limiti alle richieste, log tecnici, sospensione degli account che violano i Termini): legittimo interesse del titolare alla sicurezza del servizio (art. 6.1.f GDPR).',
+                'Rispondere ai tuoi messaggi: obbligo di legge per le richieste sui tuoi dati (art. 6.1.c e articoli 12–22 GDPR); legittimo interesse del titolare a rispondere per segnalazioni e altre domande (art. 6.1.f GDPR).',
                 'Rispettare obblighi di legge e, se necessario, difendere un diritto in giudizio (art. 6.1.c e 6.1.f GDPR).',
               ],
             },
@@ -60,9 +70,9 @@ export function italianTexts(c: LegalContext): LegalTexts {
         },
         {
           title: 'A chi comunichiamo i dati',
-          body: [recipients, 'Non vendiamo né cediamo i dati a terzi. Possiamo comunicarli alle autorità solo quando la legge lo impone.'],
+          body: [recipients, mailRecipients, 'Non vendiamo né cediamo i dati a terzi. Possiamo comunicarli alle autorità solo quando la legge lo impone.'],
         },
-        { title: 'Trasferimenti fuori dall’Unione europea', body: [transfers] },
+        { title: 'Trasferimenti fuori dall’Unione europea', body: [transfers, mailTransfers] },
         {
           title: 'Per quanto tempo',
           body: [
@@ -72,6 +82,7 @@ export function italianTexts(c: LegalContext): LegalTexts {
                 'Alla cancellazione: email, password, mazzi, collezione, amicizie, richieste e blocchi vengono eliminati subito; le partite già giocate restano nello storico degli avversari, con il tuo nome sostituito da «Giocatore eliminato».',
                 'Stato online e sfide: solo in memoria, per pochi secondi o minuti.',
                 'Log tecnici: a rotazione, sovrascritti al raggiungimento di una dimensione massima.',
+                'Messaggi all’indirizzo di contatto: il tempo necessario a risponderti e a dimostrare di averlo fatto, al massimo 2 anni; poi li cancelliamo.',
                 `Backup del database: conservati ${c.backupDays} giorni e poi cancellati; fino ad allora possono contenere anche un account già cancellato.`,
               ],
             },
