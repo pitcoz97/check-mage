@@ -263,7 +263,7 @@ func (m *Manager) JoinChallenge(client *Client, id string) bool {
 		white, black = client, slot
 	}
 	roomID := "challenge-" + ch.ID
-	room := newRoom(roomID, white, black, config.C.DefaultBaseTime, config.C.DefaultIncrement, true)
+	room := newRoom(roomID, white, black, config.C.DefaultBaseTime, config.C.DefaultIncrement, true, nil)
 	m.rooms[roomID] = room
 	m.userRooms[white.UserID] = roomID
 	m.userRooms[black.UserID] = roomID

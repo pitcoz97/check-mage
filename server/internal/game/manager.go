@@ -5,6 +5,7 @@ import (
 	"chess-server/internal/db"
 	"chess-server/internal/gameerr"
 	"chess-server/internal/logger"
+	"chess-server/internal/match"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -236,8 +237,12 @@ func (m *Manager) LoadPersisted() {
 		}
 		room := roomFromSnapshot(snap)
 		m.rooms[room.ID] = room
-		m.userRooms[snap.WhiteID] = room.ID
-		m.userRooms[snap.BlackID] = room.ID
+		for _, side := range []match.Player{match.PlayerWhite, match.PlayerBlack} {
+			if room.botLevelOf(side) == "" { // il bot non è mai «in partita»
+				m.userRooms[room.clientOf(side).UserID] = room.ID
+			}
+		}
+		restoreBot(room)
 		restored++
 	}
 	logger.L.Info("Partite in corso ripristinate dal DB", zap.Int("n", restored))

@@ -2,6 +2,7 @@ package main
 
 import (
 	"chess-server/internal/api"
+	"chess-server/internal/bot"
 	"chess-server/internal/config"
 	"chess-server/internal/db"
 	"chess-server/internal/engine"
@@ -65,6 +66,9 @@ func main() {
 	// Account dei bot: colonna bot_level, nascosti da tutti gli elenchi
 	if err := db.EnsureBotSchema(); err != nil {
 		logger.L.Error("Errore aggiornamento schema users (bot)", zap.Error(err))
+	}
+	if err := db.EnsureBotAccounts(bot.LevelNames()); err != nil {
+		logger.L.Error("Errore creazione account dei bot", zap.Error(err))
 	}
 
 	// Monitora la salute del DB ogni 30 secondi

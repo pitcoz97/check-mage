@@ -58,8 +58,11 @@ type Room struct {
 	ended             bool                // la partita è conclusa: nessuna azione è più accettata
 	mu                sync.Mutex          // protegge lo stato durante il timer
 
-	// Partita amichevole, nata da una sfida diretta: niente ELO (F8).
+	// Partita amichevole, nata da una sfida diretta o contro il bot: niente ELO (F8).
 	Friendly bool
+
+	// Il lato giocato dal bot (bot.go); nil in una partita fra due persone.
+	Bot *botSeat
 
 	// Persistenza dei match live: le scritture partono in goroutine, quindi
 	// vanno ordinate (uno snapshot vecchio non sovrascrive uno nuovo) e nessuna
@@ -80,16 +83,18 @@ type Board struct {
 
 // NewRoom crea e avvia una partita classificata (dalla coda).
 func NewRoom(id string, white, black *Client, baseTime, increment time.Duration) *Room {
-	return newRoom(id, white, black, baseTime, increment, false)
+	return newRoom(id, white, black, baseTime, increment, false, nil)
 }
 
-// newRoom crea e avvia una partita; friendly vale per le sfide dirette (F8).
-func newRoom(id string, white, black *Client, baseTime, increment time.Duration, friendly bool) *Room {
+// newRoom crea e avvia una partita; friendly vale per le sfide dirette (F8) e
+// le partite contro il bot, seat dice quale lato gioca il bot (nil = nessuno).
+func newRoom(id string, white, black *Client, baseTime, increment time.Duration, friendly bool, seat *botSeat) *Room {
 	room := &Room{
 		ID:       id,
 		White:    white,
 		Black:    black,
 		Friendly: friendly,
+		Bot:      seat,
 		Board:    &Board{
 			// FEN iniziale = posizione di partenza degli scacchi
 			FEN:    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -201,6 +206,8 @@ type roomSnapshot struct {
 	ExtraMove *extraMove `json:"extra_move,omitempty"`
 	// Partita amichevole (F8); assente negli snapshot precedenti alle sfide.
 	Friendly bool `json:"friendly,omitempty"`
+	// Il lato del bot, nelle partite contro il bot.
+	Bot *botSeat `json:"bot,omitempty"`
 }
 
 // buildSnapshot cattura lo stato corrente. Va invocata con r.mu tenuto (o in
@@ -226,6 +233,7 @@ func (r *Room) buildSnapshot() roomSnapshot {
 		PosCounts:     r.posCounts,
 		ExtraMove:     r.extra,
 		Friendly:      r.Friendly,
+		Bot:           r.Bot,
 	}
 }
 
@@ -337,6 +345,7 @@ func roomFromSnapshot(snap roomSnapshot) *Room {
 		disconnectedTimer: make(map[int]*time.Timer),
 		posCounts:         snap.PosCounts,
 		Friendly:          snap.Friendly,
+		Bot:               snap.Bot,
 	}
 	if room.posCounts == nil {
 		room.posCounts = make(map[string]int)
@@ -2300,6 +2309,15 @@ func (r *Room) broadcastState() {
 type playerInfo struct {
 	ID       int    `json:"id"`
 	Username string `json:"username"`
+	Bot      string `json:"bot,omitempty"` // livello del bot, se questo lato è il bot
+}
+
+// botLevelOf è il livello del bot se p è il lato del bot, altrimenti "".
+func (r *Room) botLevelOf(p match.Player) string {
+	if r.Bot != nil && r.Bot.Color == p {
+		return string(r.Bot.Level)
+	}
+	return ""
 }
 
 // publicState costruisce lo stato mandato a viewer (nessuna identità di carta in
@@ -2313,8 +2331,8 @@ func (r *Room) publicState(viewer match.Player) map[string]interface{} {
 	options := r.moveOptionsFor(viewer)
 	state := map[string]interface{}{
 		"board":        board,
-		"white_player": playerInfo{ID: r.White.UserID, Username: r.White.Username},
-		"black_player": playerInfo{ID: r.Black.UserID, Username: r.Black.Username},
+		"white_player": playerInfo{ID: r.White.UserID, Username: r.White.Username, Bot: r.botLevelOf(match.PlayerWhite)},
+		"black_player": playerInfo{ID: r.Black.UserID, Username: r.Black.Username, Bot: r.botLevelOf(match.PlayerBlack)},
 		"time_control": map[string]int64{
 			"base_ms":      r.BaseTime.Milliseconds(),
 			"increment_ms": r.Increment.Milliseconds(),
