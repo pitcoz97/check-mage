@@ -6,6 +6,7 @@ import { Collection } from '../screens/Collection/Collection';
 import { Decks } from '../screens/Decks/Decks';
 import { Friends } from '../screens/Friends/Friends';
 import { Register } from '../screens/Auth/Register';
+import { LegalPage } from '../legal/LegalPage';
 import { Lobby } from '../screens/Lobby/Lobby';
 import { Leaderboard } from '../screens/Leaderboard/Leaderboard';
 import { PlayerProfile } from '../screens/Player/PlayerProfile';
@@ -86,6 +87,11 @@ export const routes: RouteObject[] = [
           },
         ],
       },
+      // Documenti legali (P4): pubblici, con o senza account.
+      { path: 'privacy', element: <LegalPage doc="privacy" /> },
+      { path: 'terms', element: <LegalPage doc="terms" /> },
+      { path: 'account-deletion', element: <LegalPage doc="accountDeletion" /> },
+      { path: 'credits', element: <LegalPage doc="credits" /> },
       {
         element: <RequireAuth />,
         children: [

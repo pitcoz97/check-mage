@@ -7,6 +7,7 @@ import { Panel } from '../../design/components/Panel';
 import { Spinner } from '../../design/components/Spinner';
 import { BOARD_THEMES, boardThemeStore, useBoardTheme, type BoardTheme } from '../../game/board/boardTheme';
 import { LanguageSwitch } from '../../i18n/LanguageSwitch';
+import { LegalLinks } from '../../legal/LegalLinks';
 import { useAuth } from '../../store/AuthProvider';
 import { httpErrorMessage } from '../Auth/errorMessage';
 import { RowButton } from '../Friends/FriendRow';
@@ -32,6 +33,12 @@ export function Settings() {
       <Panel className="flex flex-col gap-3 rounded-16 p-4 lg:p-5">
         <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('settings.blocked.title')}</h2>
         <BlockedPlayers />
+      </Panel>
+      <Panel className="flex flex-col gap-3 rounded-16 p-4 lg:p-5">
+        <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('legal.title')}</h2>
+        <div className="[&_ul]:justify-start">
+          <LegalLinks />
+        </div>
       </Panel>
       <Panel className="flex flex-col gap-3 rounded-16 p-4 lg:p-5">
         <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('settings.account')}</h2>

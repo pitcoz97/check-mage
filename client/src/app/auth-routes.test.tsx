@@ -39,6 +39,8 @@ async function renderApp(path: string, serverRoutes: Record<string, Handler>, se
 }
 
 const type = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+/** La casella di età minima, Termini e Informativa (P1): senza, il submit resta disabilitato. */
+const consent = () => fireEvent.click(screen.getByRole('checkbox', { name: /Ho almeno 14 anni/ }));
 
 describe('guardie di rotta', () => {
   it('anonimo su una rotta protetta → login; dopo il login torna alla pagina richiesta', async () => {
@@ -139,6 +141,8 @@ describe('registrazione', () => {
 
     type('Password', 'Password1');
     expect(document.querySelector('[data-check="passwordUppercase"]')?.getAttribute('data-met')).toBe('true');
+    expect(submit.disabled).toBe(true);
+    consent();
     expect(submit.disabled).toBe(false);
   });
 
@@ -151,6 +155,7 @@ describe('registrazione', () => {
     type('Nome utente', '  mario  ');
     type('Email', 'mario@test.it');
     type('Password', 'Password1');
+    consent();
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Crea account' }));
     });
@@ -174,6 +179,7 @@ describe('registrazione', () => {
     type('Nome utente', 'mario');
     type('Email', 'mario@test.it');
     type('Password', 'password12');
+    consent();
     expect((screen.getByRole('button', { name: 'Crea account' }) as HTMLButtonElement).disabled).toBe(false);
     type('Nome utente', 'mario_1');
     expect(document.querySelector('[data-check="usernameChars"]')?.getAttribute('data-met')).toBe('false');
@@ -186,6 +192,7 @@ describe('registrazione', () => {
     type('Nome utente', 'mario');
     type('Email', 'mario@test.it');
     type('Password', 'Password1');
+    consent();
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Crea account' }));
@@ -206,11 +213,53 @@ describe('registrazione', () => {
     type('Nome utente', 'luigi');
     type('Email', 'luigi@test.it');
     type('Password', 'Password1');
+    consent();
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Crea account' }));
     });
     expect(await screen.findByText('Account creato. Accedi per continuare.')).toBeTruthy();
     expect(router.state.location.pathname).toBe('/login');
     expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe('luigi@test.it');
+  });
+});
+
+describe('documenti legali e termini (P1–P4)', () => {
+  it('le pagine legali si aprono senza account e si collegano fra loro', async () => {
+    const { router } = await renderApp('/privacy', {});
+    expect(await screen.findByRole('heading', { level: 1, name: 'Informativa privacy' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Cookie e memoria del dispositivo' })).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('link', { name: 'Cancellazione dell’account' }));
+    });
+    expect(router.state.location.pathname).toBe('/account-deletion');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Cancellazione dell’account' })).toBeTruthy();
+  });
+
+  it('login e registrazione mostrano i collegamenti a Informativa e Termini', async () => {
+    await renderApp('/login', {});
+    await screen.findByRole('heading', { name: 'Accedi' });
+    const links = document.querySelector('[data-legal-links]') as HTMLElement;
+    expect(within(links).getByRole('link', { name: 'Informativa privacy' }).getAttribute('href')).toBe('/privacy');
+    expect(within(links).getByRole('link', { name: 'Termini di servizio' }).getAttribute('href')).toBe('/terms');
+  });
+
+  it('termini cambiati: l’app si ferma finché non li accetti', async () => {
+    const outdated = { ...ACCOUNT, terms_version: 0, terms_current: 1, hide_presence: false };
+    const { server } = await renderApp(
+      '/lobby',
+      {
+        'GET /me': () => data(outdated),
+        'POST /me/terms': () => data({ ...outdated, terms_version: 1 }),
+        'GET /leaderboard': () => data([]),
+      },
+      { accessToken: 'a1', refreshToken: 'r1' },
+    );
+    expect(await screen.findByRole('heading', { name: 'Termini aggiornati' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Bentornato, mario' })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Accetta e continua' }));
+    });
+    expect(await screen.findByRole('heading', { name: 'Bentornato, mario' })).toBeTruthy();
+    expect(server.hits).toContain('POST /me/terms');
   });
 });

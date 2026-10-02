@@ -5,6 +5,7 @@ import {
   encodeLogin,
   encodeRefresh,
   encodeRegister,
+  encodeTermsAcceptance,
   normalizeAccount,
   normalizeBlocks,
   normalizeChallenge,
@@ -69,8 +70,9 @@ function normalizeCatalogList(data: unknown): Normalized<readonly Spell[]> {
 /** Endpoint REST usati dal client (chess-server `api/router.go`). */
 export function createApi(http: HttpClient) {
   return {
-    async register(username: string, email: string, password: string): Promise<ApiResult<Registration>> {
-      return toResult(await http.request('POST', '/auth/register', { body: encodeRegister(username, email, password) }), normalizeRegistration);
+    /** `consented`: termini, informativa ed età minima accettati (P1); il server rifiuta senza. */
+    async register(username: string, email: string, password: string, consented: boolean): Promise<ApiResult<Registration>> {
+      return toResult(await http.request('POST', '/auth/register', { body: encodeRegister(username, email, password, consented) }), normalizeRegistration);
     },
 
     async login(email: string, password: string): Promise<ApiResult<AuthSession>> {
@@ -84,6 +86,11 @@ export function createApi(http: HttpClient) {
 
     async fetchAccount(): Promise<ApiResult<UserAccount>> {
       return toResult(await http.request('GET', '/me', { auth: true }), normalizeAccount);
+    },
+
+    /** Accetta la versione corrente di Informativa e Termini (P2). Risponde con l'account aggiornato. */
+    async acceptTerms(version: number): Promise<ApiResult<UserAccount>> {
+      return toResult(await http.request('POST', '/me/terms', { auth: true, body: encodeTermsAcceptance(version) }), normalizeAccount);
     },
 
     async fetchPublicProfile(userId: string): Promise<ApiResult<PublicProfile>> {

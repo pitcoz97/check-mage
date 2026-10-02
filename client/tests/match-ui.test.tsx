@@ -54,7 +54,7 @@ afterEach(async () => {
 /** Registra un utente sul mock e ne salva la sessione nello storage, come farebbe il login. */
 async function signIn(server: MockServerHandle, name: string, storage: KeyValueStorage): Promise<void> {
   const body = (payload: object) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  await fetch(`${server.httpUrl}/auth/register`, body({ username: name, email: `${name}@ui.test`, password: PASSWORD }));
+  await fetch(`${server.httpUrl}/auth/register`, body({ username: name, email: `${name}@ui.test`, password: PASSWORD, accept_terms: true, age_confirmed: true }));
   const res = await fetch(`${server.httpUrl}/auth/login`, body({ email: `${name}@ui.test`, password: PASSWORD }));
   const json = (await res.json()) as { data: { tokens: { access_token: string; refresh_token: string } } };
   await storage.set('session', JSON.stringify({ accessToken: json.data.tokens.access_token, refreshToken: json.data.tokens.refresh_token }));

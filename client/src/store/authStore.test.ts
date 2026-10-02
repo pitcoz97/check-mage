@@ -84,12 +84,12 @@ describe('authStore', () => {
     const { storage } = memoryStorage();
     const server = fakeServer({ 'POST /auth/register': () => data({ user_id: 7 }), 'POST /auth/login': () => data(LOGIN) });
     const { store } = createAuth({ baseUrl: 'http://api', storage, fetchImpl: server.fetchImpl });
-    expect(await store.getState().register('mario', 'mario@test.it', 'Password1')).toEqual({ ok: true });
+    expect(await store.getState().register('mario', 'mario@test.it', 'Password1', true)).toEqual({ ok: true });
     expect(store.getState().status).toBe('authenticated');
 
     const taken = fakeServer({ 'POST /auth/register': () => fail(409, 'Username o email già in uso') });
     const other = createAuth({ baseUrl: 'http://api', storage: memoryStorage().storage, fetchImpl: taken.fetchImpl });
-    expect(await other.store.getState().register('mario', 'mario@test.it', 'Password1')).toEqual({
+    expect(await other.store.getState().register('mario', 'mario@test.it', 'Password1', true)).toEqual({
       ok: false,
       stage: 'register',
       error: { status: 409, code: 'username_or_email_taken' },
@@ -97,7 +97,7 @@ describe('authStore', () => {
 
     const loginDown = fakeServer({ 'POST /auth/register': () => data({ user_id: 8 }) });
     const third = createAuth({ baseUrl: 'http://api', storage: memoryStorage().storage, fetchImpl: loginDown.fetchImpl });
-    expect(await third.store.getState().register('luigi', 'luigi@test.it', 'Password1')).toMatchObject({ ok: false, stage: 'login' });
+    expect(await third.store.getState().register('luigi', 'luigi@test.it', 'Password1', true)).toMatchObject({ ok: false, stage: 'login' });
   });
 
   it('logout cancella tutto', async () => {

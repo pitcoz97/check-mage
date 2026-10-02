@@ -50,6 +50,7 @@ export const it = {
     submitting: 'Attendi…',
     accountCreatedLoginFailed: 'Account creato. Accedi per continuare.',
     requirements: 'Requisiti',
+    consent: 'Ho almeno {{age}} anni e accetto i Termini di servizio e l’Informativa privacy',
     requirementMet: 'soddisfatto',
     requirementUnmet: 'da completare',
     checks: {
@@ -215,6 +216,22 @@ export const it = {
     phases: 'Si lancia in',
     lockedNote: 'Non hai ancora questa carta.',
     close: 'Chiudi',
+  },
+  legal: {
+    title: 'Informazioni legali',
+    docs: {
+      privacy: 'Informativa privacy',
+      terms: 'Termini di servizio',
+      accountDeletion: 'Cancellazione dell’account',
+      credits: 'Crediti',
+    },
+    gate: {
+      title: 'Termini aggiornati',
+      lead: 'Abbiamo aggiornato Termini di servizio e Informativa privacy. Leggili e accettali per continuare a giocare.',
+      accept: 'Accetta e continua',
+      error: 'Non è stato possibile registrare l’accettazione. Riprova.',
+    },
+    accountDeleted: 'Il tuo account è stato cancellato.',
   },
   settings: {
     title: 'Impostazioni',
@@ -889,6 +906,10 @@ export const it = {
       challenge_target_busy: 'Il giocatore è in partita.',
       challenge_self_busy: 'Sei già in partita.',
       challenge_not_found: 'La sfida non c’è più.',
+      consent_required: 'Per registrarti devi accettare Termini e Informativa e avere almeno 14 anni.',
+      terms_version_invalid: 'I termini sono cambiati di nuovo: ricarica la pagina.',
+      wrong_password: 'Password non corretta.',
+      account_not_found: 'L’account non esiste più.',
       friend_self: 'Non puoi aggiungere te stesso.',
       friend_already: 'Siete già amici.',
       friend_pending: 'Hai già inviato una richiesta.',

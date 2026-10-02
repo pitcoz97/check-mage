@@ -48,6 +48,7 @@ export const en: Translation = {
     submitting: 'Please wait…',
     accountCreatedLoginFailed: 'Account created. Sign in to continue.',
     requirements: 'Requirements',
+    consent: 'I am at least {{age}} years old and accept the Terms of service and the Privacy notice',
     requirementMet: 'met',
     requirementUnmet: 'not met yet',
     checks: {
@@ -213,6 +214,22 @@ export const en: Translation = {
     phases: 'Cast in',
     lockedNote: 'You don’t own this card yet.',
     close: 'Close',
+  },
+  legal: {
+    title: 'Legal information',
+    docs: {
+      privacy: 'Privacy notice',
+      terms: 'Terms of service',
+      accountDeletion: 'Account deletion',
+      credits: 'Credits',
+    },
+    gate: {
+      title: 'Updated terms',
+      lead: 'We updated the Terms of service and Privacy notice. Read and accept them to keep playing.',
+      accept: 'Accept and continue',
+      error: 'Couldn’t record your acceptance. Please try again.',
+    },
+    accountDeleted: 'Your account has been deleted.',
   },
   settings: {
     title: 'Settings',
@@ -870,6 +887,10 @@ export const en: Translation = {
       challenge_target_busy: 'That player is in a game.',
       challenge_self_busy: 'You’re already in a game.',
       challenge_not_found: 'That challenge is gone.',
+      consent_required: 'To sign up you must accept the Terms and Privacy notice and be at least 14.',
+      terms_version_invalid: 'The terms changed again: reload the page.',
+      wrong_password: 'Wrong password.',
+      account_not_found: 'The account no longer exists.',
       friend_self: 'You can’t add yourself.',
       friend_already: 'You’re already friends.',
       friend_pending: 'You already sent a request.',

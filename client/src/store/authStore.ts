@@ -27,11 +27,17 @@ export type RegisterOutcome =
 export interface AuthState {
   readonly status: AuthStatus;
   readonly account: UserAccount | null;
-  readonly notice: 'session_expired' | null;
+  /** Avviso per la pagina di login: sessione scaduta o account appena cancellato (P3). */
+  readonly notice: 'session_expired' | 'account_deleted' | null;
   bootstrap(): Promise<void>;
   login(email: string, password: string): Promise<LoginOutcome>;
-  register(username: string, email: string, password: string): Promise<RegisterOutcome>;
+  /** `consented`: termini, informativa ed età minima accettati alla registrazione (P1). */
+  register(username: string, email: string, password: string, consented: boolean): Promise<RegisterOutcome>;
   logout(): Promise<void>;
+  /** L'account è cambiato da qui (termini accettati, stato nascosto): niente rilettura di `/me`. */
+  setAccount(account: UserAccount): void;
+  /** L'account è stato cancellato: sessione chiusa, avviso sul login (P3). */
+  accountDeleted(): Promise<void>;
   clearNotice(): void;
 }
 
@@ -132,8 +138,8 @@ export function createAuth(deps: { baseUrl: string; storage: KeyValueStorage; fe
       return { ok: true };
     },
 
-    async register(username, email, password) {
-      const created = await api.register(username, email, password);
+    async register(username, email, password, consented) {
+      const created = await api.register(username, email, password, consented);
       if (!created.ok) return { ok: false, stage: 'register', error: created.error };
       const logged = await get().login(email, password);
       return logged.ok ? { ok: true } : { ok: false, stage: 'login', error: logged.error };
@@ -146,6 +152,15 @@ export function createAuth(deps: { baseUrl: string; storage: KeyValueStorage; fe
 
     clearNotice() {
       set({ notice: null });
+    },
+
+    setAccount(account) {
+      set({ account });
+    },
+
+    async accountDeleted() {
+      await saveTokens(null);
+      set({ status: 'anonymous', account: null, notice: 'account_deleted' });
     },
   }));
 

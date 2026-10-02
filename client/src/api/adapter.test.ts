@@ -701,7 +701,7 @@ describe('REST', () => {
       ok: true,
       value: {
         tokens: { accessToken: 'a', refreshToken: 'r' },
-        user: { id: '42', username: 'mario', email: 'mario@test.it', elo: 1200, createdAt: null },
+        user: { id: '42', username: 'mario', email: 'mario@test.it', elo: 1200, createdAt: null, termsVersion: null, termsCurrent: null, hidePresence: false },
       },
       warnings: [],
     });
@@ -894,10 +894,12 @@ describe('REST', () => {
   });
 
   it('encoder dei body', () => {
-    expect(JSON.parse(encodeRegister('mario', 'mario@test.it', 'Password1'))).toEqual({
+    expect(JSON.parse(encodeRegister('mario', 'mario@test.it', 'Password1', true))).toEqual({
       username: 'mario',
       email: 'mario@test.it',
       password: 'Password1',
+      accept_terms: true,
+      age_confirmed: true,
     });
     expect(JSON.parse(encodeLogin('mario@test.it', 'Password1'))).toEqual({ email: 'mario@test.it', password: 'Password1' });
     expect(JSON.parse(encodeRefresh('r'))).toEqual({ refresh_token: 'r' });

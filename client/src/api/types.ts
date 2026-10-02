@@ -12,6 +12,11 @@ export interface UserAccount {
   readonly email: string;
   readonly elo: number;
   readonly createdAt: string | null;
+  /** Versione dei termini accettata e quella corrente (P2); `null` sui server che non le mandano: nessun controllo. */
+  readonly termsVersion: number | null;
+  readonly termsCurrent: number | null;
+  /** Stato online nascosto agli altri (P6). */
+  readonly hidePresence: boolean;
 }
 
 export interface TokenPair {
@@ -232,6 +237,11 @@ export const HTTP_ERROR_CODES = [
   'challenge_target_busy',
   'challenge_self_busy',
   'challenge_not_found',
+  // Privacy (handlers/privacy.go, handlers/auth.go)
+  'consent_required',
+  'terms_version_invalid',
+  'wrong_password',
+  'account_not_found',
   // Amicizie e blocchi (handlers/friendships.go)
   'friend_self',
   'friend_already',

@@ -6,6 +6,7 @@ import { Button } from '../design/components/Button';
 import { Spinner } from '../design/components/Spinner';
 import { useAuth } from '../store/AuthProvider';
 import { PresenceProvider } from '../store/PresenceProvider';
+import { TermsGate } from '../legal/TermsGate';
 import { StatePage } from './StatePage';
 
 /** Stato di navigazione passato al login: pagina da riaprire, email da precompilare, account appena creato. */
@@ -65,11 +66,13 @@ export function RequireAuth() {
     const state: LoginRedirectState = { from: `${location.pathname}${location.search}` };
     return <Navigate to="/login" replace state={state} />;
   }
-  // Presenza e sfide in arrivo valgono in tutta l'app autenticata, partita compresa (F2).
+  // Prima i termini aggiornati (P2), poi l'app: presenza e sfide valgono ovunque, partita compresa (F2).
   return (
-    <PresenceProvider>
-      <Outlet />
-    </PresenceProvider>
+    <TermsGate>
+      <PresenceProvider>
+        <Outlet />
+      </PresenceProvider>
+    </TermsGate>
   );
 }
 

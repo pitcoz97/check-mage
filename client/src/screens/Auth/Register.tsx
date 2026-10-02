@@ -7,6 +7,8 @@ import type { CredentialPolicy, HttpErrorCode, HttpErrorInfo } from '../../api/t
 import type { LoginRedirectState } from '../../app/guards';
 import { Button } from '../../design/components/Button';
 import { TextField } from '../../design/components/TextField';
+import { MINIMUM_AGE } from '../../legal/config';
+import { LEGAL_PATHS } from '../../legal/LegalLinks';
 import { useApi, useAuth } from '../../store/AuthProvider';
 import { allChecksPass, checkCredentials, requiredChecks, type CredentialCheck } from './credentialChecks';
 import { httpErrorMessage } from './errorMessage';
@@ -70,11 +72,13 @@ export function Register() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  /** Età minima, Termini e Informativa (P1): senza, il server rifiuta la registrazione. */
+  const [consented, setConsented] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<HttpErrorInfo | null>(null);
 
   const checks = useMemo(() => checkCredentials(policy, { username, email, password }), [policy, username, email, password]);
-  const ready = allChecksPass(policy, checks);
+  const ready = allChecksPass(policy, checks) && consented;
   const errorField = error === null ? null : fieldOf(error.code);
   const fieldError = (field: Field) => (error !== null && errorField === field ? httpErrorMessage(t, error) : null);
 
@@ -84,7 +88,7 @@ export function Register() {
     setSubmitting(true);
     setError(null);
     // Il server valida lo username dopo il trim ma lo salva così com'è: si invia già ripulito.
-    const outcome = await register(username.trim(), email.trim(), password);
+    const outcome = await register(username.trim(), email.trim(), password, consented);
     if (outcome.ok) return; // la guardia porta in lobby
     if (outcome.stage === 'login') {
       const state: LoginRedirectState = { email: email.trim(), accountCreated: true };
@@ -149,6 +153,27 @@ export function Register() {
           ))}
         </ul>
       </section>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="flex items-start gap-2.5 text-14">
+          <input
+            type="checkbox"
+            name="consent"
+            checked={consented}
+            onChange={(e) => setConsented(e.target.checked)}
+            className="mt-0.5 size-5 shrink-0 accent-play"
+          />
+          <span>{t('auth.consent', { age: MINIMUM_AGE })}</span>
+        </label>
+        <p className="flex gap-3 pl-7.5 text-13 font-semibold">
+          <Link to={LEGAL_PATHS.terms} target="_blank" rel="noreferrer" className="text-accent hover:text-accent-hover">
+            {t('legal.docs.terms')}
+          </Link>
+          <Link to={LEGAL_PATHS.privacy} target="_blank" rel="noreferrer" className="text-accent hover:text-accent-hover">
+            {t('legal.docs.privacy')}
+          </Link>
+        </p>
+      </div>
 
       {error !== null && errorField === null && (
         <p role="alert" className="text-14 text-danger">

@@ -33,7 +33,7 @@ describe('flusso di autenticazione contro il mock', () => {
 
   it('registrazione con login automatico', async () => {
     const tab = newTab();
-    expect(await tab.store.getState().register('flusso_e2e', 'flusso@e2e.test', 'Password1')).toEqual({ ok: true });
+    expect(await tab.store.getState().register('flusso_e2e', 'flusso@e2e.test', 'Password1', true)).toEqual({ ok: true });
     expect(tab.store.getState()).toMatchObject({ status: 'authenticated', account: { username: 'flusso_e2e', elo: 1200 } });
     expect(map.size).toBe(1);
   });

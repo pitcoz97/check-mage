@@ -4,6 +4,7 @@ import { Outlet } from 'react-router';
 import { LogoMark } from '../design/components/AppIcon';
 import { Panel } from '../design/components/Panel';
 import { LanguageSwitch } from '../i18n/LanguageSwitch';
+import { LegalLinks } from '../legal/LegalLinks';
 
 /**
  * Layout di login e registrazione (briefing §7.1): una card centrata, niente distrazioni. Non è nelle tavole: prende
@@ -23,8 +24,9 @@ export function AuthLayout() {
       <Panel className="w-full max-w-sm rounded-16 p-6 lg:p-7">
         <Outlet />
       </Panel>
-      <div className="w-full max-w-sm">
+      <div className="flex w-full max-w-sm flex-col gap-3">
         <LanguageSwitch showLabel={false} />
+        <LegalLinks exclude={['accountDeletion']} newTab />
       </div>
     </div>
   );

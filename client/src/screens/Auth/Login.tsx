@@ -48,6 +48,11 @@ export function Login() {
           {t('session.expired')}
         </InfoBox>
       )}
+      {notice === 'account_deleted' && error === null && (
+        <InfoBox role="status" data-account-deleted>
+          {t('legal.accountDeleted')}
+        </InfoBox>
+      )}
       {state.accountCreated === true && error === null && (
         <InfoBox role="status">
           {t('auth.accountCreatedLoginFailed')}
