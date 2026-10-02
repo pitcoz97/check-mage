@@ -266,6 +266,7 @@ export const PROTOCOL_ERROR_CODES = [
   'challenge_declined',
   'challenge_expired',
   'challenge_unavailable',
+  'bot_unavailable',
   'not_your_turn',
   'wrong_phase',
   'illegal_move',

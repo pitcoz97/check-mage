@@ -477,6 +477,12 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
     if (!Number.isInteger(id)) return fail(res, 400, HTTP.invalidId);
     const name = (userId: number) => users.findAny(userId)?.username ?? '';
     const deleted = (userId: number) => users.findAny(userId)?.deleted === true;
+    const botLevel = (userId: number) => users.findAny(userId)?.botLevel ?? null;
+    const bots = (g: { whiteId: number; blackId: number }) => {
+      const white = botLevel(g.whiteId);
+      const black = botLevel(g.blackId);
+      return { ...(white === null ? {} : { white_bot: white }), ...(black === null ? {} : { black_bot: black }) };
+    };
     ok(
       res,
       users.gamesOf(id).map((g) => ({
@@ -492,6 +498,7 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
         rated: g.rated,
         white_deleted: deleted(g.whiteId),
         black_deleted: deleted(g.blackId),
+        ...bots(g),
       })),
     );
   });

@@ -500,6 +500,7 @@ export const en: Translation = {
       challenge_declined: 'The challenge was declined.',
       challenge_expired: 'The challenge expired.',
       challenge_unavailable: 'The challenge is no longer available.',
+      bot_unavailable: 'The bot is not available right now.',
       not_your_turn: 'It is not your turn.',
       wrong_phase: 'Action not allowed during the {{phase}} phase.',
       illegal_move: 'Invalid move.',

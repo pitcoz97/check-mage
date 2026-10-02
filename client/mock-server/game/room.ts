@@ -80,6 +80,8 @@ export const CLOSE_REPLACED = 4001;
 export const CLOSE_DECK_INVALID = 4002;
 /** `CloseChallenge` (`client.go`): la sfida attesa non partirà più; il codice è nell'errore (F6). */
 export const CLOSE_CHALLENGE = 4003;
+/** `CloseBot` (`client.go`): la partita contro il bot non può partire (`bot_unavailable`). */
+export const CLOSE_BOT = 4004;
 
 /** `NullMove` (`room.go:37`): mossa consumata da uno scudo, `--` nel PGN. */
 export const NULL_MOVE = '0000';
@@ -100,8 +102,10 @@ export interface RoomOptions {
   /** `room.go:1280-1281`. */
   tickMs?: number;
   broadcastMs?: number;
-  /** Partita amichevole, nata da una sfida diretta: `friendly` in `game_state`, niente ELO (F8). */
+  /** Partita amichevole, nata da una sfida diretta o contro il bot: `friendly` in `game_state`, niente ELO (F8). */
   friendly?: boolean;
+  /** Il lato giocato dal bot e il suo livello (`Room.Bot`, `game/bot.go`): `bot` nel giocatore di `game_state`. */
+  bot?: { level: string; color: Color };
   /** Equivale alla goroutine di `announceEnd`: `SaveGame` + `RemoveRoom` (`room.go:1246-1256`). */
   onEnded?: (room: Room, result: GameResult, reason: string) => void;
 }
@@ -1372,13 +1376,19 @@ export class Room {
   }
 
   /** `publicState(viewer)` (`room.go`): lo stato visto da `viewer`, senza le rune nascoste dell'avversario. */
+  /** `botLevelOf` (`room.go`): `{bot}` se quel lato è il bot. */
+  private botField(color: Color): { bot?: string } {
+    const bot = this.options.bot;
+    return bot !== undefined && bot.color === color ? { bot: bot.level } : {};
+  }
+
   publicState(viewer: Color): Record<string, unknown> {
     const { white, black } = this.match;
     const effectsView = this.playerEffectsFor(viewer);
     return {
       board: { fen: this.board.fen, moves: [...this.board.moves], turn: this.board.turn, status: this.board.status },
-      white_player: { id: this.white.userId, username: this.white.username },
-      black_player: { id: this.black.userId, username: this.black.username },
+      white_player: { id: this.white.userId, username: this.white.username, ...this.botField('white') },
+      black_player: { id: this.black.userId, username: this.black.username, ...this.botField('black') },
       time_control: { base_ms: this.options.baseTimeMs, increment_ms: this.options.incrementMs },
       white_time: Math.round(this.whiteTime),
       black_time: Math.round(this.blackTime),

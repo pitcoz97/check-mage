@@ -502,6 +502,7 @@ export const it = {
       challenge_declined: 'La sfida è stata rifiutata.',
       challenge_expired: 'La sfida è scaduta.',
       challenge_unavailable: 'La sfida non è più disponibile.',
+      bot_unavailable: 'Il bot non è disponibile in questo momento.',
       not_your_turn: 'Non è il tuo turno.',
       wrong_phase: 'Azione non consentita nella fase {{phase}}.',
       illegal_move: 'Mossa non valida.',
