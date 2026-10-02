@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { LEGAL_CONFIG, unfilledPlaceholders, type LegalConfig } from './config';
+import { unfilledPlaceholders, type LegalConfig } from './config';
 import { LEGAL_DOCS } from './types';
 import { legalTexts } from './useLegal';
 
@@ -37,7 +37,8 @@ describe('testi legali (P4)', () => {
   });
 
   it('i segnaposto vanno compilati prima di pubblicare', () => {
-    expect(unfilledPlaceholders(LEGAL_CONFIG).length).toBeGreaterThan(0);
+    const blank: LegalConfig = { ...filled, owner: '[NOME E COGNOME]', contactEmail: '[EMAIL DI CONTATTO]' };
+    expect(unfilledPlaceholders(blank)).toEqual(['[NOME E COGNOME]', '[EMAIL DI CONTATTO]']);
     expect(unfilledPlaceholders(filled)).toEqual([]);
     expect(unfilledPlaceholders({ ...filled, hosting: { kind: 'home' }, owner: ' ' })).toEqual([' ']);
   });

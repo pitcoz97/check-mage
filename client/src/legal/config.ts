@@ -25,9 +25,9 @@ export interface LegalConfig {
 }
 
 export const LEGAL_CONFIG: LegalConfig = {
-  owner: '[NOME E COGNOME]',
-  contactEmail: '[EMAIL DI CONTATTO]',
-  hosting: { kind: 'vps', provider: '[PROVIDER DELLA VPS]', country: '[PAESE DEL DATACENTER]' },
+  owner: 'Riccardo Picozzi',
+  contactEmail: 'info@check-mage.com',
+  hosting: { kind: 'home' },
   effectiveDate: '2026-10-02',
 };
 
