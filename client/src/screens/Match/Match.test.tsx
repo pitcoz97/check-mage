@@ -407,6 +407,14 @@ describe('schermata di partita', () => {
     expect(screen.getAllByText('Hai perso').length).toBeGreaterThan(0);
     expect(document.querySelector('[data-outcome]')?.getAttribute('data-outcome')).toBe('loss');
     expect(screen.getAllByText('Abbandono.').length).toBeGreaterThan(0);
+    // Desktop: il riepilogo è in cima alla colonna laterale, al posto del pannello del turno; mana e azioni spariscono.
+    const side = document.querySelector('[data-region="side"]') as HTMLElement;
+    expect(side.firstElementChild?.getAttribute('data-outcome')).toBe('loss');
+    expect(side.querySelector('[data-turn]')).toBeNull();
+    expect(side.querySelector('[data-action="pass"]')).toBeNull();
+    // Android: fasi e suggerimento lasciano il posto al riepilogo e lo schermo può scorrere.
+    expect(document.querySelector('[data-region="phases-mobile"]')).toBeNull();
+    expect(document.querySelector('[data-over]')?.getAttribute('data-over')).toBe('true');
     fireEvent.click(first('button', 'Torna alla lobby'));
     expect(await screen.findByRole('heading', { name: 'Lobby' })).toBeTruthy();
     expect(await storage.get('active-match')).toBeNull();

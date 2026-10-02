@@ -187,6 +187,7 @@ function MatchScreen() {
   const flash = useSpellFlash();
   return (
     <MatchLayout
+      over={outcome !== null}
       nav={<MatchRail />}
       banner={<ConnectionBanner />}
       opponent={<PlayerRow side="opponent" />}
@@ -201,8 +202,9 @@ function MatchScreen() {
           </div>
         )
       }
-      turn={<TurnPanel hint={<HintBox casting={casting} notice={notice} variant="panel" />} />}
-      mana={<ManaPanel />}
+      // A partita finita il riepilogo prende il posto del pannello del turno, in cima alla colonna: sempre visibile.
+      turn={outcome === null ? <TurnPanel hint={<HintBox casting={casting} notice={notice} variant="panel" />} /> : <OutcomePanel outcome={outcome} />}
+      mana={outcome === null ? <ManaPanel /> : null}
       tabs={<SideTabs className="grow" />}
       actions={
         outcome === null ? (
@@ -210,9 +212,7 @@ function MatchScreen() {
             <PassButton />
             <SecondaryActions />
           </>
-        ) : (
-          <OutcomePanel outcome={outcome} />
-        )
+        ) : null
       }
       phasesCompact={
         <>
