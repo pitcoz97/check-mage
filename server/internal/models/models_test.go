@@ -107,9 +107,11 @@ func TestUser(t *testing.T) {
 
 func TestRegisterRequest(t *testing.T) {
 	req := RegisterRequest{
-		Username: "newuser",
-		Email:    "new@example.com",
-		Password: "password123",
+		Username:     "newuser",
+		Email:        "new@example.com",
+		Password:     "password123",
+		AcceptTerms:  true,
+		AgeConfirmed: true,
 	}
 
 	data, err := json.Marshal(req)
@@ -117,7 +119,7 @@ func TestRegisterRequest(t *testing.T) {
 		t.Fatalf("Failed to marshal RegisterRequest: %v", err)
 	}
 
-	expected := `{"username":"newuser","email":"new@example.com","password":"password123"}`
+	expected := `{"username":"newuser","email":"new@example.com","password":"password123","accept_terms":true,"age_confirmed":true}`
 	if string(data) != expected {
 		t.Errorf("JSON = %v, want %v", string(data), expected)
 	}
