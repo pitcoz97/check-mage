@@ -20,9 +20,10 @@ func TestRoomSnapshot_RoundTrip(t *testing.T) {
 		Black:             placeholderClient(2, "bob"),
 		Board:             &Board{FEN: fen, Moves: []string{"e2e4"}, Turn: "black", Status: "active"},
 		Match:             match.New(99),
-		WhiteTime:         3 * time.Minute,
-		BlackTime:         4 * time.Minute,
-		Increment:         5 * time.Second,
+		MainTime:          90 * time.Second,
+		MoveTime:          120 * time.Second,
+		PhaseLeft:         42 * time.Second,
+		strikes:           map[match.Player]int{match.PlayerBlack: 2},
 		posCounts:         map[string]int{"foo": 2},
 		disconnectedTimer: map[int]*time.Timer{},
 	}
@@ -33,6 +34,7 @@ func TestRoomSnapshot_RoundTrip(t *testing.T) {
 	orig.Match.ActivePlayer = match.PlayerBlack
 	orig.Match.White.Mana = 2
 	orig.Match.White.Hand = []string{"frost", "shield"}
+	orig.phaseKey = orig.currentPhaseKey() // 42 s rimasti in questa main2
 	// Un effetto persistente su un pezzo nero.
 	if err := effects.FreezePiece(orig.Tracker, "e7", effects.White, 2, "frost"); err != nil {
 		t.Fatalf("setup freeze fallito: %v", err)
@@ -60,9 +62,15 @@ func TestRoomSnapshot_RoundTrip(t *testing.T) {
 		t.Errorf("board non preservata: %s %s", got.Board.FEN, got.Board.Turn)
 	}
 
-	// Tempi.
-	if got.WhiteTime != 3*time.Minute || got.BlackTime != 4*time.Minute || got.Increment != 5*time.Second {
-		t.Errorf("tempi non preservati: %v %v %v", got.WhiteTime, got.BlackTime, got.Increment)
+	// Tempi: la fase in corso riprende dal tempo che le restava, con le scadenze di fila.
+	if got.MainTime != 90*time.Second || got.MoveTime != 120*time.Second {
+		t.Errorf("tempi per fase non preservati: %v %v", got.MainTime, got.MoveTime)
+	}
+	got.mu.Lock()
+	left := got.syncedPhaseLeft()
+	got.mu.Unlock()
+	if left != 42*time.Second || got.strikes[match.PlayerBlack] != 2 {
+		t.Errorf("fase in corso: %v rimasti, %d scadenze", left, got.strikes[match.PlayerBlack])
 	}
 
 	// Stato del match.

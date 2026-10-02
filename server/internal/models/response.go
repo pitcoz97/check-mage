@@ -26,6 +26,7 @@ const (
 	MsgDrawOfferSent        = "draw_offer_sent"
 	MsgOpponentReconnected  = "opponent_reconnected"
 	MsgTimerUpdate          = "timer_update"
+	MsgPhaseTimeout         = "phase_timeout" // il tempo di una fase è scaduto: {player, phase, strikes}
 	MsgResign               = "resign"
 
 	// Fasi del turno (scacchi + magie)

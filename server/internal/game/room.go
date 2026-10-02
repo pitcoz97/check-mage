@@ -45,10 +45,11 @@ type Room struct {
 	Board             *Board              // stato della scacchiera (scacchi puri)
 	Match             *match.State        // orchestrazione fasi/turno (scacchi + magie)
 	Tracker           *effects.Tracker    // identità pezzi + effetti persistenti (freeze/shield)
-	WhiteTime         time.Duration       // tempo rimanente bianco
-	BlackTime         time.Duration       // tempo rimanente nero
-	BaseTime          time.Duration       // tempo iniziale per giocatore (time control)
-	Increment         time.Duration       // incremento per mossa (es. 5 secondi)
+	MainTime          time.Duration       // tempo di una fase Magie (main1, main2)
+	MoveTime          time.Duration       // tempo della fase Mossa
+	PhaseLeft         time.Duration       // tempo rimasto al giocatore attivo nella fase corrente (clock.go)
+	phaseKey          string              // turno, giocatore e fase a cui vale PhaseLeft
+	strikes           map[match.Player]int // fasi Magie scadute di fila, per giocatore
 	timerStop         chan struct{}       // canale per fermare il timer
 	drawOfferer       *Client             // chi ha offerto la patta (nil se nessuna offerta)
 	disconnectedTimer map[int]*time.Timer // userID -> timer di disconnessione
@@ -81,14 +82,15 @@ type Board struct {
 	Status string   `json:"status"` // vedi le costanti Status*
 }
 
-// NewRoom crea e avvia una partita classificata (dalla coda).
-func NewRoom(id string, white, black *Client, baseTime, increment time.Duration) *Room {
-	return newRoom(id, white, black, baseTime, increment, false, nil)
+// NewRoom crea e avvia una partita classificata (dalla coda), coi tempi per fase
+// delle fasi Magie e della Mossa.
+func NewRoom(id string, white, black *Client, mainTime, moveTime time.Duration) *Room {
+	return newRoom(id, white, black, mainTime, moveTime, false, nil)
 }
 
 // newRoom crea e avvia una partita; friendly vale per le sfide dirette (F8) e
 // le partite contro il bot, seat dice quale lato gioca il bot (nil = nessuno).
-func newRoom(id string, white, black *Client, baseTime, increment time.Duration, friendly bool, seat *botSeat) *Room {
+func newRoom(id string, white, black *Client, mainTime, moveTime time.Duration, friendly bool, seat *botSeat) *Room {
 	room := &Room{
 		ID:       id,
 		White:    white,
@@ -103,10 +105,9 @@ func newRoom(id string, white, black *Client, baseTime, increment time.Duration,
 			Status: StatusActive,
 		},
 		Match:             match.NewWithDecks(time.Now().UnixNano(), white.Deck, black.Deck), // draw / turno 1 / Bianco, mazzi attivi mischiati
-		WhiteTime:         baseTime,
-		BlackTime:         baseTime,
-		BaseTime:          baseTime,
-		Increment:         increment,
+		MainTime:          mainTime,
+		MoveTime:          moveTime,
+		strikes:           map[match.Player]int{},
 		timerStop:         make(chan struct{}),
 		disconnectedTimer: make(map[int]*time.Timer),
 		posCounts:         make(map[string]int),
@@ -193,10 +194,11 @@ type roomSnapshot struct {
 	Moves       []string                  `json:"moves"`
 	Turn        string                    `json:"turn"`
 	Status      string                    `json:"status"`
-	WhiteTimeMs int64                     `json:"white_time_ms"`
-	BlackTimeMs int64                     `json:"black_time_ms"`
-	BaseTimeMs  int64                     `json:"base_time_ms,omitempty"`
-	IncrementMs int64                     `json:"increment_ms"`
+	MainTimeMs  int64                     `json:"main_time_ms,omitempty"`
+	MoveTimeMs  int64                     `json:"move_time_ms,omitempty"`
+	PhaseLeftMs int64                     `json:"phase_left_ms,omitempty"`
+	PhaseKey    string                    `json:"phase_key,omitempty"`
+	Strikes     map[match.Player]int      `json:"strikes,omitempty"`
 	Match       match.Snapshot            `json:"match"`
 	Effects     []effects.PieceEffectInfo `json:"effects"`
 	PosCounts   map[string]int            `json:"pos_counts"`
@@ -223,10 +225,11 @@ func (r *Room) buildSnapshot() roomSnapshot {
 		Moves:         r.Board.Moves,
 		Turn:          r.Board.Turn,
 		Status:        r.Board.Status,
-		WhiteTimeMs:   r.WhiteTime.Milliseconds(),
-		BlackTimeMs:   r.BlackTime.Milliseconds(),
-		BaseTimeMs:    r.BaseTime.Milliseconds(),
-		IncrementMs:   r.Increment.Milliseconds(),
+		MainTimeMs:    r.MainTime.Milliseconds(),
+		MoveTimeMs:    r.MoveTime.Milliseconds(),
+		PhaseLeftMs:   r.PhaseLeft.Milliseconds(),
+		PhaseKey:      r.phaseKey,
+		Strikes:       r.strikes,
 		Match:         r.Match.Snapshot(),
 		Effects:       r.Tracker.ActiveEffects(),
 		SquareEffects: r.Tracker.SquareEffects(),
@@ -322,9 +325,16 @@ func placeholderClient(userID int, username string) *Client {
 // roomFromSnapshot ricostruisce una room dormiente dallo stato persistito. Non
 // avvia il timer né fa broadcast: il timer parte al primo reconnect.
 func roomFromSnapshot(snap roomSnapshot) *Room {
-	baseTime := time.Duration(snap.BaseTimeMs) * time.Millisecond
-	if baseTime == 0 && config.C != nil {
-		baseTime = config.C.DefaultBaseTime // snapshot salvati prima del campo base_time_ms
+	// Snapshot precedenti al tempo per fase: i tempi della configurazione, la fase riparte dal tempo pieno.
+	mainTime := time.Duration(snap.MainTimeMs) * time.Millisecond
+	moveTime := time.Duration(snap.MoveTimeMs) * time.Millisecond
+	if config.C != nil {
+		if mainTime == 0 {
+			mainTime = config.C.PhaseTimeMain
+		}
+		if moveTime == 0 {
+			moveTime = config.C.PhaseTimeMove
+		}
 	}
 	room := &Room{
 		ID:    snap.RoomID,
@@ -337,10 +347,11 @@ func roomFromSnapshot(snap roomSnapshot) *Room {
 			Status: snap.Status,
 		},
 		Match:             match.FromSnapshot(snap.Match),
-		WhiteTime:         time.Duration(snap.WhiteTimeMs) * time.Millisecond,
-		BlackTime:         time.Duration(snap.BlackTimeMs) * time.Millisecond,
-		BaseTime:          baseTime,
-		Increment:         time.Duration(snap.IncrementMs) * time.Millisecond,
+		MainTime:          mainTime,
+		MoveTime:          moveTime,
+		PhaseLeft:         time.Duration(snap.PhaseLeftMs) * time.Millisecond,
+		phaseKey:          snap.PhaseKey,
+		strikes:           snap.Strikes,
 		timerStop:         make(chan struct{}),
 		disconnectedTimer: make(map[int]*time.Timer),
 		posCounts:         snap.PosCounts,
@@ -349,6 +360,9 @@ func roomFromSnapshot(snap roomSnapshot) *Room {
 	}
 	if room.posCounts == nil {
 		room.posCounts = make(map[string]int)
+	}
+	if room.strikes == nil {
+		room.strikes = map[match.Player]int{}
 	}
 	if room.Board.Moves == nil {
 		room.Board.Moves = []string{}
@@ -543,17 +557,6 @@ func (r *Room) handleMove(sender *Client, move string) {
 			zap.String("room", r.ID), zap.String("square", captured))
 	}
 
-	// Il tempo scorre in tempo reale in runTimer (keyato su match.ActivePlayer);
-	// qui aggiungiamo solo l'incremento per la mossa completata (una volta per
-	// turno: la seconda mossa di Fretta non lo raddoppia).
-	if !secondMove {
-		if senderColor == "white" {
-			r.WhiteTime += r.Increment
-		} else {
-			r.BlackTime += r.Increment
-		}
-	}
-
 	if shieldAbsorbed {
 		// Nessun pezzo si muove: consuma lo scudo e passa il turno (null move
 		// sulla FEN: cambia solo il lato al tratto).
@@ -619,8 +622,7 @@ func (r *Room) handleMove(sender *Client, move string) {
 		zap.String("player", sender.Username),
 		zap.String("move", move),
 		zap.Bool("shield_absorbed", shieldAbsorbed),
-		zap.Duration("white_time", r.WhiteTime.Round(time.Second)),
-		zap.Duration("black_time", r.BlackTime.Round(time.Second)),
+		zap.Duration("phase_left", r.PhaseLeft.Round(time.Second)),
 	)
 
 	status := r.gameStatus()
@@ -703,7 +705,20 @@ func (r *Room) handleMove(sender *Client, move string) {
 
 // handlePassPhase gestisce il passaggio volontario alla fase successiva.
 func (r *Room) handlePassPhase(sender *Client) {
+	r.passPhase(sender, "")
+}
+
+// passPhase passa la fase di sender. Con timeoutKey non vuota è lo scadere del
+// tempo di quella fase (clock.go): se nel frattempo la fase è cambiata non fa
+// nulla, e le scadenze non si azzerano. Un passa volontario in una fase Magie
+// azzera le scadenze di fila del giocatore.
+func (r *Room) passPhase(sender *Client, timeoutKey string) {
 	r.mu.Lock()
+
+	if timeoutKey != "" && (r.ended || r.currentPhaseKey() != timeoutKey) {
+		r.mu.Unlock()
+		return
+	}
 
 	if r.ended {
 		r.mu.Unlock()
@@ -728,6 +743,10 @@ func (r *Room) handlePassPhase(sender *Client) {
 		sender.sendErr(gameerr.Newf(gameerr.WrongPhase, "Non puoi passare nella fase %s", r.Match.CurrentPhase).
 			With("phase", r.Match.CurrentPhase))
 		return
+	}
+
+	if timeoutKey == "" && r.isMainPhase() {
+		r.resetStrikes(senderColor)
 	}
 
 	// Passa la fase, poi auto-avanza le fasi che non richiedono input.
@@ -789,6 +808,7 @@ func (r *Room) handleCastSpell(sender *Client, spellID string, targets []string,
 		return
 	}
 
+	r.resetStrikes(senderColor) // ha agito: le scadenze di fila ricominciano
 	boardChanged, drawnCards := outcome.changed, outcome.drawn
 	graveyards := r.graveyardUpdates(outcome.graves)
 	if boardChanged {
@@ -2139,8 +2159,8 @@ func (r *Room) PGN() string {
 
 // TimeControl restituisce il time control nel formato "minuti+secondi" (es. "10+5").
 func (r *Room) TimeControl() string {
-	return strconv.FormatFloat(r.BaseTime.Minutes(), 'f', -1, 64) + "+" +
-		strconv.FormatFloat(r.Increment.Seconds(), 'f', -1, 64)
+	main := strconv.FormatFloat(r.MainTime.Seconds(), 'f', -1, 64)
+	return main + "/" + strconv.FormatFloat(r.MoveTime.Seconds(), 'f', -1, 64) + "/" + main
 }
 
 // gameEnd è l'esito di una partita appena conclusa, catturato sotto lock e
@@ -2222,75 +2242,6 @@ func (r *Room) announceEnd(end *gameEnd) {
 	)
 }
 
-// runTimer fa scorrere in tempo reale il tempo del giocatore ATTIVO
-// (match.ActivePlayer, non il lato al tratto degli scacchi) e termina la partita
-// se scade. È l'unica autorità sul tempo: il tempo del giocatore attivo scorre
-// per tutto il suo turno (tutte le fasi), non solo durante la mossa. Scala il
-// tempo realmente trascorso, così i tick persi (lock occupato durante una
-// chiamata a Stockfish) non regalano tempo.
-func (r *Room) runTimer() {
-	tickGame := time.NewTicker(100 * time.Millisecond)
-	tickBroadcast := time.NewTicker(1 * time.Second)
-	defer tickGame.Stop()
-	defer tickBroadcast.Stop()
-
-	last := time.Now()
-	for {
-		select {
-		case <-r.timerStop:
-			return
-
-		case now := <-tickGame.C:
-			elapsed := now.Sub(last)
-			last = now
-
-			r.mu.Lock()
-			if r.ended {
-				r.mu.Unlock()
-				return
-			}
-			var end *gameEnd
-			if r.Match.ActivePlayer == match.PlayerWhite {
-				r.WhiteTime -= elapsed
-				if r.WhiteTime <= 0 {
-					r.WhiteTime = 0
-					end = r.finishLocked(models.ResultBlackWins, "timeout", StatusTimeout)
-				}
-			} else {
-				r.BlackTime -= elapsed
-				if r.BlackTime <= 0 {
-					r.BlackTime = 0
-					end = r.finishLocked(models.ResultWhiteWins, "timeout", StatusTimeout)
-				}
-			}
-			r.mu.Unlock()
-
-			if end != nil {
-				r.broadcastTimers()
-				r.broadcastState()
-				r.announceEnd(end)
-				return
-			}
-
-		case <-tickBroadcast.C:
-			r.broadcastTimers()
-		}
-	}
-}
-
-// broadcastTimers manda solo i tempi aggiornati ai client. "turn" è il giocatore
-// attivo (di chi sta scorrendo il tempo), non il lato al tratto degli scacchi.
-func (r *Room) broadcastTimers() {
-	r.mu.Lock()
-	white, black, active := r.WhiteTime.Milliseconds(), r.BlackTime.Milliseconds(), r.Match.ActivePlayer
-	r.mu.Unlock()
-	r.Broadcast(models.MsgTimerUpdate, map[string]interface{}{
-		"white_time": white,
-		"black_time": black,
-		"turn":       active,
-	})
-}
-
 // broadcastState manda a ciascun giocatore lo stato completo inclusi i tempi,
 // visto da lui (le rune nascoste dell'avversario non ci sono). Va invocata SENZA r.mu.
 func (r *Room) broadcastState() {
@@ -2334,11 +2285,12 @@ func (r *Room) publicState(viewer match.Player) map[string]interface{} {
 		"white_player": playerInfo{ID: r.White.UserID, Username: r.White.Username, Bot: r.botLevelOf(match.PlayerWhite)},
 		"black_player": playerInfo{ID: r.Black.UserID, Username: r.Black.Username, Bot: r.botLevelOf(match.PlayerBlack)},
 		"time_control": map[string]int64{
-			"base_ms":      r.BaseTime.Milliseconds(),
-			"increment_ms": r.Increment.Milliseconds(),
+			"main_ms": r.MainTime.Milliseconds(),
+			"move_ms": r.MoveTime.Milliseconds(),
 		},
-		"white_time":      r.WhiteTime.Milliseconds(),
-		"black_time":      r.BlackTime.Milliseconds(),
+		"phase_time":      r.syncedPhaseLeft().Milliseconds(),
+		"white_timeouts":  r.strikes[match.PlayerWhite],
+		"black_timeouts":  r.strikes[match.PlayerBlack],
 		"phase":           r.Match.CurrentPhase,
 		"active_player":   r.Match.ActivePlayer,
 		"turn_number":     r.Match.TurnNumber,

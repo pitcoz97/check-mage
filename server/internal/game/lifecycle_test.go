@@ -30,10 +30,9 @@ func newTestRoom(fen string) (*Room, *Client, *Client) {
 		Board:             &Board{FEN: fen, Moves: []string{}, Turn: sideToMove(fen), Status: StatusActive},
 		Match:             match.New(1),
 		Tracker:           effects.NewTracker(fen),
-		WhiteTime:         10 * time.Minute,
-		BlackTime:         10 * time.Minute,
-		BaseTime:          10 * time.Minute,
-		Increment:         5 * time.Second,
+		MainTime:          90 * time.Second,
+		MoveTime:          120 * time.Second,
+		strikes:           map[match.Player]int{},
 		timerStop:         make(chan struct{}),
 		disconnectedTimer: map[int]*time.Timer{},
 		posCounts:         map[string]int{},
@@ -127,11 +126,12 @@ func TestFinishLocked_Idempotent(t *testing.T) {
 	}
 }
 
-// Il timeout chiude la partita con lo status "timeout".
+// Il tempo della mossa scaduto chiude la partita con lo status "timeout".
 func TestTimerTimeout(t *testing.T) {
 	resetManager()
 	room, _, black := newTestRoom(startFEN)
-	room.WhiteTime = 150 * time.Millisecond
+	room.Match.CurrentPhase = phase.PhaseMove
+	room.MoveTime = 150 * time.Millisecond
 	room.mu.Lock()
 	room.ensureTimer()
 	room.mu.Unlock()
@@ -200,9 +200,10 @@ func TestPublicState_PlayersAndTimeControl(t *testing.T) {
 		WhitePlayer playerInfo `json:"white_player"`
 		BlackPlayer playerInfo `json:"black_player"`
 		TimeControl struct {
-			BaseMs      int64 `json:"base_ms"`
-			IncrementMs int64 `json:"increment_ms"`
+			MainMs int64 `json:"main_ms"`
+			MoveMs int64 `json:"move_ms"`
 		} `json:"time_control"`
+		PhaseTime int64 `json:"phase_time"`
 	}
 	if err := json.Unmarshal(data, &st); err != nil {
 		t.Fatal(err)
@@ -210,11 +211,14 @@ func TestPublicState_PlayersAndTimeControl(t *testing.T) {
 	if st.WhitePlayer != (playerInfo{ID: 1, Username: "alice"}) || st.BlackPlayer != (playerInfo{ID: 2, Username: "bob"}) {
 		t.Errorf("giocatori = %+v / %+v", st.WhitePlayer, st.BlackPlayer)
 	}
-	if st.TimeControl.BaseMs != 600000 || st.TimeControl.IncrementMs != 5000 {
+	if st.TimeControl.MainMs != 90000 || st.TimeControl.MoveMs != 120000 {
 		t.Errorf("time_control = %+v", st.TimeControl)
 	}
-	if room.TimeControl() != "10+5" {
-		t.Errorf("TimeControl() = %s, atteso 10+5", room.TimeControl())
+	if st.PhaseTime != 90000 {
+		t.Errorf("phase_time = %d, atteso il tempo pieno della fase (90000)", st.PhaseTime)
+	}
+	if room.TimeControl() != "90/120/90" {
+		t.Errorf("TimeControl() = %s, atteso 90/120/90", room.TimeControl())
 	}
 }
 

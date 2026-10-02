@@ -28,8 +28,8 @@ type Config struct {
 	ServerPort string
 
 	// Game
-	DefaultBaseTime  time.Duration
-	DefaultIncrement time.Duration
+	PhaseTimeMain    time.Duration // tempo di una fase Magie (main1, main2)
+	PhaseTimeMove    time.Duration // tempo della fase Mossa
 	ReconnectTimeout time.Duration
 
 	// Rate limiting
@@ -67,8 +67,8 @@ func Load() {
 
 		ServerPort: getEnv("SERVER_PORT", "8080"),
 
-		DefaultBaseTime:  getDuration("DEFAULT_BASE_TIME", 10*time.Minute),
-		DefaultIncrement: getDuration("DEFAULT_INCREMENT", 5*time.Second),
+		PhaseTimeMain:    getDuration("PHASE_TIME_MAIN", 90*time.Second),
+		PhaseTimeMove:    getDuration("PHASE_TIME_MOVE", 120*time.Second),
 		ReconnectTimeout: getDuration("RECONNECT_TIMEOUT", 30*time.Second),
 
 		RateGeneral: getFloat("RATE_GENERAL", 10),

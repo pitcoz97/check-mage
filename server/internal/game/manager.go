@@ -85,8 +85,8 @@ func (m *Manager) JoinQueue(client *Client) bool {
 		roomID,
 		opponent,
 		client,
-		config.C.DefaultBaseTime,
-		config.C.DefaultIncrement,
+		config.C.PhaseTimeMain,
+		config.C.PhaseTimeMove,
 	)
 	m.rooms[roomID] = room
 
