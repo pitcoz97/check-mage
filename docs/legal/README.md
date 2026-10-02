@@ -7,7 +7,7 @@ una tantum.
 
 | File | A cosa serve | Si pubblica? |
 |---|---|---|
-| [`client/src/legal/config.ts`](../../client/src/legal/config.ts) | Titolare, email, hosting, data: gli unici valori da compilare | Sì (finisce nelle pagine) |
+| [`client/src/legal/config.ts`](../../client/src/legal/config.ts) | Titolare, email e dove arriva la posta, hosting, data: gli unici valori da compilare | Sì (finisce nelle pagine) |
 | [`client/src/legal/texts.it.ts`](../../client/src/legal/texts.it.ts), [`texts.en.ts`](../../client/src/legal/texts.en.ts) | Informativa privacy, Termini, cancellazione dell'account, Crediti | Sì (`/privacy`, `/terms`, `/account-deletion`, `/credits`) |
 | [`REGISTRO-TRATTAMENTI.md`](REGISTRO-TRATTAMENTI.md) | Registro delle attività di trattamento (art. 30 GDPR) | No: lo tieni tu, da mostrare al Garante se lo chiede |
 | [`DATA-BREACH.md`](DATA-BREACH.md) | Cosa fare se qualcuno entra nel server | No |
@@ -22,6 +22,10 @@ Fai i passi in ordine. Il build del deploy si rifiuta di partire finché il punt
 2. **Compila [`client/src/legal/config.ts`](../../client/src/legal/config.ts):**
    - `owner`: il tuo nome e cognome (o la ragione sociale, se un giorno ci sarà una società);
    - `contactEmail`: l'email del punto 1;
+   - `contactMail`, dove arriva quella posta:
+     - inoltro con Cloudflare Email Routing a Gmail: `{ kind: 'cloudflare-gmail' }`;
+     - casella di un provider: `{ kind: 'mailbox', provider: 'Aruba S.p.A.', country: 'Italia' }`, con il nome legale
+       del provider e il paese dei server;
    - `hosting`:
      - VPS: `{ kind: 'vps', provider: 'Hetzner Online GmbH', country: 'Germania' }`, con il nome legale del provider
        e il paese del datacenter;
