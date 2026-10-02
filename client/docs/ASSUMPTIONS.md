@@ -455,3 +455,25 @@ I riferimenti sono al server di quel branch.
 | S33 | Senza `others`, `incoming`, `outgoing`, `max_friends` (server precedente) le liste sono vuote e il limite è 200; senza `friend_requests` il badge è 0. | Compatibilità. | `adapter.ts` |
 | S34 | La relazione nel profilo e a fine partita si ricava dalla lista degli amici (amico, ricevuta, inviata, altrimenti nessuna); i bloccati da `GET /me/blocks`. | Nessuna rotta dedicata. | `useFriends.ts`, `useBlocks.ts` |
 | S35 | Una relazione o uno stato sconosciuti valgono «nessuna» e «offline»; un risultato malformato si scarta. | Come il catalogo (G10). | `adapter.ts` |
+
+## 12. Privacy e conformità (`feat/privacy`)
+
+### Decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| P1 | Alla registrazione una casella obbligatoria: almeno 14 anni (D.Lgs. 101/2018) e accettazione di Termini e Informativa; il server rifiuta senza e salva versione e data. | tu + derivata |
+| P2 | Quando i testi cambiano in modo sostanziale si alza la versione (client e server insieme): al primo accesso l'app si ferma su «Termini aggiornati» finché l'utente non accetta o esce. | tu |
+| P3 | Cancellazione dell'account dalle Impostazioni, con la password: dati collegati eliminati, utente reso anonimo; le partite restano agli avversari come «Giocatore eliminato». Fuori dalle partite. Nessuna cancellazione automatica degli inattivi. | tu + derivata |
+| P4 | Informativa privacy (con memoria locale e cookie: solo tecnici, nessun banner), Termini, cancellazione dell'account e Crediti come pagine pubbliche (`/privacy`, `/terms`, `/account-deletion`, `/credits`), in italiano e inglese, generate da `src/legal/config.ts`. Il deploy si rifiuta di costruire con i segnaposto. | tu + derivata |
+| P5 | «Scarica i miei dati»: JSON con account, collezione salvata, mazzi, tutte le partite, amicizie e bloccati; sul web un file, su Android negli appunti (i download della WebView non arrivano all'utente). | tu + derivata |
+| P6 | «Nascondi il mio stato online»: agli altri sempre offline, quindi niente sfide. | tu |
+| P7 | L'hosting nell'informativa è configurabile: VPS (provider e paese) o casa (Cloudflare, EU-US DPF). | tu |
+| P8 | I log delle richieste non contengono la query string (niente token). | derivata |
+| P9 | I testi sono bozze da far rileggere a un professionista; la lista di controllo prima della pubblicazione è `docs/legal/README.md`. | derivata |
+
+### Assunzioni del client
+| # | Assunzione | Motivo | Dove |
+|---|---|---|---|
+| S36 | Senza `terms_version`/`terms_current` (server precedente) non si controllano i termini; senza `hide_presence` lo stato è visibile; senza `white_deleted`/`black_deleted` nessuno è cancellato. | Compatibilità. | `adapter.ts` |
+| S37 | L'esportazione si consegna così com'è (un oggetto qualsiasi, impaginato): non si interpreta, si controlla solo che sia un oggetto. | Sono dati da dare all'utente, non da mostrare. | `adapter.ts` |
+| S38 | I testi legali stanno in `src/legal/texts.*.ts` e non nelle risorse i18n: sono documenti, scelti secondo la lingua dell'app. | Lunghi e con valori della configurazione. | `useLegal.ts` |

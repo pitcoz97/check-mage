@@ -329,3 +329,16 @@ Verifica: `go build ./... && go vet ./... && go test ./...`; con il server avvia
 | 6 | `POST /me/presence` porta `friend_requests`; le sfide richiedono amicizia vera quando `AllFriends` è spento | Badge sulla voce Amici |
 
 Verifica: `go build ./... && go vet ./... && go test ./...`; con il server avviato, `npm run e2e:challenge -- --http http://localhost:8080 --ws ws://localhost:8080/ws` dal client (23 controlli).
+
+## 21. Privacy e conformità
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | Colonne `users.deleted_at`, `terms_version`, `terms_accepted_at`, `hide_presence` (`db.EnsurePrivacySchema` allo startup, e in `init.sql`) | — |
+| 2 | Registrazione con `accept_terms` e `age_confirmed` obbligatori; `/me` e login con `terms_version`, `terms_current`, `hide_presence`; `POST /me/terms` | Casella in registrazione, riaccettazione |
+| 3 | `DELETE /me {password}`: cancella i dati collegati e rende anonimo l'utente; spariscono da classifica, amici e ricerca; storico con `white_deleted`/`black_deleted` | «Elimina account», «Giocatore eliminato» |
+| 4 | `GET /me/export`: tutti i dati dell'utente | «Scarica i miei dati» |
+| 5 | `PUT /me/privacy {hide_presence}`: appare offline e non riceve sfide | Interruttore nelle Impostazioni |
+| 6 | Log delle richieste senza query string | — |
+
+Verifica: `go build ./... && go vet ./... && go test ./...`. Per cambiare i testi legali: alzare insieme `TermsVersion` (`internal/handlers/privacy.go`) e `TERMS_VERSION` (`client/src/legal/config.ts`).

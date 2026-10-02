@@ -3,13 +3,19 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**`feat/friendships` (da rivedere):** amicizie vere, ricerca e blocchi, con «tutti sfidabili» ancora acceso (ASSUMPTIONS
-§11, A1–A10). In `main`: catalogo, collezione, mazzi, carte sbloccate per ora (C12), deploy (`docs/DEPLOY.md`,
-`docs/DEPLOY-CASA.md`), amici, presenza e sfide amichevoli. Decisioni in `docs/ASSUMPTIONS.md` §7–§11. Il redesign (R1–R6) è unito in `main`.
+**`feat/privacy` (da rivedere):** privacy e conformità: consenso ed età, riaccettazione dei termini, pagine legali,
+cancellazione dell'account, esportazione, stato nascosto (ASSUMPTIONS §12, P1–P9; lista di controllo in
+`docs/legal/README.md`). In `main`: catalogo, collezione, mazzi, carte sbloccate per ora (C12), deploy, amici, sfide
+amichevoli, amicizie vere e blocchi. Decisioni in `docs/ASSUMPTIONS.md` §7–§12. Il redesign (R1–R6) è unito in `main`.
 Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
 eseguibile).
 
 ## Completo
+- **Privacy e conformità:** server con consenso obbligatorio, versioni dei termini, `DELETE /me` (anonimizzazione),
+  `GET /me/export`, stato nascosto, log senza query string. Mock allineato. Client: pagine legali pubbliche da
+  `src/legal/config.ts`, casella in registrazione, «Termini aggiornati», sezione Privacy nelle Impostazioni, «Giocatore
+  eliminato» nello storico; `npm run legal:check` blocca il deploy con i segnaposto. Documenti in `docs/legal/`. 711
+  test.
 - **Amicizie vere:** server con `friend_links` e `user_blocks`, richieste (incrociata = amicizia), accetta, rifiuta,
   annulla, rimuovi, limiti 200/50, ricerca per nome, blocco e sblocco; `GET /me/friends` con amici, altri giocatori
   (finché `AllFriends`), richieste; `friend_requests` nella presenza. Mock allineato. Client: pagina Amici con

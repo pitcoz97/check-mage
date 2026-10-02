@@ -379,6 +379,13 @@ Per salvare: **Ctrl+O**, poi **Invio**. Per uscire: **Ctrl+X**.
 > più a collegarsi al database (vedi [Problemi comuni](#13-problemi-comuni)). Cambiare `JWT_SECRET` invece va bene:
 > semplicemente tutti dovranno rifare il login.
 
+### 8.3 I documenti legali
+
+Prima di andare online, l'informativa privacy e i termini devono indicare chi gestisce il gioco e come contattarlo.
+Segui la lista di controllo in [`docs/legal/README.md`](legal/README.md): in breve, compila
+`client/src/legal/config.ts` (nome, email, provider della VPS) **sul tuo computer**, fai il commit e il push, poi
+sulla VPS `git pull`. Finché ci sono segnaposto, il passo 9 si ferma con il messaggio «Documenti legali non pronti».
+
 ---
 
 ## 9. Avviare tutto

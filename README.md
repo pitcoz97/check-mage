@@ -42,5 +42,6 @@ Tutto il necessario per una VPS Linux (Postgres, server, sito, HTTPS automatico)
 - Modifiche al server fatte per il client: [`server/docs/SERVER-CHANGES.md`](server/docs/SERVER-CHANGES.md)
 - Catalogo magie e roadmap: [`client/docs/BRIEFING-MAGIE.md`](client/docs/BRIEFING-MAGIE.md)
 - Stato del lavoro: [`client/docs/PROGRESS.md`](client/docs/PROGRESS.md)
+- Privacy e documenti legali, da leggere prima di andare online: [`docs/legal/README.md`](docs/legal/README.md)
 
 Dettagli di ciascuna parte nei rispettivi README e `CLAUDE.md`.

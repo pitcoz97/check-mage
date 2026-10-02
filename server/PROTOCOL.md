@@ -566,6 +566,37 @@ sfide aperte dei due giocatori si chiudono con `challenge_unavailable`.
 
 `GET /users/{id}/games` porta anche `white_id`, `black_id` e `rated`.
 
+## Account e privacy
+
+| Rotta | Corpo | Risposta |
+|---|---|---|
+| `POST /auth/register` | `{username, email, password, accept_terms: true, age_confirmed: true}` | `{user_id}` |
+| `GET /me` (e `user` nel login) | — | `{id, username, email, elo, created_at, terms_version, terms_current, terms_accepted_at?, hide_presence}` |
+| `POST /me/terms` | `{version}` | l'account, come `GET /me` |
+| `PUT /me/privacy` | `{hide_presence}` | l'account |
+| `DELETE /me` | `{password}` | `{success: true}` |
+| `GET /me/export` | — | `{exported_at, account, collection, decks, games, friends, blocked}` |
+
+- **Consenso:** senza `accept_terms` e `age_confirmed` la registrazione risponde `400 «Devi accettare i termini e
+  confermare di avere almeno 14 anni»`.
+- **Termini:** `terms_current` è la versione corrente (`handlers.TermsVersion`). Se `terms_version` è più bassa, il
+  client chiede di riaccettare con `POST /me/terms`; una versione diversa da quella corrente riceve `409 «Versione
+  dei termini non valida»`.
+- **Stato nascosto:** con `hide_presence` l'utente appare sempre `offline` agli altri, e le sfide verso di lui
+  rispondono «Il giocatore non è online».
+- **Cancellazione:**
+  - errori: `403 «Password non corretta»`, oppure `409 «Sei già in partita»` con una partita attiva;
+  - cosa toglie: mazzi, collezione, amicizie, richieste, blocchi e partite in corso salvate; chiude anche le sfide
+    aperte;
+  - l'utente diventa anonimo: `username "#eliminato-<id>"`, email non valida, password vuota;
+  - le partite restano: `GET /users/{id}/games` porta `white_deleted` e `black_deleted`;
+  - dopo: un utente cancellato non compare in classifica, amici e ricerca, e `GET /users/{id}` e `GET /me`
+    rispondono `404` («Account non trovato»); login e refresh falliscono.
+- **Esportazione:** la collezione è quella salvata (non quella sbloccata da `UnlockAllCards`), le partite sono tutte,
+  `friends` è la lista di `GET /me/friends` senza gli altri giocatori.
+- **Log:** il logger delle richieste non scrive la query string, quindi un `?token=` o `?ticket=` non finisce nei
+  log.
+
 ## Limiti noti
 
 - Le partite in corso sono persistite in Postgres: un riavvio del server non le
