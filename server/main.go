@@ -80,6 +80,13 @@ func main() {
 	}
 	defer engine.SF.Shutdown()
 
+	// Motore del bot: un processo a parte. Senza, si gioca lo stesso ma non contro il bot.
+	if err := engine.InitBot(); err != nil {
+		logger.L.Error("Errore avvio Stockfish del bot: partite contro il bot non disponibili", zap.Error(err))
+	} else {
+		defer engine.Bot.Shutdown()
+	}
+
 	router := api.NewRouter()
 	server := &http.Server{
 		Addr:         ":" + config.C.ServerPort,

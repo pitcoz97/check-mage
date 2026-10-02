@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -163,18 +164,84 @@ func (e *Engine) BestMove(fen string, depth int) string {
 	e.send(positionFromFEN(fen))
 
 	e.send(fmt.Sprintf("go depth %d", depth))
-	lines := e.readUntil("bestmove")
+	return parseBestMove(e.readUntil("bestmove"))
+}
 
-	// L'ultima riga è "bestmove e2e4 ponder e7e5"
+// parseBestMove estrae la mossa dalla riga "bestmove e2e4 ponder e7e5"; "" se
+// manca o se non ci sono mosse ("bestmove (none)").
+func parseBestMove(lines []string) string {
 	for _, line := range lines {
 		if strings.HasPrefix(line, "bestmove") {
 			parts := strings.Fields(line)
-			if len(parts) >= 2 {
+			if len(parts) >= 2 && parts[1] != "(none)" {
 				return parts[1]
 			}
 		}
 	}
 	return ""
+}
+
+// Bot è il processo Stockfish riservato al bot avversario (nil se non è
+// partito): è separato da SF, così il tempo di pensiero del bot non blocca la
+// validazione delle mosse nelle altre partite.
+var Bot *Engine
+
+// InitBot avvia il motore del bot.
+func InitBot() error {
+	e := &Engine{}
+	if err := initEngine(e); err != nil {
+		return err
+	}
+	Bot = e
+	return nil
+}
+
+// Search sono i limiti di una ricerca del bot.
+type Search struct {
+	Skill    int           // Skill Level di Stockfish: 0 (il più debole) – 20 (piena forza)
+	Depth    int           // profondità massima; 0 = nessun limite di profondità
+	MoveTime time.Duration // tempo massimo; 0 = nessun limite di tempo
+	Only     []string      // mosse fra cui scegliere (searchmoves); vuoto = tutte
+}
+
+// defaultSearchDepth limita una ricerca senza né profondità né tempo.
+const defaultSearchDepth = 10
+
+// searchCommand costruisce il comando "go" di una ricerca. searchmoves va in
+// fondo: tutto ciò che lo segue è letto come una mossa.
+func searchCommand(s Search) string {
+	cmd := "go"
+	if s.Depth > 0 {
+		cmd += fmt.Sprintf(" depth %d", s.Depth)
+	}
+	if s.MoveTime > 0 {
+		cmd += fmt.Sprintf(" movetime %d", s.MoveTime.Milliseconds())
+	}
+	if s.Depth <= 0 && s.MoveTime <= 0 {
+		cmd += fmt.Sprintf(" depth %d", defaultSearchDepth)
+	}
+	if len(s.Only) > 0 {
+		cmd += " searchmoves " + strings.Join(s.Only, " ")
+	}
+	return cmd
+}
+
+// skillLevel riporta lo Skill Level nell'intervallo accettato da Stockfish.
+func skillLevel(skill int) int {
+	return min(max(skill, 0), 20)
+}
+
+// BestMoveWith è la mossa scelta dal motore con i limiti di s. Lo Skill Level
+// si imposta a ogni ricerca, perché lo stesso processo serve tutti i livelli.
+// Ritorna "" se il motore non risponde o non ha mosse.
+func (e *Engine) BestMoveWith(fen string, s Search) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.send(fmt.Sprintf("setoption name Skill Level value %d", skillLevel(s.Skill)))
+	e.send(positionFromFEN(fen))
+	e.send(searchCommand(s))
+	return parseBestMove(e.readUntil("bestmove"))
 }
 
 // Shutdown chiude il processo Stockfish
