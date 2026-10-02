@@ -133,8 +133,8 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
 ### P2-21 — Funzioni del design mostrate come «Presto»
 - **Stato:** aperta, **da decidere insieme** (decisione di prodotto prima che di contratto) · **Priorità:** P2
 - **Perché:** il redesign mostra funzioni che il server non ha. Nel client sono visibili ma disattivate, senza dati
-  finti: modalità **amichevole** e **contro bot** (oggi una sola coda classificata, `game/manager.go:31`; Stockfish è
-  usato solo per le regole, `game/room.go:446`), **notifiche**, **chat** di partita. La **collezione**
+  finti: modalità **amichevole** (oggi la coda è solo classificata, `game/manager.go:31`), **notifiche**, **chat** di
+  partita. Le partite **contro il bot** ci sono (`feat/bot`, `game/bot.go`, ASSUMPTIONS §13). La **collezione**
   (`GET /me/collection`), i **mazzi** (`/me/decks`) e **amici e sfida diretta** (`feat/friends`: per ora tutti amici,
   sfide amichevoli) e le **amicizie vere** con blocco (`feat/friendships`) ci sono; mancano i modi per ottenere carte.
 - **Nel client:** nessun aggiramento. Le **cadenze** del design non sono incluse: per decisione di prodotto il gioco

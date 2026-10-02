@@ -3,14 +3,18 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**`feat/privacy` (da rivedere):** privacy e conformità: consenso ed età, riaccettazione dei termini, pagine legali,
-cancellazione dell'account, esportazione, stato nascosto (ASSUMPTIONS §12, P1–P9; lista di controllo in
-`docs/legal/README.md`). In `main`: catalogo, collezione, mazzi, carte sbloccate per ora (C12), deploy, amici, sfide
-amichevoli, amicizie vere e blocchi. Decisioni in `docs/ASSUMPTIONS.md` §7–§12. Il redesign (R1–R6) è unito in `main`.
+**`feat/bot` (da rivedere):** partite contro il bot con tre livelli, magie a regole, amichevoli nello storico, colore
+scelto dal giocatore (ASSUMPTIONS §13, B1–B8). In `main`: catalogo, collezione, mazzi, carte sbloccate per ora (C12),
+deploy, amici, sfide amichevoli, amicizie vere e blocchi, privacy e documenti legali (`docs/legal/README.md`).
+Decisioni in `docs/ASSUMPTIONS.md` §7–§13. Il redesign (R1–R6) è unito in `main`.
 Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
 eseguibile).
 
 ## Completo
+- **Bot:** server con un secondo Stockfish (`engine.Bot`), livelli e regole delle magie in `internal/bot`, `/ws?bot=`
+  (`game/bot.go`), account `#bot-<livello>` nascosti, `white_bot`/`black_bot` nello storico. Mock allineato (mosse
+  senza motore, S40). Client: «Contro il bot» nella card Gioca con livello e colore ricordati, «Bot · livello» in
+  partita e nello storico, «Gioca ancora». 734 test, `e2e:bot` 32/32 sul mock.
 - **Privacy e conformità:** server con consenso obbligatorio, versioni dei termini, `DELETE /me` (anonimizzazione),
   `GET /me/export`, stato nascosto, log senza query string. Mock allineato. Client: pagine legali pubbliche da
   `src/legal/config.ts`, casella in registrazione, «Termini aggiornati», sezione Privacy nelle Impostazioni, «Giocatore

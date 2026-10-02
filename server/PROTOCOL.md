@@ -597,6 +597,30 @@ sfide aperte dei due giocatori si chiudono con `challenge_unavailable`.
 - **Log:** il logger delle richieste non scrive la query string, quindi un `?token=` o `?ticket=` non finisce nei
   log.
 
+## Partite contro il bot
+
+`/ws?bot=<livello>&color=white|black|random` (con il ticket come sempre) avvia subito una partita **amichevole** contro
+il server. `color` è il colore del giocatore; qualunque altro valore, o niente, è casuale.
+
+| Livello | Mosse (`engine.Bot`, un secondo Stockfish) | Magie (`internal/bot`, a regole) |
+|---|---|---|
+| `base` | Skill 0, profondità 1, una mossa a caso il 30% delle volte | metà delle volte una magia a caso, con bersagli validi |
+| `intermediate` | Skill 8, profondità 6 | la candidata col punteggio più alto, se vale almeno 0,3 «pedoni» |
+| `advanced` | Skill 20, 600 ms | solo se il punteggio supera il mana speso (0,35 per mana) |
+
+- **Avvio:** come `JoinChallenge`: prima la riconnessione a una partita in corso, poi il mazzo attivo (`deck_invalid`,
+  4002), poi la stanza `bot-<id>`. Un livello sconosciuto, o il motore del bot non avviato, ricevono
+  `error {code: "bot_unavailable"}` e la chiusura **4004**.
+- **`game_state`:** il giocatore del bot porta `bot: "<livello>"` (`white_player` o `black_player`), con
+  `username` `#bot-<livello>`, che il client non mostra. `friendly: true` come nelle sfide.
+- **Il bot:** gioca tramite `HandleMessage`, con le stesse regole di un giocatore; sceglie solo fra le mosse ammesse
+  dalle magie (`searchmoves`), non ritenta nella stessa fase una magia o una mossa rifiutate, salta la seconda mossa
+  di Fretta, rifiuta le patte. Aspetta 0,6–1,5 s prima di ogni azione; il suo orologio scorre come quello di tutti.
+- **Account:** uno per livello (`users.bot_level`), senza accesso e nascosto da classifica, profilo (`404`), ricerca e
+  amici. Lo stesso livello gioca più partite insieme: il bot non è mai «in partita».
+- **Storico:** `GET /users/{id}/games` porta `white_bot` o `black_bot` (il livello) sul lato del bot; `rated: false`.
+- **Riavvio:** lo snapshot salva `bot: {level, color}`; il bot riparte quando il giocatore rientra.
+
 ## Limiti noti
 
 - Le partite in corso sono persistite in Postgres: un riavvio del server non le
