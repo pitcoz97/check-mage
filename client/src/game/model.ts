@@ -87,9 +87,17 @@ export interface SquareEffects {
   readonly effects: readonly ActiveEffect[];
 }
 
+// `bot/levels.go`: i livelli del bot avversario, dal più facile.
+export const BOT_LEVELS = ['base', 'intermediate', 'advanced'] as const;
+export type BotLevel = (typeof BOT_LEVELS)[number];
+/** Il bot di un lato: il livello, o `unknown` per un livello che il client non conosce (si mostra solo «Bot»). */
+export type BotIdentity = BotLevel | 'unknown';
+
 export interface PlayerRef {
   readonly id: UserId;
   readonly username: Username;
+  /** Il livello, se questo lato è il bot (`game_state.*_player.bot`): il nome si mostra tradotto, mai l'username. */
+  readonly bot?: BotIdentity;
 }
 
 /** Identità dei giocatori (`game/room.go:1365-1366`): il colore del giocatore si ricava confrontando gli id con `/me`. */
@@ -266,6 +274,7 @@ export const PROTOCOL_ERROR_CODES = [
   'challenge_declined',
   'challenge_expired',
   'challenge_unavailable',
+  'bot_unavailable',
   'not_your_turn',
   'wrong_phase',
   'illegal_move',

@@ -3,6 +3,7 @@ package handlers
 import (
 	"chess-server/internal/db"
 	"chess-server/internal/models"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -17,7 +18,7 @@ func Leaderboard(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.DB.Query(`
         SELECT id, username, elo
         FROM users
-        WHERE deleted_at IS NULL
+        WHERE deleted_at IS NULL AND bot_level IS NULL
         ORDER BY elo DESC
         LIMIT 10
     `)
@@ -75,7 +76,9 @@ func GameHistory(w http.ResponseWriter, r *http.Request) {
             g.played_at,
             g.rated,
             w.deleted_at IS NOT NULL AS white_deleted,
-            b.deleted_at IS NOT NULL AS black_deleted
+            b.deleted_at IS NOT NULL AS black_deleted,
+            w.bot_level,
+            b.bot_level
         FROM games g
         JOIN users w ON w.id = g.white_id
         JOIN users b ON b.id = g.black_id
@@ -104,12 +107,17 @@ func GameHistory(w http.ResponseWriter, r *http.Request) {
 		// Il giocatore ha cancellato l'account: il client mostra «Giocatore eliminato» (P3).
 		WhiteDeleted bool `json:"white_deleted"`
 		BlackDeleted bool `json:"black_deleted"`
+		// Livello del bot, se quel lato è il bot: il client mostra «Bot · livello».
+		WhiteBot string `json:"white_bot,omitempty"`
+		BlackBot string `json:"black_bot,omitempty"`
 	}
 
 	games := make([]GameEntry, 0) // [] e non null se vuota
 	for rows.Next() {
 		var g GameEntry
-		rows.Scan(&g.ID, &g.WhiteID, &g.BlackID, &g.White, &g.Black, &g.Result, &g.TimeControl, &g.PGN, &g.PlayedAt, &g.Rated, &g.WhiteDeleted, &g.BlackDeleted)
+		var whiteBot, blackBot sql.NullString
+		rows.Scan(&g.ID, &g.WhiteID, &g.BlackID, &g.White, &g.Black, &g.Result, &g.TimeControl, &g.PGN, &g.PlayedAt, &g.Rated, &g.WhiteDeleted, &g.BlackDeleted, &whiteBot, &blackBot)
+		g.WhiteBot, g.BlackBot = whiteBot.String, blackBot.String
 		games = append(games, g)
 	}
 
@@ -136,7 +144,7 @@ func GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	err = db.DB.QueryRow(`
         SELECT id, username, elo, created_at
-        FROM users WHERE id = $1 AND deleted_at IS NULL`, userID,
+        FROM users WHERE id = $1 AND deleted_at IS NULL AND bot_level IS NULL`, userID,
 	).Scan(&user.ID, &user.Username, &user.Elo, &user.CreatedAt)
 
 	if err != nil {

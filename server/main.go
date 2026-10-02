@@ -2,6 +2,7 @@ package main
 
 import (
 	"chess-server/internal/api"
+	"chess-server/internal/bot"
 	"chess-server/internal/config"
 	"chess-server/internal/db"
 	"chess-server/internal/engine"
@@ -62,6 +63,13 @@ func main() {
 	if err := db.EnsurePrivacySchema(); err != nil {
 		logger.L.Error("Errore aggiornamento schema users (privacy)", zap.Error(err))
 	}
+	// Account dei bot: colonna bot_level, nascosti da tutti gli elenchi
+	if err := db.EnsureBotSchema(); err != nil {
+		logger.L.Error("Errore aggiornamento schema users (bot)", zap.Error(err))
+	}
+	if err := db.EnsureBotAccounts(bot.LevelNames()); err != nil {
+		logger.L.Error("Errore creazione account dei bot", zap.Error(err))
+	}
 
 	// Monitora la salute del DB ogni 30 secondi
 	go func() {
@@ -79,6 +87,13 @@ func main() {
 		logger.L.Fatal("Errore avvio Stockfish DB", zap.Error(err))
 	}
 	defer engine.SF.Shutdown()
+
+	// Motore del bot: un processo a parte. Senza, si gioca lo stesso ma non contro il bot.
+	if err := engine.InitBot(); err != nil {
+		logger.L.Error("Errore avvio Stockfish del bot: partite contro il bot non disponibili", zap.Error(err))
+	} else {
+		defer engine.Bot.Shutdown()
+	}
 
 	router := api.NewRouter()
 	server := &http.Server{

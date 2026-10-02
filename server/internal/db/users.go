@@ -11,7 +11,7 @@ import (
 )
 
 // L'elenco degli utenti per amici, ricerca e sfide (F1, A5): solo id, nome ed
-// ELO, mai gli utenti cancellati (P3). Senza DB (test) gli utenti vivono in memoria.
+// ELO, mai gli utenti cancellati (P3) né i bot. Senza DB (test) gli utenti vivono in memoria.
 
 // UserSummary è l'identità pubblica di un utente.
 type UserSummary struct {
@@ -81,14 +81,14 @@ func scanUsers(rows *sql.Rows, err error) ([]UserSummary, error) {
 func (pgUserDirectory) ListUsers(exclude, first []int, limit int) ([]UserSummary, error) {
 	return scanUsers(DB.Query(`
 		SELECT id, username, elo FROM users
-		WHERE NOT (id = ANY($1)) AND deleted_at IS NULL
+		WHERE NOT (id = ANY($1)) AND deleted_at IS NULL AND bot_level IS NULL
 		ORDER BY (id = ANY($2)) DESC, lower(username), id
 		LIMIT $3`, pq.Array(nonNil(exclude)), pq.Array(nonNil(first)), limit))
 }
 
 func (pgUserDirectory) User(id int) (UserSummary, bool, error) {
 	var u UserSummary
-	err := DB.QueryRow(`SELECT id, username, elo FROM users WHERE id = $1 AND deleted_at IS NULL`, id).Scan(&u.ID, &u.Username, &u.Elo)
+	err := DB.QueryRow(`SELECT id, username, elo FROM users WHERE id = $1 AND deleted_at IS NULL AND bot_level IS NULL`, id).Scan(&u.ID, &u.Username, &u.Elo)
 	if errors.Is(err, sql.ErrNoRows) {
 		return UserSummary{}, false, nil
 	}
@@ -102,14 +102,14 @@ func (pgUserDirectory) UsersByIDs(ids []int) ([]UserSummary, error) {
 	if len(ids) == 0 {
 		return []UserSummary{}, nil
 	}
-	return scanUsers(DB.Query(`SELECT id, username, elo FROM users WHERE id = ANY($1) AND deleted_at IS NULL`, pq.Array(ids)))
+	return scanUsers(DB.Query(`SELECT id, username, elo FROM users WHERE id = ANY($1) AND deleted_at IS NULL AND bot_level IS NULL`, pq.Array(ids)))
 }
 
 func (pgUserDirectory) Search(q string, exclude []int, limit int) ([]UserSummary, error) {
 	// strpos e starts_with invece di LIKE: niente caratteri jolly da proteggere (l'underscore è nei nomi).
 	return scanUsers(DB.Query(`
 		SELECT id, username, elo FROM users
-		WHERE strpos(lower(username), lower($1)) > 0 AND NOT (id = ANY($2)) AND deleted_at IS NULL
+		WHERE strpos(lower(username), lower($1)) > 0 AND NOT (id = ANY($2)) AND deleted_at IS NULL AND bot_level IS NULL
 		ORDER BY starts_with(lower(username), lower($1)) DESC, lower(username), id
 		LIMIT $3`, q, pq.Array(nonNil(exclude)), limit))
 }

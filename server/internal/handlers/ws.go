@@ -100,13 +100,16 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 		DeckInvalid: !valid,
 	}
 
-	// JoinQueue (o JoinChallenge, con ?challenge=<id>: sfida diretta, F7)
+	// JoinQueue (o JoinChallenge, con ?challenge=<id>: sfida diretta, F7; o
+	// JoinBot, con ?bot=<livello>&color=…: partita contro il bot)
 	// decide se è una nuova partita o una riconnessione
 	// In caso di nuova partita avvia le goroutine qui
 	// In caso di riconnessione le avvia Reconnect()
 	var reconnected bool
 	if challengeID := r.URL.Query().Get("challenge"); challengeID != "" {
 		reconnected = game.GameManager.JoinChallenge(client, challengeID)
+	} else if level := r.URL.Query().Get("bot"); level != "" {
+		reconnected = game.GameManager.JoinBot(client, level, r.URL.Query().Get("color"))
 	} else {
 		reconnected = game.GameManager.JoinQueue(client)
 	}

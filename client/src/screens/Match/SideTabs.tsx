@@ -2,6 +2,7 @@ import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { PlayedMove } from '../../game/model';
+import { playerName } from '../../game/playerName';
 import { useCatalog } from '../../spells/CatalogProvider';
 import { spellName, spellText } from '../../spells/texts';
 import { useMatch } from '../../store/MatchProvider';
@@ -144,7 +145,7 @@ function MoveList() {
             {row.spell.targets.length > 0 && <span className="text-muted">→ {row.spell.targets.join(' ')}</span>}
             <span className="grow" />
             <span className="text-12 text-faint">
-              {row.spell.player === myColor ? t('match.you') : (players?.[row.spell.player].username ?? t('match.opponent'))}
+              {row.spell.player === myColor ? t('match.you') : players === null ? t('match.opponent') : playerName(t, players[row.spell.player])}
             </span>
           </li>
         ),

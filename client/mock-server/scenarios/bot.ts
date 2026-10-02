@@ -3,7 +3,9 @@ import { legalMoves } from '../game/engine';
 import { parsePlacement, squareName, type Color } from '../game/fen';
 import type { GameClient, Room } from '../game/room';
 import { validateTargets } from '../game/targets';
+import type { Rng } from '../util';
 import type { WireClientType, WireServerMessage } from '../wire';
+import { chooseMove, chooseSpell, MAX_CASTS_PER_PHASE, type BotLevel } from './botPolicy';
 
 export interface BotBehavior {
   /** Mosse da provare in ordine; se una non è legale si ripiega sulla prima mossa legale. */
@@ -16,6 +18,11 @@ export interface BotBehavior {
   declineDrawsBeforeAccepting?: number;
   /** Dopo N mosse proprie: si disconnette (`leave`) oppure fa "riavviare il server". */
   afterMoves?: { count: number; action: 'disconnect' | 'restart'; returnAfterMs: number | null };
+  /**
+   * Partita contro il bot (`/ws?bot=`): mosse e magie secondo il livello (`botPolicy.ts`), patte sempre rifiutate.
+   * Ha la precedenza su `script` e `castSpells`.
+   */
+  level?: { name: BotLevel; rng: Rng };
 }
 
 export interface BotHooks {
@@ -38,6 +45,8 @@ export class Bot {
   /** Magie rifiutate dal room nella fase corrente: non si ritentano, così il bot non resta bloccato. */
   private readonly rejected = new Set<string>();
   private lastCast: string | null = null;
+  /** Tentativi di magia nella fase corrente (`bot.MaxCastsPerPhase`). */
+  private castsInPhase = 0;
 
   constructor(
     readonly userId: number,
@@ -72,7 +81,14 @@ export class Bot {
       this.rejected.add(this.lastCast);
       return;
     }
-    if (message.type === 'phase_changed') this.rejected.clear();
+    if (message.type === 'phase_changed') {
+      this.rejected.clear();
+      this.castsInPhase = 0;
+    }
+    if (message.type === 'draw_offer' && this.behavior.level !== undefined) {
+      setTimeout(() => this.send('draw_declined'), this.delayMs);
+      return;
+    }
     if (message.type === 'draw_offer' && this.behavior.declineDrawsBeforeAccepting !== undefined) {
       const accept = this.declined >= this.behavior.declineDrawsBeforeAccepting;
       if (!accept) this.declined++;
@@ -109,8 +125,10 @@ export class Bot {
     switch (room.match.currentPhase) {
       case 'main1':
       case 'main2': {
-        const cast = this.behavior.castSpells === true ? this.pickCast(room) : null;
+        const level = this.behavior.level;
+        const cast = level !== undefined ? this.levelCast(room, level) : this.behavior.castSpells === true ? this.pickCast(room) : null;
         if (cast === null) return this.send('pass_phase');
+        this.castsInPhase++;
         this.lastCast = cast.spell_id;
         this.send('cast_spell', cast);
         this.lastCast = null;
@@ -128,9 +146,16 @@ export class Bot {
     if (room.awaitingExtraMove(this.color)) return this.send('pass_phase');
     // Solo le mosse giocabili: niente pezzi congelati, muri o catture su un santuario. Le rune non bloccano le mosse e
     // il bot non le guarda: quelle nascoste dell'avversario non sono nello stato che riceverebbe un client.
-    const legal = [...legalMoves(room.board.fen).filter((m) => room.isPlayable(m)), ...room.specialMoves()];
+    const playable = legalMoves(room.board.fen).filter((m) => room.isPlayable(m));
+    const legal = [...playable, ...room.specialMoves()];
+    const level = this.behavior.level;
     const scripted = this.behavior.script?.[this.movesMade];
-    const move = scripted !== undefined && legal.includes(scripted) ? scripted : legal[0];
+    const move =
+      level !== undefined
+        ? chooseMove(level.name, room.board.fen, playable, room.specialMoves(), level.rng) || undefined
+        : scripted !== undefined && legal.includes(scripted)
+          ? scripted
+          : legal[0];
     if (move === undefined) return;
     this.send('move', { move });
     this.movesMade++;
@@ -151,6 +176,23 @@ export class Bot {
       this.connected = true;
       room.reconnect(this.client);
     }, after.returnAfterMs);
+  }
+
+  /** La magia scelta dal livello (`bot.ChooseSpell`), entro il limite di tentativi per fase. */
+  private levelCast(room: Room, level: { name: BotLevel; rng: Rng }): { spell_id: string; targets: string[]; choice?: { piece: string } } | null {
+    if (this.castsInPhase >= MAX_CASTS_PER_PHASE) return null;
+    const ps = room.match.player(this.color);
+    const view = {
+      fen: room.board.fen,
+      color: this.color,
+      phase: room.match.currentPhase,
+      hand: ps.hand,
+      mana: ps.mana,
+      casts: ps.casts_this_turn ?? {},
+      graveyard: ps.graveyard.map((g) => g.piece),
+      tracker: room.tracker,
+    };
+    return chooseSpell(level.name, view, this.rejected, level.rng);
   }
 
   /** Prima carta abbordabile con bersagli validi (e una scelta, se serve), in ordine di mano. */

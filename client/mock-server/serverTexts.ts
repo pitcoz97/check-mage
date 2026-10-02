@@ -16,6 +16,7 @@ export const GAME_ERROR_CODES = [
   'challenge_declined',
   'challenge_expired',
   'challenge_unavailable',
+  'bot_unavailable',
   'not_your_turn',
   'wrong_phase',
   'illegal_move',
@@ -65,6 +66,9 @@ export const WS = {
   challengeUnavailable: e('challenge_unavailable', 'La sfida non è più disponibile'),
   replacedByChallenge: e('replaced_by_new_connection', "Hai accettato una sfida da un'altra connessione"),
   replacedInChallenge: e('replaced_by_new_connection', "La sfida è stata ripresa da un'altra connessione"),
+  // game/bot.go: partite contro il bot (chiusura 4004)
+  botUnavailable: e('bot_unavailable', 'Il bot non è disponibile'),
+  replacedByBot: e('replaced_by_new_connection', "Hai iniziato una partita contro il bot da un'altra connessione"),
   // game/room.go
   gameOver: e('game_over', 'La partita è terminata'), // :361
   malformedMove: e('invalid_payload', 'Formato mossa non valido'), // :373
@@ -245,6 +249,8 @@ export function wsErrorSamples(): GameError[] {
     WS.challengeUnavailable,
     WS.replacedByChallenge,
     WS.replacedInChallenge,
+    WS.botUnavailable,
+    WS.replacedByBot,
     WS.gameOver,
     WS.malformedMove,
     WS.malformedCast,

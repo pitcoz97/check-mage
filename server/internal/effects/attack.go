@@ -46,6 +46,21 @@ func IsKingAttacked(fen string, c Color) bool {
 	return false
 }
 
+// SquareAttacked indica se la casella è attaccata da un pezzo del colore by
+// (false con una casella o una FEN non valide). Serve al bot per capire quali
+// pezzi sono minacciati.
+func SquareAttacked(fen, square string, by Color) bool {
+	grid, err := parsePlacement(fen)
+	if err != nil {
+		return false
+	}
+	row, col, err := parseSquare(square)
+	if err != nil {
+		return false
+	}
+	return squareAttacked(grid, row, col, by)
+}
+
 // squareAttacked indica se la casella (row, col) è attaccata da un pezzo del
 // colore `by`. Riga 0 = traversa 8.
 func squareAttacked(grid [8][8]byte, row, col int, by Color) bool {

@@ -13,6 +13,7 @@ import { MatchProvider } from '../store/MatchProvider';
 import { testCatalogStore } from '../testing/catalog';
 import { testMatchSession } from '../testing/session';
 import { ACCOUNT, data, fail, fakeServer, memoryStorage } from '../testing/fakes';
+import { DEFAULT_PLAY_CHOICE, playChoiceStore } from '../screens/Lobby/playChoice';
 import { routes } from './router';
 
 const languageStore = createWebStorage(() => undefined);
@@ -94,6 +95,7 @@ async function renderAuthenticated(path: string) {
       data([
         { id: 1, white_id: 8, black_id: 7, white: 'luigi', black: 'mario', result: '1-0', time_control: '10+5', pgn: '', played_at: '2026-09-30T10:00:00Z', rated: true },
         { id: 2, white_id: 7, black_id: 8, white: 'mario', black: 'luigi', result: '1/2-1/2', time_control: '10+5', pgn: '', played_at: '2026-09-29T10:00:00Z', rated: false },
+        { id: 3, white_id: -2, black_id: 8, white: '#bot-intermediate', black: 'luigi', result: '0-1', time_control: '10+5', pgn: '', played_at: '2026-09-28T10:00:00Z', rated: false, white_bot: 'intermediate' },
       ]),
     'GET /users/7/games': () => data([]),
     'GET /me/collection': () =>
@@ -138,6 +140,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   cleanup();
+  playChoiceStore.setState({ choice: DEFAULT_PLAY_CHOICE, loaded: false });
   incoming = [];
   searchRelation = 'none';
   blocks = [];
@@ -329,6 +332,41 @@ describe('shell, classifica e impostazioni (R5)', () => {
 });
 
 describe('coda, partita e connessione', () => {
+  it('Contro il bot: livello e colore ricordati, avvio con ?bot=&color=, «Bot non disponibile» con 4004', async () => {
+    const { sockets } = await renderAuthenticated('/lobby');
+    expect(document.querySelector('[data-bot-options]')).toBeNull();
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: 'Contro il bot' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Avanzato' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Nero' }));
+    });
+    expect(screen.getByRole('button', { name: 'Avanzato' }).getAttribute('aria-pressed')).toBe('true');
+    expect(playChoiceStore.getState().choice).toEqual({ mode: 'bot', level: 'advanced', color: 'black' });
+    expect(JSON.parse(globalThis.localStorage.getItem('checkmage:play-choice') ?? '{}')).toEqual({ mode: 'bot', level: 'advanced', color: 'black' });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Gioca contro il bot' }));
+    });
+    expect(await screen.findByText('Avvio della partita contro il bot…')).toBeTruthy();
+    await waitFor(() => expect(sockets.sockets).toHaveLength(1));
+    expect(sockets.last().url).toContain('bot=advanced&color=black');
+    act(() => {
+      sockets.last().open();
+      sockets.last().drop(4004, 'bot_unavailable');
+    });
+    expect(await screen.findByText('Il bot non è disponibile in questo momento. Riprova più tardi.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Gioca contro il bot' })).toBeTruthy();
+  });
+
+  it('una scelta salvata non valida vale come il default', async () => {
+    const { parsePlayChoice } = await import('../screens/Lobby/playChoice');
+    expect(parsePlayChoice(null)).toEqual(DEFAULT_PLAY_CHOICE);
+    expect(parsePlayChoice('rotto')).toEqual(DEFAULT_PLAY_CHOICE);
+    expect(parsePlayChoice(JSON.stringify({ mode: 'casual', level: 'advanced', color: 'viola' }))).toEqual({ mode: 'ranked', level: 'advanced', color: 'random' });
+  });
+
   it('Gioca → coda con Annulla → di nuovo Gioca → partita → /match con i giocatori', async () => {
     const { router, sockets } = await renderAuthenticated('/lobby');
     await act(async () => {
@@ -504,12 +542,16 @@ describe('amici e sfide (F1–F8)', () => {
     await waitFor(() => expect(server.hits).toContain('DELETE /me/challenges/in-1'));
   });
 
-  it('profilo di un giocatore: stato, statistiche, ultime partite con l’amichevole; il proprio id porta a /profile', async () => {
+  it('profilo di un giocatore: stato, statistiche, ultime partite con l’amichevole e il bot; il proprio id porta a /profile', async () => {
     const { router } = await renderAuthenticated('/players/8');
     expect(await screen.findByRole('heading', { name: 'luigi' })).toBeTruthy();
-    await waitFor(() => expect(document.querySelectorAll('[data-game]')).toHaveLength(2));
-    expect([...document.querySelectorAll('[data-game]')].map((g) => g.getAttribute('data-outcome'))).toEqual(['win', 'draw']);
+    await waitFor(() => expect(document.querySelectorAll('[data-game]')).toHaveLength(3));
+    expect([...document.querySelectorAll('[data-game]')].map((g) => g.getAttribute('data-outcome'))).toEqual(['win', 'draw', 'win']);
     expect(within(document.querySelector('[data-game="2"]') as HTMLElement).getByText('Amichevole')).toBeTruthy();
+    const botGame = document.querySelector('[data-game="3"]') as HTMLElement;
+    expect(botGame.textContent).toContain('contro Bot · Intermedio');
+    expect(botGame.textContent).not.toContain('#bot');
+    expect(botGame.querySelector('[data-game-tag="bot"]')?.textContent).toBe('Bot');
     expect(await screen.findByRole('button', { name: 'Sfida luigi' })).toBeTruthy();
 
     await act(async () => {

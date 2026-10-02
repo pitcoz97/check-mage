@@ -342,3 +342,15 @@ Verifica: `go build ./... && go vet ./... && go test ./...`; con il server avvia
 | 6 | Log delle richieste senza query string | — |
 
 Verifica: `go build ./... && go vet ./... && go test ./...`. Per cambiare i testi legali: alzare insieme `TermsVersion` (`internal/handlers/privacy.go`) e `TERMS_VERSION` (`client/src/legal/config.ts`).
+
+## 22. Partite contro il bot
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | Secondo processo Stockfish `engine.Bot` (`InitBot` in `main.go`), `BestMoveWith` con Skill Level, limiti e `searchmoves` | — |
+| 2 | Colonna `users.bot_level` (`EnsureBotSchema`, `EnsureBotAccounts`), account `#bot-<livello>` nascosti da ogni elenco | — |
+| 3 | `/ws?bot=<livello>&color=…` (`Manager.JoinBot`, `game/bot.go`), amichevole; `bot` nel giocatore di `game_state`; `bot_unavailable` + chiusura 4004 | Card «Gioca»: «Contro il bot» con livello e colore; «Bot · livello», «Gioca ancora» |
+| 4 | `white_bot`/`black_bot` in `GET /users/{id}/games` | «Bot · livello» nello storico |
+
+Verifica: `go build ./... && go vet ./... && go test ./...`, poi `npm run e2e:bot -- --http … --ws …` dal client.
+La forza dei livelli si tara in `internal/bot/levels.go` (`profiles`) e con le soglie di `internal/bot/spells.go`.

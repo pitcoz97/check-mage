@@ -27,6 +27,9 @@ const (
 	ChallengeExpired     Code = "challenge_expired"     // la sfida è scaduta senza risposta
 	ChallengeUnavailable Code = "challenge_unavailable" // sfida annullata, sconosciuta o superata da un'altra partita
 
+	// Partite contro il bot (chiusura 4004)
+	BotUnavailable Code = "bot_unavailable" // livello sconosciuto o motore del bot non avviato
+
 	// Turno e fasi
 	NotYourTurn Code = "not_your_turn"
 	WrongPhase  Code = "wrong_phase" // details: phase

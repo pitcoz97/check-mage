@@ -38,3 +38,19 @@ func TestSideToMove(t *testing.T) {
 		t.Error("atteso bianco")
 	}
 }
+
+func TestSquareAttacked(t *testing.T) {
+	fen := "4k3/8/8/3p4/8/8/8/3R3K w - - 0 1" // torre bianca in d1, pedone nero in d5
+	if !SquareAttacked(fen, "d5", White) {
+		t.Error("la torre in d1 attacca d5")
+	}
+	if SquareAttacked(fen, "e5", White) {
+		t.Error("e5 non è attaccata dal bianco")
+	}
+	if !SquareAttacked(fen, "e4", Black) {
+		t.Error("il pedone nero in d5 attacca e4")
+	}
+	if SquareAttacked(fen, "z9", White) || SquareAttacked("rotta", "d5", White) {
+		t.Error("casella o FEN non valide: false")
+	}
+}

@@ -4,10 +4,12 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
 import { isScenarioName, type MockConfig } from '../config';
-import { CLOSE_CHALLENGE, CLOSE_DECK_INVALID, CLOSE_REPLACED, Room, type GameClient, type GameResult } from '../game/room';
+import type { Color } from '../game/fen';
+import { CLOSE_BOT, CLOSE_CHALLENGE, CLOSE_DECK_INVALID, CLOSE_REPLACED, Room, type GameClient, type GameResult } from '../game/room';
 import { createRateLimiter } from '../rest/rateLimit';
 import type { RequestGate } from '../rest/app';
 import { Bot } from '../scenarios/bot';
+import { isBotLevel } from '../scenarios/botPolicy';
 import { hostileSender } from '../scenarios/hostile';
 import { setupScenario } from '../scenarios/index';
 import type { ScenarioName } from '../scenarios/names';
@@ -16,12 +18,13 @@ import type { ChallengeCloseCode, ChallengeStore, ChallengeWaiter } from '../sto
 import type { DeckStore } from '../store/decks';
 import type { PresenceStore } from '../store/presence';
 import type { UserStore } from '../store/users';
-import { createRng, type Logger } from '../util';
+import { createRng, opaqueId, type Logger } from '../util';
 import type { WireServerMessage } from '../wire';
 
 /**
  * Porting di `handlers/ws.go`, `game/client.go` e `game/manager.go`: upgrade, pump dei messaggi, heartbeat, coda
- * e riconnessione, più le sfide dirette di `game/challenges.go`. Gli scenari con bot sono un'aggiunta del mock.
+ * e riconnessione, più le sfide dirette di `game/challenges.go` e le partite contro il bot di `game/bot.go`. Gli
+ * scenari con bot sono un'aggiunta del mock.
  */
 
 export interface GatewayDeps {
@@ -101,27 +104,39 @@ export function createGateway({ config, users, gate, log, decks, presence, chall
     white: GameClient,
     black: GameClient,
     scenario: ScenarioName,
-    deckOf: (c: GameClient) => readonly string[],
-    challengeId: string | null = null,
+    deckOf: (c: GameClient) => readonly string[] | undefined,
+    origin: { challengeId?: string; bot?: { level: string; color: Color } } = {},
   ): Room {
     roomCounter++;
     const setup = setupScenario(scenario, config);
+    const rng = createRng(config.seed + roomCounter);
+    const id =
+      origin.challengeId !== undefined
+        ? `challenge-${origin.challengeId}`
+        : origin.bot !== undefined
+          ? opaqueId('bot', rng)
+          : `room-${white.userId}-${black.userId}`;
+    const whiteDeck = deckOf(white);
+    const blackDeck = deckOf(black);
     const room = new Room({
-      id: challengeId === null ? `room-${white.userId}-${black.userId}` : `challenge-${challengeId}`,
-      friendly: challengeId !== null,
+      id,
+      friendly: origin.challengeId !== undefined || origin.bot !== undefined,
       white,
       black,
-      rng: createRng(config.seed + roomCounter),
+      rng,
       baseTimeMs: setup.baseTimeMs ?? config.baseTimeMs,
       incrementMs: config.incrementMs,
       reconnectTimeoutMs: config.reconnectTimeoutMs,
       ...(setup.overrides === undefined ? {} : { overrides: setup.overrides }),
-      decks: { white: deckOf(white), black: deckOf(black) },
+      // Un mazzo assente è la ricetta condivisa (`match.NewWithDecks` con nil): il mazzo del bot.
+      decks: { ...(whiteDeck === undefined ? {} : { white: whiteDeck }), ...(blackDeck === undefined ? {} : { black: blackDeck }) },
+      ...(origin.bot === undefined ? {} : { bot: origin.bot }),
       onEnded,
     });
     rooms.set(room.id, room);
-    userRooms.set(white.userId, room.id);
-    userRooms.set(black.userId, room.id);
+    // Il bot non è mai «in partita»: lo stesso livello gioca più partite insieme.
+    if (origin.bot?.color !== 'white') userRooms.set(white.userId, room.id);
+    if (origin.bot?.color !== 'black') userRooms.set(black.userId, room.id);
     // Le sfide ancora aperte dei due giocatori non possono più partire (F9).
     challenges.closeOf(white.userId, black.userId);
     return room;
@@ -243,10 +258,42 @@ export function createGateway({ config, users, gate, log, decks, presence, chall
 
     challenges.started(ch);
     const [white, black] = createRng(config.seed + roomCounter)() < 0.5 ? [slot, client] : [client, slot];
-    const room = newRoom(white, black, 'pvp', (c) => (c === white ? white.deck : black.deck), ch.id);
+    const room = newRoom(white, black, 'pvp', (c) => (c === white ? white.deck : black.deck), { challengeId: ch.id });
     white.room = room;
     black.room = room;
     log.info(`${room.id} amichevole: ${white.username} (bianco) vs ${black.username} (nero)`);
+    room.start();
+    return false;
+  }
+
+  /** `JoinBot` (`game/bot.go`): partita amichevole contro il bot del livello, col colore scelto dal giocatore. */
+  function joinBot(client: Connection, level: string, color: string | null): boolean {
+    if (tryReconnect(client)) return true;
+    if (!isBotLevel(level)) {
+      client.send(errorMessage(WS.botUnavailable));
+      client.close?.(CLOSE_BOT, 'bot_unavailable');
+      return false;
+    }
+    if (rejectInvalidDeck(client)) return false;
+
+    // Una connessione dello stesso utente rimasta in coda esce dalla coda.
+    if (waiting !== null && waiting.userId === client.userId && waiting !== client) {
+      const old = waiting;
+      waiting = null;
+      old.send(errorMessage(WS.replacedByBot));
+      old.close?.(CLOSE_REPLACED, 'replaced_by_new_connection');
+    }
+
+    const rng = createRng(config.seed + roomCounter + client.userId);
+    const botColor: Color = color === 'white' ? 'black' : color === 'black' ? 'white' : rng() < 0.5 ? 'white' : 'black';
+    const account = users.ensureBot(level);
+    const bot = new Bot(account.id, account.username, botColor, { level: { name: level, rng } }, config.botDelayMs, { restart });
+    bots.add(bot);
+    const [white, black] = botColor === 'white' ? [bot.gameClient, client] : [client, bot.gameClient];
+    const room = newRoom(white, black, 'pvp', (c) => (c === client ? client.deck : undefined), { bot: { level, color: botColor } });
+    bot.attach(room);
+    client.room = room;
+    log.info(`${room.id} contro il bot ${level}: ${client.username} col ${botColor === 'white' ? 'nero' : 'bianco'}`);
     room.start();
     return false;
   }
@@ -303,7 +350,14 @@ export function createGateway({ config, users, gate, log, decks, presence, chall
     };
   }
 
-  function onConnection(ws: WebSocket, userId: number, username: string, scenario: ScenarioName, challengeId: string | null): void {
+  function onConnection(
+    ws: WebSocket,
+    userId: number,
+    username: string,
+    scenario: ScenarioName,
+    challengeId: string | null,
+    botRequest: { level: string; color: string | null } | null,
+  ): void {
     presence.touch(userId); // aprire il socket vale come segnale di presenza (F2)
     const sendRaw = (text: string) => {
       if (ws.readyState === ws.OPEN) ws.send(text);
@@ -343,8 +397,9 @@ export function createGateway({ config, users, gate, log, decks, presence, chall
       challenges.leave(client);
       client.room?.leave(client);
     });
-    if (challengeId === null) joinQueue(client, scenario);
-    else joinChallenge(client, challengeId);
+    if (challengeId !== null) joinChallenge(client, challengeId);
+    else if (botRequest !== null) joinBot(client, botRequest.level, botRequest.color);
+    else joinQueue(client, scenario);
   }
 
   return {
@@ -366,8 +421,10 @@ export function createGateway({ config, users, gate, log, decks, presence, chall
       }
 
       const challengeId = url.searchParams.get('challenge');
+      const botLevel = url.searchParams.get('bot');
+      const botRequest = botLevel === null || botLevel === '' ? null : { level: botLevel, color: url.searchParams.get('color') };
       wss.handleUpgrade(req, socket, head, (ws) =>
-        onConnection(ws, auth.user_id, auth.username, requested, challengeId === null || challengeId === '' ? null : challengeId),
+        onConnection(ws, auth.user_id, auth.username, requested, challengeId === null || challengeId === '' ? null : challengeId, botRequest),
       );
     },
 

@@ -477,3 +477,23 @@ I riferimenti sono al server di quel branch.
 | S36 | Senza `terms_version`/`terms_current` (server precedente) non si controllano i termini; senza `hide_presence` lo stato è visibile; senza `white_deleted`/`black_deleted` nessuno è cancellato. | Compatibilità. | `adapter.ts` |
 | S37 | L'esportazione si consegna così com'è (un oggetto qualsiasi, impaginato): non si interpreta, si controlla solo che sia un oggetto. | Sono dati da dare all'utente, non da mostrare. | `adapter.ts` |
 | S38 | I testi legali stanno in `src/legal/texts.*.ts` e non nelle risorse i18n: sono documenti, scelti secondo la lingua dell'app. | Lunghi e con valori della configurazione. | `useLegal.ts` |
+
+## 13. Partite contro il bot (`feat/bot`)
+
+### Decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| B1 | Tre livelli: base, intermedio, avanzato. Le mosse le sceglie Stockfish con forza crescente (Skill Level, profondità o tempo); il base gioca anche mosse a caso. | tu |
+| B2 | Il bot usa le magie, a regole: il base a caso, l'intermedio la migliore se utile, l'avanzato solo se vale il mana. Nessuna simulazione della partita. | tu |
+| B3 | Partite amichevoli: nello storico, senza ELO. Un account per livello, nascosto da ogni elenco. | tu |
+| B4 | Il colore lo sceglie il giocatore: bianco, casuale o nero. | tu |
+| B5 | Orologio come nelle altre partite; il bot aspetta 0,6–1,5 s prima di ogni azione. | tu + derivata |
+| B6 | Il bot rifiuta le patte, salta la seconda mossa di Fretta e non ritenta una magia rifiutata nella stessa fase. | derivata |
+| B7 | Nella card «Gioca» modalità, livello e colore si ricordano sul dispositivo (`storage.ts`); default classificata, base, casuale. | derivata |
+| B8 | Il nome del bot si mostra sempre tradotto («Bot · Intermedio»), mai l'username dell'account; niente profilo, ELO o «Aggiungi agli amici». A fine partita «Gioca ancora» con lo stesso livello e l'ultimo colore scelto. | derivata |
+
+### Assunzioni del client
+| # | Assunzione | Motivo | Dove |
+|---|---|---|---|
+| S39 | Un `bot` con un livello sconosciuto resta un bot (`unknown`, nome «Bot»), con un warning; senza `bot` è una persona. | Compatibilità con livelli futuri. | `adapter.ts` |
+| S40 | Il mock non ha Stockfish: base a caso, intermedio la cattura di più valore, avanzato due mezze mosse. Le magie seguono le stesse regole del Go (`botPolicy.ts`). È l'unica parte non fedele del mock. | Il mock non esegue motori. | `mock-server/scenarios/botPolicy.ts` |

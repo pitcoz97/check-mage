@@ -28,6 +28,7 @@ const (
 	CloseReplaced    = 4001 // un'altra connessione dello stesso utente ha preso il posto di questa
 	CloseDeckInvalid = 4002 // il mazzo attivo non è valido: niente coda (D6)
 	CloseChallenge   = 4003 // la sfida attesa non partirà più (rifiutata, scaduta, annullata): il codice è nell'errore
+	CloseBot         = 4004 // la partita contro il bot non può partire (bot_unavailable)
 )
 
 // Client rappresenta un giocatore connesso via WebSocket

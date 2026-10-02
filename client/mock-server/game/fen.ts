@@ -442,3 +442,13 @@ function squareAttacked(grid: Grid, row: number, col: number, by: Color): boolea
   if (orthogonal.some(([dr, dc]) => slide(dr, dc, piece('r'), piece('q')))) return true;
   return diagonal.some(([dr, dc]) => slide(dr, dc, piece('b'), piece('q')));
 }
+
+/** `SquareAttacked` (`effects/attack.go`): la casa è attaccata da un pezzo del colore `by`. Serve al bot. */
+export function squareAttackedOn(fen: string, square: string, by: Color): boolean {
+  try {
+    const [row, col] = parseSquare(square);
+    return squareAttacked(parsePlacement(fen), row, col, by);
+  } catch {
+    return false;
+  }
+}

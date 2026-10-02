@@ -21,6 +21,8 @@ export interface User {
   hidePresence: boolean;
   /** Account cancellato e reso anonimo (P3): resta solo per lo storico delle partite. */
   deleted: boolean;
+  /** Livello dell'account di un bot (`users.bot_level`): nascosto da ogni elenco, senza accesso. */
+  botLevel: string | null;
 }
 
 export interface GameRow {
@@ -101,19 +103,43 @@ export function createUserStore() {
         termsAcceptedAt: termsVersion > 0 ? new Date().toISOString() : null,
         hidePresence: false,
         deleted: false,
+        botLevel: null,
+      };
+      users.set(user.id, user);
+      return user;
+    },
+
+    /** `db.EnsureBotAccounts`: l'account del bot di un livello, creato alla prima richiesta. */
+    ensureBot(level: string): User {
+      const existing = [...users.values()].find((u) => u.botLevel === level);
+      if (existing !== undefined) return existing;
+      const salt = randomBytes(16);
+      const user: User = {
+        id: nextUserId++,
+        username: `#bot-${level}`,
+        email: `bot-${level}@bot.invalid`,
+        elo: 1200,
+        createdAt: new Date().toISOString(),
+        salt,
+        passwordHash: Buffer.alloc(64), // nessuna password: non si entra
+        termsVersion: 0,
+        termsAcceptedAt: null,
+        hidePresence: true,
+        deleted: false,
+        botLevel: level,
       };
       users.set(user.id, user);
       return user;
     },
 
     findByEmail(email: string): User | undefined {
-      return [...users.values()].find((u) => u.email === email && !u.deleted);
+      return [...users.values()].find((u) => u.email === email && !u.deleted && u.botLevel === null);
     },
 
-    /** Solo gli account attivi: un utente cancellato non esiste più (P3). */
+    /** Solo gli account attivi delle persone: un utente cancellato non esiste più (P3), un bot non è un giocatore. */
     findById(id: number): User | undefined {
       const user = users.get(id);
-      return user?.deleted === true ? undefined : user;
+      return user === undefined || user.deleted || user.botLevel !== null ? undefined : user;
     },
 
     /** Anche gli account cancellati, per lo storico delle partite. */
@@ -141,7 +167,7 @@ export function createUserStore() {
 
     /** `handlers/stats.go:17-22`. */
     leaderboard(): User[] {
-      return [...users.values()].filter((u) => !u.deleted).sort((a, b) => b.elo - a.elo).slice(0, 10);
+      return [...users.values()].filter((u) => !u.deleted && u.botLevel === null).sort((a, b) => b.elo - a.elo).slice(0, 10);
     },
 
     /** `handlers/stats.go:64-79`: ultime 20, più recenti prima. */
@@ -168,9 +194,9 @@ export function createUserStore() {
       return { wins, losses, draws };
     },
 
-    /** Tutti gli utenti, per `GET /me/friends` (`db/users.go`). */
+    /** Tutti gli utenti, per `GET /me/friends` (`db/users.go`): né cancellati né bot. */
     all(): User[] {
-      return [...users.values()].filter((u) => !u.deleted);
+      return [...users.values()].filter((u) => !u.deleted && u.botLevel === null);
     },
 
     /** `db/db.go`: salva la partita e, se è classificata, aggiorna gli ELO (F8). */
