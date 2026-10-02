@@ -1,6 +1,11 @@
 import type { CSSProperties, ReactNode } from 'react';
 
 export interface MatchLayoutSlots {
+  /**
+   * Partita finita: su Android fasi e suggerimento lasciano il posto al riepilogo e lo schermo può scorrere, così i
+   * pulsanti del riepilogo restano raggiungibili anche su uno schermo basso.
+   */
+  readonly over?: boolean;
   /** Desktop: la barra verticale da 72px della tavola. */
   readonly nav: ReactNode;
   /** Avvisi di connessione, sopra tutto. */
@@ -41,10 +46,12 @@ const BOARD_SIZE = {
 } as CSSProperties;
 
 export function MatchLayout(slots: MatchLayoutSlots) {
+  const over = slots.over === true;
   return (
     <div
       style={BOARD_SIZE}
-      className="relative flex h-dvh flex-col overflow-hidden px-[env(safe-area-inset-right,0px)] pt-[env(safe-area-inset-top,0px)] pl-[env(safe-area-inset-left,0px)] [--board:var(--board-mobile)] lg:flex-row lg:overflow-hidden lg:pr-5 lg:pl-0 lg:[--board:var(--board-desktop)]"
+      data-over={over}
+      className={`relative flex h-dvh flex-col ${over ? 'overflow-y-auto' : 'overflow-hidden'} px-[env(safe-area-inset-right,0px)] pt-[env(safe-area-inset-top,0px)] pl-[env(safe-area-inset-left,0px)] [--board:var(--board-mobile)] lg:flex-row lg:overflow-hidden lg:pr-5 lg:pl-0 lg:[--board:var(--board-desktop)]`}
     >
       {slots.banner !== undefined && (
         <div
@@ -74,16 +81,21 @@ export function MatchLayout(slots: MatchLayoutSlots) {
           <div data-region="self" className="mt-2.5 px-3 lg:mt-2 lg:px-0">
             {slots.self}
           </div>
-          <div data-region="phases-mobile" className="mt-3 flex h-11 items-center gap-2 px-3 lg:hidden">
-            {slots.phasesCompact}
-          </div>
-          <div data-region="hint-mobile" className="mt-2 px-4 lg:hidden">
-            {slots.hintLine}
-          </div>
+          {!over && (
+            <>
+              <div data-region="phases-mobile" className="mt-3 flex h-11 items-center gap-2 px-3 lg:hidden">
+                {slots.phasesCompact}
+              </div>
+              <div data-region="hint-mobile" className="mt-2 px-4 lg:hidden">
+                {slots.hintLine}
+              </div>
+            </>
+          )}
           <div className="min-h-3.5 grow" />
           <div
             data-region="hand"
-            className="relative z-30 mb-[calc(3.375rem+env(safe-area-inset-bottom,0px))] lg:absolute lg:bottom-[-20px] lg:left-1/2 lg:mb-0 lg:w-[min(760px,calc(var(--board)+200px))] lg:-translate-x-1/2"
+            // La mano sborda sotto la barra inferiore; il riepilogo di fine partita invece le resta tutto sopra.
+            className={`relative z-30 ${over ? 'mb-[calc(4.75rem+env(safe-area-inset-bottom,0px))]' : 'mb-[calc(3.375rem+env(safe-area-inset-bottom,0px))]'} lg:absolute lg:bottom-[-20px] lg:left-1/2 lg:mb-0 lg:w-[min(760px,calc(var(--board)+200px))] lg:-translate-x-1/2`}
           >
             {slots.hand}
           </div>
@@ -92,7 +104,8 @@ export function MatchLayout(slots: MatchLayoutSlots) {
 
       <aside
         data-region="side"
-        className="hidden lg:ml-5 lg:flex lg:h-full lg:w-[380px] lg:shrink-0 lg:flex-col lg:gap-3 lg:py-5"
+        // Le schede si stringono per prime; se non basta (schermi bassi) la colonna scorre invece di tagliare.
+        className="hidden lg:ml-5 lg:flex lg:h-full lg:w-[380px] lg:shrink-0 lg:flex-col lg:gap-3 lg:overflow-y-auto lg:py-5"
       >
         {slots.turn}
         {slots.mana}
