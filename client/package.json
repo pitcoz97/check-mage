@@ -13,6 +13,7 @@
     "mock": "tsx watch mock-server/index.ts",
     "mock:e2e": "tsx scripts/e2e-match.ts",
     "e2e:challenge": "tsx scripts/e2e-challenge.ts",
+    "legal:check": "tsx scripts/check-legal.ts",
     "android:sync": "npm run build && cap sync android",
     "android:open": "cap open android",
     "test": "vitest run",
