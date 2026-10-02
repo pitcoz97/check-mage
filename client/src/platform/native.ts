@@ -25,6 +25,34 @@ export function isNative(): boolean {
 }
 
 // ---------------------------------------------------------------------------------------------------
+// Esportazione dei dati (P5)
+// ---------------------------------------------------------------------------------------------------
+
+/**
+ * Consegna un file di testo all'utente: sul web lo scarica; nella WebView (dove i download non arrivano all'utente)
+ * lo copia negli appunti. `failed` se nessuna delle due strade funziona.
+ */
+export async function deliverTextFile(filename: string, content: string, mimeType = 'application/json'): Promise<'downloaded' | 'copied' | 'failed'> {
+  try {
+    if (isNative()) {
+      await navigator.clipboard.writeText(content);
+      return 'copied';
+    }
+    const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    return 'downloaded';
+  } catch {
+    return 'failed';
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------
 // Ciclo di vita dell'app
 // ---------------------------------------------------------------------------------------------------
 

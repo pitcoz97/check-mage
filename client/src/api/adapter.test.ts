@@ -14,7 +14,10 @@ import {
   normalizeCollection,
   normalizeDeck,
   normalizeDeckList,
+  normalizeExport,
+  encodeAccountDeletion,
   encodeBlock,
+  encodePrivacy,
   encodeChallenge,
   encodeDeck,
   FALLBACK_CREDENTIAL_POLICY,
@@ -861,6 +864,25 @@ describe('REST', () => {
         { whiteId: '7', blackId: '8', rated: false },
         { whiteId: null, blackId: null, rated: true },
       ],
+    });
+  });
+
+  it('privacy (P3, P5, P6): esportazione come testo JSON, corpi di privacy e cancellazione, lati cancellati nello storico', () => {
+    expect(normalizeExport({ account: { id: 7 } })).toEqual({ ok: true, value: JSON.stringify({ account: { id: 7 } }, null, 2), warnings: [] });
+    expect(normalizeExport([1])).toMatchObject({ ok: false });
+    expect(JSON.parse(encodePrivacy(true))).toEqual({ hide_presence: true });
+    expect(JSON.parse(encodeAccountDeletion('Password1'))).toEqual({ password: 'Password1' });
+    const base = { id: 1, white: 'mario', black: '#eliminato-8', result: '1-0', time_control: '10+5', pgn: '', played_at: '2026-10-01T10:00:00Z' };
+    expect(normalizeGameHistory([{ ...base, black_deleted: true }, base])).toMatchObject({
+      ok: true,
+      value: [
+        { whiteDeleted: false, blackDeleted: true },
+        { whiteDeleted: false, blackDeleted: false },
+      ],
+    });
+    expect(normalizeAccount({ id: 7, username: 'mario', email: 'm@t.it', elo: 1200, terms_version: 0, terms_current: 1, hide_presence: true })).toMatchObject({
+      ok: true,
+      value: { termsVersion: 0, termsCurrent: 1, hidePresence: true },
     });
   });
 

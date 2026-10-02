@@ -1,9 +1,11 @@
 import {
+  encodeAccountDeletion,
   encodeBlock,
   encodeChallenge,
   encodeDeck,
   encodeLogin,
   encodeRefresh,
+  encodePrivacy,
   encodeRegister,
   encodeTermsAcceptance,
   normalizeAccount,
@@ -12,6 +14,7 @@ import {
   normalizeCollection,
   normalizeDeck,
   normalizeDeckList,
+  normalizeExport,
   normalizeFriendList,
   normalizeGameHistory,
   normalizeLeaderboard,
@@ -91,6 +94,21 @@ export function createApi(http: HttpClient) {
     /** Accetta la versione corrente di Informativa e Termini (P2). Risponde con l'account aggiornato. */
     async acceptTerms(version: number): Promise<ApiResult<UserAccount>> {
       return toResult(await http.request('POST', '/me/terms', { auth: true, body: encodeTermsAcceptance(version) }), normalizeAccount);
+    },
+
+    /** Stato online nascosto agli altri (P6). Risponde con l'account aggiornato. */
+    async updatePrivacy(hidePresence: boolean): Promise<ApiResult<UserAccount>> {
+      return toResult(await http.request('PUT', '/me/privacy', { auth: true, body: encodePrivacy(hidePresence) }), normalizeAccount);
+    },
+
+    /** Cancella l'account (P3), con la password per conferma. */
+    async deleteAccount(password: string): Promise<ApiResult<null>> {
+      return toResult(await http.request('DELETE', '/me', { auth: true, body: encodeAccountDeletion(password) }), () => ({ ok: true, value: null, warnings: [] }));
+    },
+
+    /** Tutti i dati dell'utente, già come testo JSON da salvare (P5). */
+    async exportData(): Promise<ApiResult<string>> {
+      return toResult(await http.request('GET', '/me/export', { auth: true }), normalizeExport);
     },
 
     async fetchPublicProfile(userId: string): Promise<ApiResult<PublicProfile>> {

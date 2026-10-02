@@ -102,6 +102,9 @@ export interface GameHistoryEntry {
   readonly playedAt: string;
   /** `false` per le amichevoli (F8); assente = classificata. */
   readonly rated: boolean;
+  /** Il giocatore ha cancellato l'account (P3): si mostra «Giocatore eliminato». */
+  readonly whiteDeleted: boolean;
+  readonly blackDeleted: boolean;
 }
 
 /** Stato di un amico (`handlers/friends.go`, F3). */

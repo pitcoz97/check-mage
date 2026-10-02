@@ -12,10 +12,11 @@ import { useAuth } from '../../store/AuthProvider';
 import { httpErrorMessage } from '../Auth/errorMessage';
 import { RowButton } from '../Friends/FriendRow';
 import { useBlocks } from '../Friends/useBlocks';
+import { PrivacySettings } from './PrivacySettings';
 
 /**
- * Impostazioni (REDESIGN_PLAN.md D11): tema della scacchiera (D1), lingua (D15), giocatori bloccati (A8) ed Esci con
- * conferma (D14). La
+ * Impostazioni (REDESIGN_PLAN.md D11): tema della scacchiera (D1), lingua (D15), privacy (P3, P5, P6), giocatori
+ * bloccati (A8), informazioni legali (P4) ed Esci con conferma (D14). La
  * schermata non è disegnata: pannelli, etichette e controlli sono quelli delle tavole (D20).
  */
 export function Settings() {
@@ -29,6 +30,10 @@ export function Settings() {
       </Panel>
       <Panel className="flex flex-col gap-3 rounded-16 p-4 lg:p-5">
         <LanguageSwitch />
+      </Panel>
+      <Panel className="flex flex-col gap-3 rounded-16 p-4 lg:p-5">
+        <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('settings.privacy.title')}</h2>
+        <PrivacySettings />
       </Panel>
       <Panel className="flex flex-col gap-3 rounded-16 p-4 lg:p-5">
         <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('settings.blocked.title')}</h2>
