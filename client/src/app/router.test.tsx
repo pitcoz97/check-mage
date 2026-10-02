@@ -45,6 +45,8 @@ let searchRelation = 'none';
 /** Bloccati e richieste ricevute del server finto. */
 let blocks: { id: number; username: string }[] = [];
 let friendRequests = 0;
+/** Risposta di `DELETE /me`: i test la sostituiscono. */
+let deleteReply: () => Response = () => fail(403, 'Password non corretta');
 
 /** Sfide ricevute e risposta a `POST /me/challenges` del server finto: i test le sostituiscono. */
 let incoming: unknown[] = [];
@@ -72,6 +74,9 @@ async function renderAuthenticated(path: string) {
     'POST /me/presence': () => data({ incoming, friend_requests: friendRequests }),
     'DELETE /me/friends/8': () => data({ ...FRIENDS, friends: [FRIENDS.friends[1]] }),
     'GET /me/blocks': () => data(blocks),
+    'PUT /me/privacy': () => data({ ...ACCOUNT, hide_presence: true }),
+    'GET /me/export': () => data({ exported_at: '2026-10-02T10:00:00Z', account: ACCOUNT }),
+    'DELETE /me': () => deleteReply(),
     'POST /me/blocks': () => {
       blocks = [{ id: 10, username: 'peach' }];
       return data(blocks);
@@ -137,6 +142,7 @@ afterEach(async () => {
   searchRelation = 'none';
   blocks = [];
   friendRequests = 0;
+  deleteReply = () => fail(403, 'Password non corretta');
   challengeReply = () =>
     data({ id: 'ch-1', from: { id: 7, username: 'mario', elo: 1234 }, to: { id: 8, username: 'luigi', elo: 1300 }, expires_in: 60 }, 201);
   await changeLanguage('it', languageStore);
@@ -592,5 +598,61 @@ describe('amicizie: profilo, fine partita, classifica, bloccati, badge (A6–A8)
     const [add] = await screen.findAllByRole('button', { name: 'Aggiungi daisy agli amici' });
     fireEvent.click(add as HTMLElement);
     await waitFor(() => expect(server.hits).toContain('POST /me/friends/requests'));
+  });
+});
+
+describe('impostazioni Privacy (P3, P5, P6)', () => {
+  it('nascondi lo stato online: salvato sul server', async () => {
+    const { server } = await renderAuthenticated('/settings');
+    const toggle = await screen.findByRole('switch', { name: 'Nascondi il mio stato online' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    await act(async () => {
+      fireEvent.click(toggle);
+    });
+    await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'));
+    expect(server.hits).toContain('PUT /me/privacy');
+  });
+
+  it('scarica i miei dati: GET /me/export e file scaricato', async () => {
+    const created: string[] = [];
+    const original = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+    URL.createObjectURL = () => {
+      created.push('blob');
+      return 'blob:checkmage';
+    };
+    URL.revokeObjectURL = () => undefined;
+    try {
+      const { server } = await renderAuthenticated('/settings');
+      await act(async () => {
+        fireEvent.click(await screen.findByRole('button', { name: 'Scarica i miei dati' }));
+      });
+      expect(await screen.findByText('File dei tuoi dati scaricato.')).toBeTruthy();
+      expect(server.hits).toContain('GET /me/export');
+      expect(created).toHaveLength(1);
+    } finally {
+      URL.createObjectURL = original.create;
+      URL.revokeObjectURL = original.revoke;
+    }
+  });
+
+  it('elimina account: conferma con password; errore tradotto; poi login con l’avviso', async () => {
+    const { router, server } = await renderAuthenticated('/settings');
+    fireEvent.click(await screen.findByRole('button', { name: 'Elimina account' }));
+    const group = screen.getByRole('group', { name: 'Elimina account' });
+    const confirm = within(group).getByRole('button', { name: 'Elimina definitivamente' }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(within(group).getByLabelText('Password'), { target: { value: 'Sbagliata1' } });
+    await act(async () => {
+      fireEvent.click(confirm);
+    });
+    expect(await within(group).findByText('Password non corretta.')).toBeTruthy();
+
+    deleteReply = () => data(null);
+    await act(async () => {
+      fireEvent.click(confirm);
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+    expect(await screen.findByText('Il tuo account è stato cancellato.')).toBeTruthy();
+    expect(server.hits.filter((hit) => hit === 'DELETE /me')).toHaveLength(2);
   });
 });

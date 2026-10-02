@@ -71,6 +71,11 @@ export function createDeckStore(collections: CollectionStore) {
     return { rows, owned };
   }
 
+  /** Mazzi dell'utente cancellato (P3). */
+  function removeUser(userId: number): void {
+    byUser.delete(userId);
+  }
+
   function view(row: DeckRow, owned: ReadonlyMap<string, number>): WireDeck {
     return {
       id: row.id,
@@ -114,6 +119,7 @@ export function createDeckStore(collections: CollectionStore) {
   }
 
   return {
+    removeUser,
     list: (userId: number): DeckResult<WireDeckList> => ({ ok: true, status: 200, data: list(userId) }),
 
     create(userId: number, body: Record<string, unknown> | null): DeckResult<WireDeck> {

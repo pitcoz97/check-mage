@@ -151,7 +151,7 @@ export class E2EClient {
 
   async register(password: string): Promise<void> {
     await this.pacer.auth();
-    const res = await this.request('POST', '/auth/register', encodeRegister(this.username, this.email, password));
+    const res = await this.request('POST', '/auth/register', encodeRegister(this.username, this.email, password, true));
     if (res.ok) this.unwrap('register', normalizeRegistration(res.data));
     else if (res.error.code !== 'username_or_email_taken') throw new Error(`register: ${JSON.stringify(res.error)}`);
   }

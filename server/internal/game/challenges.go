@@ -293,3 +293,11 @@ func (m *Manager) LeaveChallenge(client *Client) {
 		}
 	}
 }
+
+// CloseChallengesOf chiude le sfide aperte dell'utente, inviate o ricevute: ha
+// cancellato l'account (P3).
+func (m *Manager) CloseChallengesOf(userID int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closeChallengesOfLocked(userID)
+}

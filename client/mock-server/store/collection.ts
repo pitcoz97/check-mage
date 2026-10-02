@@ -73,6 +73,15 @@ export function createCollectionStore(catalog: readonly CollectionSpell[], unloc
   };
   return {
     owned,
+    /** Le copie salvate davvero, anche con la collezione piena (esportazione, P5). */
+    saved(userId: number): ReadonlyMap<string, number> {
+      owned(userId);
+      return byUser.get(userId) ?? new Map();
+    },
+    /** Collezione dell'utente cancellato (P3). */
+    removeUser(userId: number): void {
+      byUser.delete(userId);
+    },
     load(userId: number): CollectionView {
       return collectionView(catalog, owned(userId));
     },

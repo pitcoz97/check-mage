@@ -7,14 +7,16 @@ import { Panel } from '../../design/components/Panel';
 import { Spinner } from '../../design/components/Spinner';
 import { BOARD_THEMES, boardThemeStore, useBoardTheme, type BoardTheme } from '../../game/board/boardTheme';
 import { LanguageSwitch } from '../../i18n/LanguageSwitch';
+import { LegalLinks } from '../../legal/LegalLinks';
 import { useAuth } from '../../store/AuthProvider';
 import { httpErrorMessage } from '../Auth/errorMessage';
 import { RowButton } from '../Friends/FriendRow';
 import { useBlocks } from '../Friends/useBlocks';
+import { PrivacySettings } from './PrivacySettings';
 
 /**
- * Impostazioni (REDESIGN_PLAN.md D11): tema della scacchiera (D1), lingua (D15), giocatori bloccati (A8) ed Esci con
- * conferma (D14). La
+ * Impostazioni (REDESIGN_PLAN.md D11): tema della scacchiera (D1), lingua (D15), privacy (P3, P5, P6), giocatori
+ * bloccati (A8), informazioni legali (P4) ed Esci con conferma (D14). La
  * schermata non è disegnata: pannelli, etichette e controlli sono quelli delle tavole (D20).
  */
 export function Settings() {
@@ -30,8 +32,18 @@ export function Settings() {
         <LanguageSwitch />
       </Panel>
       <Panel className="flex flex-col gap-3 rounded-16 p-4 lg:p-5">
+        <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('settings.privacy.title')}</h2>
+        <PrivacySettings />
+      </Panel>
+      <Panel className="flex flex-col gap-3 rounded-16 p-4 lg:p-5">
         <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('settings.blocked.title')}</h2>
         <BlockedPlayers />
+      </Panel>
+      <Panel className="flex flex-col gap-3 rounded-16 p-4 lg:p-5">
+        <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('legal.title')}</h2>
+        <div className="[&_ul]:justify-start">
+          <LegalLinks />
+        </div>
       </Panel>
       <Panel className="flex flex-col gap-3 rounded-16 p-4 lg:p-5">
         <h2 className="text-12 font-extrabold tracking-label text-muted uppercase">{t('settings.account')}</h2>

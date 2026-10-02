@@ -15,7 +15,7 @@ func NewRouter() *chi.Mux {
 	r := chi.NewRouter()
 
 	// Middleware globali (vengono eseguiti per ogni richiesta)
-	r.Use(middleware.Logger)    // logga ogni richiesta nel terminale
+	r.Use(mw.RequestLogger)     // logga ogni richiesta nel terminale, senza query string (niente token nei log)
 	r.Use(middleware.Recoverer) // se un handler va in panic, non crasha il server
 	r.Use(cors.Handler(cors.Options{
 		// Origini da CORS_ALLOWED_ORIGINS; il default ammette http(s)://* e
@@ -54,6 +54,10 @@ func NewRouter() *chi.Mux {
 		r.Use(mw.Auth)
 
 		r.Get("/me", handlers.Me)
+		r.Delete("/me", handlers.DeleteAccount)      // cancellazione dell'account (anonimizzazione)
+		r.Get("/me/export", handlers.ExportData)     // tutti i dati dell'utente (portabilità)
+		r.Post("/me/terms", handlers.AcceptTerms)    // riaccettazione di Informativa e Termini
+		r.Put("/me/privacy", handlers.UpdatePrivacy) // stato online nascosto
 		r.Get("/me/collection", handlers.Collection) // collezione di carte
 		r.Get("/me/decks", handlers.ListDecks)       // mazzi personali
 		r.Post("/me/decks", handlers.CreateDeck)

@@ -1,16 +1,20 @@
 import {
+  encodeAccountDeletion,
   encodeBlock,
   encodeChallenge,
   encodeDeck,
   encodeLogin,
   encodeRefresh,
+  encodePrivacy,
   encodeRegister,
+  encodeTermsAcceptance,
   normalizeAccount,
   normalizeBlocks,
   normalizeChallenge,
   normalizeCollection,
   normalizeDeck,
   normalizeDeckList,
+  normalizeExport,
   normalizeFriendList,
   normalizeGameHistory,
   normalizeLeaderboard,
@@ -69,8 +73,9 @@ function normalizeCatalogList(data: unknown): Normalized<readonly Spell[]> {
 /** Endpoint REST usati dal client (chess-server `api/router.go`). */
 export function createApi(http: HttpClient) {
   return {
-    async register(username: string, email: string, password: string): Promise<ApiResult<Registration>> {
-      return toResult(await http.request('POST', '/auth/register', { body: encodeRegister(username, email, password) }), normalizeRegistration);
+    /** `consented`: termini, informativa ed età minima accettati (P1); il server rifiuta senza. */
+    async register(username: string, email: string, password: string, consented: boolean): Promise<ApiResult<Registration>> {
+      return toResult(await http.request('POST', '/auth/register', { body: encodeRegister(username, email, password, consented) }), normalizeRegistration);
     },
 
     async login(email: string, password: string): Promise<ApiResult<AuthSession>> {
@@ -84,6 +89,26 @@ export function createApi(http: HttpClient) {
 
     async fetchAccount(): Promise<ApiResult<UserAccount>> {
       return toResult(await http.request('GET', '/me', { auth: true }), normalizeAccount);
+    },
+
+    /** Accetta la versione corrente di Informativa e Termini (P2). Risponde con l'account aggiornato. */
+    async acceptTerms(version: number): Promise<ApiResult<UserAccount>> {
+      return toResult(await http.request('POST', '/me/terms', { auth: true, body: encodeTermsAcceptance(version) }), normalizeAccount);
+    },
+
+    /** Stato online nascosto agli altri (P6). Risponde con l'account aggiornato. */
+    async updatePrivacy(hidePresence: boolean): Promise<ApiResult<UserAccount>> {
+      return toResult(await http.request('PUT', '/me/privacy', { auth: true, body: encodePrivacy(hidePresence) }), normalizeAccount);
+    },
+
+    /** Cancella l'account (P3), con la password per conferma. */
+    async deleteAccount(password: string): Promise<ApiResult<null>> {
+      return toResult(await http.request('DELETE', '/me', { auth: true, body: encodeAccountDeletion(password) }), () => ({ ok: true, value: null, warnings: [] }));
+    },
+
+    /** Tutti i dati dell'utente, già come testo JSON da salvare (P5). */
+    async exportData(): Promise<ApiResult<string>> {
+      return toResult(await http.request('GET', '/me/export', { auth: true }), normalizeExport);
     },
 
     async fetchPublicProfile(userId: string): Promise<ApiResult<PublicProfile>> {

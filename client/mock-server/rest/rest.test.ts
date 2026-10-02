@@ -36,7 +36,7 @@ async function call(server: MockServerHandle, method: string, path: string, init
 
 async function login(server: MockServerHandle, name: string) {
   const email = `${name}@test.local`;
-  await call(server, 'POST', '/auth/register', { body: { username: name, email, password: 'Password1' } });
+  await call(server, 'POST', '/auth/register', { body: { username: name, email, password: 'Password1', accept_terms: true, age_confirmed: true } });
   const res = await call(server, 'POST', '/auth/login', { body: { email, password: 'Password1' } });
   return (res.body.data as { tokens: { access_token: string; refresh_token: string } }).tokens;
 }

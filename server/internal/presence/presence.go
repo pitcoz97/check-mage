@@ -74,3 +74,10 @@ func (t *Tracker) Reset() {
 	defer t.mu.Unlock()
 	t.seen = map[int]time.Time{}
 }
+
+// Forget dimentica l'utente: torna subito offline (account cancellato, P3).
+func (t *Tracker) Forget(userID int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.seen, userID)
+}

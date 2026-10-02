@@ -58,6 +58,10 @@ func main() {
 	if err := db.EnsureFriendSchema(); err != nil {
 		logger.L.Error("Errore creazione schema friend_links/user_blocks", zap.Error(err))
 	}
+	// Privacy: termini accettati, stato nascosto, account cancellati
+	if err := db.EnsurePrivacySchema(); err != nil {
+		logger.L.Error("Errore aggiornamento schema users (privacy)", zap.Error(err))
+	}
 
 	// Monitora la salute del DB ogni 30 secondi
 	go func() {

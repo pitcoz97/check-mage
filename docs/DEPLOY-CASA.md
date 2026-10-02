@@ -339,6 +339,10 @@ CLOUDFLARE_TUNNEL_TOKEN=eyJ…il-token-del-passo-9
 
 Salva con **Ctrl+O**, **Invio**, ed esci con **Ctrl+X**.
 
+> **Documenti legali:** come al [passo 8.3 della guida VPS](DEPLOY.md#83-i-documenti-legali), con `hosting: { kind:
+> 'home' }` in `client/src/legal/config.ts`: l'informativa indicherà Cloudflare come fornitore. Senza, l'avvio si
+> ferma con «Documenti legali non pronti».
+
 ---
 
 ## 11. Avviare e provare

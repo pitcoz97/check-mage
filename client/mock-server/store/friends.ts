@@ -54,6 +54,11 @@ export function createFriendStore() {
       if (i >= 0) links.splice(i, 1);
       if (!blocks.some((b) => b.blocker === blocker && b.blocked === blocked)) blocks.push({ blocker, blocked });
     },
+    /** Legami e blocchi dell'utente cancellato (P3). */
+    removeUser(userId: number): void {
+      for (let i = links.length - 1; i >= 0; i--) if (links[i]?.requester === userId || links[i]?.addressee === userId) links.splice(i, 1);
+      for (let i = blocks.length - 1; i >= 0; i--) if (blocks[i]?.blocker === userId || blocks[i]?.blocked === userId) blocks.splice(i, 1);
+    },
     unblock(blocker: number, blocked: number): boolean {
       const i = blocks.findIndex((b) => b.blocker === blocker && b.blocked === blocked);
       if (i < 0) return false;

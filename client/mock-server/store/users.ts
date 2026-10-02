@@ -14,6 +14,13 @@ export interface User {
   createdAt: string;
   passwordHash: Buffer;
   salt: Buffer;
+  /** Termini accettati (P1–P2): versione e istante. */
+  termsVersion: number;
+  termsAcceptedAt: string | null;
+  /** Stato online nascosto (P6). */
+  hidePresence: boolean;
+  /** Account cancellato e reso anonimo (P3): resta solo per lo storico delle partite. */
+  deleted: boolean;
 }
 
 export interface GameRow {
@@ -79,7 +86,7 @@ export function createUserStore() {
 
   return {
     /** `INSERT ... RETURNING id`: `null` se username o email esistono già (vincoli UNIQUE). */
-    insert(username: string, email: string, password: string): User | null {
+    insert(username: string, email: string, password: string, termsVersion = 0): User | null {
       for (const u of users.values()) if (u.username === username || u.email === email) return null;
       const salt = randomBytes(16);
       const user: User = {
@@ -90,17 +97,42 @@ export function createUserStore() {
         createdAt: new Date().toISOString(),
         salt,
         passwordHash: hash(password, salt),
+        termsVersion,
+        termsAcceptedAt: termsVersion > 0 ? new Date().toISOString() : null,
+        hidePresence: false,
+        deleted: false,
       };
       users.set(user.id, user);
       return user;
     },
 
     findByEmail(email: string): User | undefined {
-      return [...users.values()].find((u) => u.email === email);
+      return [...users.values()].find((u) => u.email === email && !u.deleted);
     },
 
+    /** Solo gli account attivi: un utente cancellato non esiste più (P3). */
     findById(id: number): User | undefined {
+      const user = users.get(id);
+      return user?.deleted === true ? undefined : user;
+    },
+
+    /** Anche gli account cancellati, per lo storico delle partite. */
+    findAny(id: number): User | undefined {
       return users.get(id);
+    },
+
+    /** `AccountStore.Delete` (P3): rende anonimo l'utente; le partite restano. */
+    anonymize(id: number): void {
+      const user = users.get(id);
+      if (user === undefined || user.deleted) return;
+      Object.assign(user, {
+        username: `#eliminato-${id}`,
+        email: `deleted-${id}@deleted.invalid`,
+        passwordHash: Buffer.alloc(64),
+        hidePresence: true,
+        termsAcceptedAt: null,
+        deleted: true,
+      });
     },
 
     checkPassword(user: User, password: string): boolean {
@@ -109,12 +141,17 @@ export function createUserStore() {
 
     /** `handlers/stats.go:17-22`. */
     leaderboard(): User[] {
-      return [...users.values()].sort((a, b) => b.elo - a.elo).slice(0, 10);
+      return [...users.values()].filter((u) => !u.deleted).sort((a, b) => b.elo - a.elo).slice(0, 10);
     },
 
     /** `handlers/stats.go:64-79`: ultime 20, più recenti prima. */
     gamesOf(userId: number): GameRow[] {
       return games.filter((g) => g.whiteId === userId || g.blackId === userId).reverse().slice(0, 20);
+    },
+
+    /** Tutte le partite, per l'esportazione dei dati (P5). */
+    allGamesOf(userId: number): GameRow[] {
+      return games.filter((g) => g.whiteId === userId || g.blackId === userId).reverse();
     },
 
     /** `handlers/stats.go:141-148`. */
@@ -133,7 +170,7 @@ export function createUserStore() {
 
     /** Tutti gli utenti, per `GET /me/friends` (`db/users.go`). */
     all(): User[] {
-      return [...users.values()];
+      return [...users.values()].filter((u) => !u.deleted);
     },
 
     /** `db/db.go`: salva la partita e, se è classificata, aggiorna gli ELO (F8). */

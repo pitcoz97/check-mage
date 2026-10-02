@@ -15,6 +15,9 @@ type RegisterRequest struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// Consenso alla registrazione (P1): termini e informativa accettati, almeno 14 anni.
+	AcceptTerms  bool `json:"accept_terms"`
+	AgeConfirmed bool `json:"age_confirmed"`
 }
 
 // Dati che arrivano dalla richiesta di login

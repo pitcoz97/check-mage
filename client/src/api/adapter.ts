@@ -1095,6 +1095,10 @@ export const HTTP_ERROR_TEXTS: readonly ErrorTextRule<HttpErrorCode>[] = [
   { pattern: /^Il giocatore è in partita$/, code: 'challenge_target_busy' },
   { pattern: /^Sei già in partita$/, code: 'challenge_self_busy' },
   { pattern: /^Sfida non trovata$/, code: 'challenge_not_found' },
+  { pattern: /^Devi accettare i termini e confermare di avere almeno \d+ anni$/, code: 'consent_required' }, // handlers/auth.go
+  { pattern: /^Versione dei termini non valida$/, code: 'terms_version_invalid' }, // handlers/privacy.go
+  { pattern: /^Password non corretta$/, code: 'wrong_password' },
+  { pattern: /^Account non trovato$/, code: 'account_not_found' },
   { pattern: /^Non puoi aggiungere te stesso$/, code: 'friend_self' }, // handlers/friendships.go
   { pattern: /^Siete già amici$/, code: 'friend_already' },
   { pattern: /^Richiesta già inviata$/, code: 'friend_pending' },
@@ -1183,10 +1187,23 @@ const wireAccountSchema = z.object({
   email: z.string(),
   elo: z.number(),
   created_at: optionalText,
+  // Assenti sui server precedenti alla privacy (P2, P6): nessun controllo dei termini, stato visibile.
+  terms_version: count.min(0).optional(),
+  terms_current: count.min(0).optional(),
+  hide_presence: z.boolean().optional(),
 });
 
 function toAccount(user: z.output<typeof wireAccountSchema>): UserAccount {
-  return { id: user.id, username: user.username, email: user.email, elo: user.elo, createdAt: user.created_at };
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    elo: user.elo,
+    createdAt: user.created_at,
+    termsVersion: user.terms_version ?? null,
+    termsCurrent: user.terms_current ?? null,
+    hidePresence: user.hide_presence ?? false,
+  };
 }
 
 const wireTokenPairSchema = z.object({ access_token: nonEmptyString, refresh_token: nonEmptyString });
@@ -1318,6 +1335,8 @@ export function normalizeGameHistory(data: unknown): Normalized<readonly GameHis
     white_id: wireId.optional(),
     black_id: wireId.optional(),
     rated: z.boolean().optional(),
+    white_deleted: z.boolean().optional(),
+    black_deleted: z.boolean().optional(),
     white: z.string(),
     black: z.string(),
     result: z.string(),
@@ -1333,6 +1352,8 @@ export function normalizeGameHistory(data: unknown): Normalized<readonly GameHis
     whiteId: g.white_id ?? null,
     blackId: g.black_id ?? null,
     rated: g.rated ?? true,
+    whiteDeleted: g.white_deleted === true,
+    blackDeleted: g.black_deleted === true,
     white: g.white,
     black: g.black,
     result: readEnum(ctx, g.result, GAME_RESULTS, 'result'),
@@ -1465,8 +1486,33 @@ export function normalizeStatus(status: number, rawBody: string): ServerStatus {
   };
 }
 
-export function encodeRegister(username: string, email: string, password: string): string {
-  return JSON.stringify({ username, email, password });
+/** Corpo di `POST /auth/register`: con il consenso a termini, informativa ed età minima (P1). */
+export function encodeRegister(username: string, email: string, password: string, consented: boolean): string {
+  return JSON.stringify({ username, email, password, accept_terms: consented, age_confirmed: consented });
+}
+
+/**
+ * `GET /me/export` (P5): i dati dell'utente da consegnargli così come sono, in un file JSON leggibile. Non si
+ * interpretano: basta che sia un oggetto.
+ */
+export function normalizeExport(data: unknown): Normalized<string> {
+  if (!isRecord(data)) return { ok: false, issues: ['export: non è un oggetto'] };
+  return { ok: true, value: JSON.stringify(data, null, 2), warnings: [] };
+}
+
+/** Corpo di `PUT /me/privacy` (P6). */
+export function encodePrivacy(hidePresence: boolean): string {
+  return JSON.stringify({ hide_presence: hidePresence });
+}
+
+/** Corpo di `DELETE /me` (P3): la password, per conferma. */
+export function encodeAccountDeletion(password: string): string {
+  return JSON.stringify({ password });
+}
+
+/** Corpo di `POST /me/terms`: la versione accettata (P2). */
+export function encodeTermsAcceptance(version: number): string {
+  return JSON.stringify({ version });
 }
 
 export function encodeLogin(email: string, password: string): string {

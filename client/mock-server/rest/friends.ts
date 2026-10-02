@@ -62,9 +62,11 @@ export function createFriendsApi({ config, users, friends, presence, matches, cl
 
   /** `buildFriendList`. */
   function list(userId: number) {
+    // Chi ha nascosto il proprio stato appare sempre offline (P6).
+    const hiddenPresence = new Set(users.all().filter((u) => u.hidePresence).map((u) => u.id));
     const statuses = new Map<number, FriendStatus>();
-    for (const id of presence.onlineIds()) statuses.set(id, 'online');
-    for (const id of matches.playingIds()) statuses.set(id, 'playing');
+    for (const id of presence.onlineIds()) if (!hiddenPresence.has(id)) statuses.set(id, 'online');
+    for (const id of matches.playingIds()) if (!hiddenPresence.has(id)) statuses.set(id, 'playing');
     const view = (u: User) => ({ id: u.id, username: u.username, elo: u.elo, status: statuses.get(u.id) ?? ('offline' as FriendStatus) });
     const sort = <T extends { username: string; status: FriendStatus }>(items: T[]) =>
       items.sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status] || byName(a, b));
@@ -113,6 +115,14 @@ export function createFriendsApi({ config, users, friends, presence, matches, cl
       if (a === b || hiddenFor(a).has(b)) return false;
       return config.allFriends || friends.link(a, b)?.status === 'accepted';
     },
+
+    /** Legami e blocchi di un utente cancellato (P3). */
+    forgetUser(userId: number): void {
+      friends.removeUser(userId);
+    },
+
+    /** I bloccati, per l'esportazione dei dati (P5). */
+    blockList,
 
     incomingCount(userId: number): number {
       return friends.links(userId).filter((l) => l.status === 'pending' && l.addressee === userId).length;

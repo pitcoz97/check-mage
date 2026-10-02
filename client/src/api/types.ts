@@ -12,6 +12,11 @@ export interface UserAccount {
   readonly email: string;
   readonly elo: number;
   readonly createdAt: string | null;
+  /** Versione dei termini accettata e quella corrente (P2); `null` sui server che non le mandano: nessun controllo. */
+  readonly termsVersion: number | null;
+  readonly termsCurrent: number | null;
+  /** Stato online nascosto agli altri (P6). */
+  readonly hidePresence: boolean;
 }
 
 export interface TokenPair {
@@ -97,6 +102,9 @@ export interface GameHistoryEntry {
   readonly playedAt: string;
   /** `false` per le amichevoli (F8); assente = classificata. */
   readonly rated: boolean;
+  /** Il giocatore ha cancellato l'account (P3): si mostra «Giocatore eliminato». */
+  readonly whiteDeleted: boolean;
+  readonly blackDeleted: boolean;
 }
 
 /** Stato di un amico (`handlers/friends.go`, F3). */
@@ -232,6 +240,11 @@ export const HTTP_ERROR_CODES = [
   'challenge_target_busy',
   'challenge_self_busy',
   'challenge_not_found',
+  // Privacy (handlers/privacy.go, handlers/auth.go)
+  'consent_required',
+  'terms_version_invalid',
+  'wrong_password',
+  'account_not_found',
   // Amicizie e blocchi (handlers/friendships.go)
   'friend_self',
   'friend_already',

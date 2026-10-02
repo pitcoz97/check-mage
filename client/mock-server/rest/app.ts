@@ -44,6 +44,24 @@ function fail(res: Response, status: number, text: ServerText): void {
   res.status(status).json({ success: false, error: text.message });
 }
 
+/** `handlers.TermsVersion` (P2): la versione corrente di Informativa e Termini. */
+export const TERMS_VERSION = 1;
+
+/** L'account come in `GET /me` e nel login (`accountView`, `handlers/privacy.go`). */
+function accountJson(user: User) {
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    elo: user.elo,
+    created_at: user.createdAt,
+    terms_version: user.termsVersion,
+    terms_current: TERMS_VERSION,
+    ...(user.termsAcceptedAt === null ? {} : { terms_accepted_at: user.termsAcceptedAt }),
+    hide_presence: user.hidePresence,
+  };
+}
+
 /** `User` serializzato come `models/user.go:4-11` (`created_at` omesso se vuoto). */
 function userJson(user: User, fields: { email: boolean; createdAt: boolean }) {
   return {
@@ -107,7 +125,8 @@ const ROUTES: readonly { readonly pattern: RegExp; readonly methods: readonly st
   { pattern: /^\/users\/[^/]+$/, methods: ['GET'] },
   { pattern: /^\/users\/[^/]+\/games$/, methods: ['GET'] },
   { pattern: /^\/spells$/, methods: ['GET'] },
-  { pattern: /^\/me$/, methods: ['GET'] },
+  { pattern: /^\/me$/, methods: ['GET', 'DELETE'] },
+  { pattern: /^\/me\/(terms|privacy|export)$/, methods: ['GET', 'POST', 'PUT'] },
   { pattern: /^\/me\/collection$/, methods: ['GET'] },
   { pattern: /^\/me\/decks$/, methods: ['GET', 'POST'] },
   { pattern: /^\/me\/decks\/[^/]+$/, methods: ['PUT', 'DELETE'] },
@@ -196,9 +215,11 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
     if (body === null) return fail(res, 400, HTTP.invalidBody);
     const [username, email, password] = [str(body['username']), str(body['email']), str(body['password'])];
     if (username === '' || email === '' || password === '') return fail(res, 400, HTTP.missingFields);
+    // Consenso: termini accettati e almeno 14 anni (P1).
+    if (body['accept_terms'] !== true || body['age_confirmed'] !== true) return fail(res, 400, HTTP.consentRequired);
     const invalid = validateRegister(username, email, password);
     if (invalid !== null) return fail(res, 400, invalid);
-    const user = users.insert(username, email, password);
+    const user = users.insert(username, email, password, TERMS_VERSION);
     if (user === null) return fail(res, 409, HTTP.taken);
     ok(res, { user_id: user.id });
   });
@@ -211,7 +232,7 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
     if (user === undefined || !users.checkPassword(user, str(body['password']))) return fail(res, 401, HTTP.badCredentials);
     ok(res, {
       tokens: { access_token: jwt.issueAccess(user.id, user.username), refresh_token: jwt.issueRefresh(user.id) },
-      user: userJson(user, { email: true, createdAt: false }),
+      user: accountJson(user),
     });
   });
 
@@ -270,8 +291,74 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
   // handlers/auth.go:272-296
   app.get('/me', requireAuth, (req: AuthedRequest, res) => {
     const user = req.claims === undefined ? undefined : users.findById(req.claims.user_id);
-    if (user === undefined) return fail(res, 500, HTTP.profileError);
-    ok(res, userJson(user, { email: true, createdAt: true }));
+    if (user === undefined) return fail(res, 404, HTTP.accountAbsent);
+    ok(res, accountJson(user));
+  });
+
+  // handlers/privacy.go (P2): riaccettazione della versione corrente
+  app.post('/me/terms', requireAuth, readJson, (req: AuthedRequest, res) => {
+    const user = req.claims === undefined ? undefined : users.findById(req.claims.user_id);
+    if (user === undefined) return fail(res, 404, HTTP.accountAbsent);
+    const body = decodeBody(req);
+    if (body === null) return fail(res, 400, HTTP.invalidBody);
+    if (body['version'] !== TERMS_VERSION) return fail(res, 409, HTTP.termsVersion);
+    user.termsVersion = TERMS_VERSION;
+    user.termsAcceptedAt = new Date().toISOString();
+    ok(res, accountJson(user));
+  });
+
+  // handlers/privacy.go (P6): stato online nascosto
+  app.put('/me/privacy', requireAuth, readJson, (req: AuthedRequest, res) => {
+    const user = req.claims === undefined ? undefined : users.findById(req.claims.user_id);
+    if (user === undefined) return fail(res, 404, HTTP.accountAbsent);
+    const hide = decodeBody(req)?.['hide_presence'];
+    if (typeof hide !== 'boolean') return fail(res, 400, HTTP.invalidBody);
+    user.hidePresence = hide;
+    ok(res, accountJson(user));
+  });
+
+  // handlers/privacy.go (P3): cancellazione dell'account, con la password e fuori dalle partite
+  app.delete('/me', requireAuth, readJson, (req: AuthedRequest, res) => {
+    const user = req.claims === undefined ? undefined : users.findById(req.claims.user_id);
+    if (user === undefined) return fail(res, 404, HTTP.accountAbsent);
+    const password = decodeBody(req)?.['password'];
+    if (typeof password !== 'string' || password === '') return fail(res, 400, HTTP.invalidBody);
+    if (!users.checkPassword(user, password)) return fail(res, 403, HTTP.wrongPassword);
+    if (matches.inMatch(user.id)) return fail(res, 409, HTTP.challengeSelfBusy);
+    decks.removeUser(user.id);
+    collections.removeUser(user.id);
+    friendsApi.forgetUser(user.id);
+    challenges.closeOf(user.id);
+    presence.forget(user.id);
+    users.anonymize(user.id);
+    res.status(200).json({ success: true });
+  });
+
+  // handlers/privacy.go (P5): tutti i dati dell'utente
+  app.get('/me/export', requireAuth, (req: AuthedRequest, res) => {
+    const user = req.claims === undefined ? undefined : users.findById(req.claims.user_id);
+    if (user === undefined) return fail(res, 404, HTTP.accountAbsent);
+    const saved = collections.saved(user.id);
+    const deckList = decks.list(user.id);
+    const name = (id: number) => users.findAny(id)?.username ?? '';
+    ok(res, {
+      exported_at: new Date().toISOString(),
+      account: accountJson(user),
+      collection: [...saved].filter(([, copies]) => copies > 0).map(([spell_id, copies]) => ({ spell_id, copies })),
+      decks: deckList.ok ? deckList.data.decks : [],
+      games: users.allGamesOf(user.id).map((g) => ({
+        id: g.id,
+        white: name(g.whiteId),
+        black: name(g.blackId),
+        result: g.result,
+        time_control: g.timeControl,
+        pgn: g.pgn,
+        played_at: g.playedAt,
+        rated: g.rated,
+      })),
+      friends: { ...friendsApi.list(user.id), others: [] },
+      blocked: friendsApi.blockList(user.id),
+    });
   });
 
   // handlers/collection.go: set iniziale alla prima lettura (db/collection.go)
@@ -365,6 +452,8 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
     const me = users.findById(self);
     if (me === undefined) return fail(res, 500, HTTP.dbError);
     if (matches.inMatch(self)) return fail(res, 409, HTTP.challengeSelfBusy);
+    // Stato nascosto (P6): appare offline, anche se è in partita.
+    if (target.hidePresence) return fail(res, 409, HTTP.challengeOffline);
     if (matches.inMatch(to)) return fail(res, 409, HTTP.challengeTargetBusy);
     if (!presence.online(to)) return fail(res, 409, HTTP.challengeOffline);
     const ch = challenges.create(player(me), player(target));
@@ -386,7 +475,8 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
   app.get('/users/:id/games', requireAuth, (req, res) => {
     const id = Number(req.params['id']);
     if (!Number.isInteger(id)) return fail(res, 400, HTTP.invalidId);
-    const name = (userId: number) => users.findById(userId)?.username ?? '';
+    const name = (userId: number) => users.findAny(userId)?.username ?? '';
+    const deleted = (userId: number) => users.findAny(userId)?.deleted === true;
     ok(
       res,
       users.gamesOf(id).map((g) => ({
@@ -400,6 +490,8 @@ export function createRestApp(deps: RestDeps, gate: RequestGate) {
         pgn: g.pgn,
         played_at: g.playedAt,
         rated: g.rated,
+        white_deleted: deleted(g.whiteId),
+        black_deleted: deleted(g.blackId),
       })),
     );
   });

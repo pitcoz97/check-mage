@@ -41,7 +41,7 @@ async function player(server: MockServerHandle, name: string): Promise<Player> {
   const email = `${name}@test.local`;
   const post = (path: string, body: unknown) =>
     fetch(`${server.httpUrl}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  await post('/auth/register', { username: name, email, password: 'Password1' });
+  await post('/auth/register', { username: name, email, password: 'Password1', accept_terms: true, age_confirmed: true });
   const login = (await (await post('/auth/login', { email, password: 'Password1' })).json()) as {
     data: { tokens: { access_token: string }; user: { id: number } };
   };

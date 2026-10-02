@@ -14,7 +14,10 @@ import {
   normalizeCollection,
   normalizeDeck,
   normalizeDeckList,
+  normalizeExport,
+  encodeAccountDeletion,
   encodeBlock,
+  encodePrivacy,
   encodeChallenge,
   encodeDeck,
   FALLBACK_CREDENTIAL_POLICY,
@@ -701,7 +704,7 @@ describe('REST', () => {
       ok: true,
       value: {
         tokens: { accessToken: 'a', refreshToken: 'r' },
-        user: { id: '42', username: 'mario', email: 'mario@test.it', elo: 1200, createdAt: null },
+        user: { id: '42', username: 'mario', email: 'mario@test.it', elo: 1200, createdAt: null, termsVersion: null, termsCurrent: null, hidePresence: false },
       },
       warnings: [],
     });
@@ -864,6 +867,25 @@ describe('REST', () => {
     });
   });
 
+  it('privacy (P3, P5, P6): esportazione come testo JSON, corpi di privacy e cancellazione, lati cancellati nello storico', () => {
+    expect(normalizeExport({ account: { id: 7 } })).toEqual({ ok: true, value: JSON.stringify({ account: { id: 7 } }, null, 2), warnings: [] });
+    expect(normalizeExport([1])).toMatchObject({ ok: false });
+    expect(JSON.parse(encodePrivacy(true))).toEqual({ hide_presence: true });
+    expect(JSON.parse(encodeAccountDeletion('Password1'))).toEqual({ password: 'Password1' });
+    const base = { id: 1, white: 'mario', black: '#eliminato-8', result: '1-0', time_control: '10+5', pgn: '', played_at: '2026-10-01T10:00:00Z' };
+    expect(normalizeGameHistory([{ ...base, black_deleted: true }, base])).toMatchObject({
+      ok: true,
+      value: [
+        { whiteDeleted: false, blackDeleted: true },
+        { whiteDeleted: false, blackDeleted: false },
+      ],
+    });
+    expect(normalizeAccount({ id: 7, username: 'mario', email: 'm@t.it', elo: 1200, terms_version: 0, terms_current: 1, hide_presence: true })).toMatchObject({
+      ok: true,
+      value: { termsVersion: 0, termsCurrent: 1, hidePresence: true },
+    });
+  });
+
   it('ticket WebSocket', () => {
     expect(normalizeWsTicket({ ticket: 'ab12', expires_in: 30 })).toEqual({
       ok: true,
@@ -894,10 +916,12 @@ describe('REST', () => {
   });
 
   it('encoder dei body', () => {
-    expect(JSON.parse(encodeRegister('mario', 'mario@test.it', 'Password1'))).toEqual({
+    expect(JSON.parse(encodeRegister('mario', 'mario@test.it', 'Password1', true))).toEqual({
       username: 'mario',
       email: 'mario@test.it',
       password: 'Password1',
+      accept_terms: true,
+      age_confirmed: true,
     });
     expect(JSON.parse(encodeLogin('mario@test.it', 'Password1'))).toEqual({ email: 'mario@test.it', password: 'Password1' });
     expect(JSON.parse(encodeRefresh('r'))).toEqual({ refresh_token: 'r' });

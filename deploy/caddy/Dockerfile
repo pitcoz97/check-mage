@@ -6,6 +6,8 @@ WORKDIR /client
 COPY client/package.json client/package-lock.json ./
 RUN npm ci
 COPY client/ ./
+# Niente sito online senza titolare e contatto nei documenti legali (client/src/legal/config.ts, docs/legal/README.md).
+RUN npm run legal:check
 # Gli indirizzi del server finiscono nel bundle al momento della build (solo variabili VITE_*).
 ARG VITE_API_BASE_URL
 ARG VITE_WS_URL
