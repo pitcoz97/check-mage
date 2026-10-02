@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import { formatClock } from '../../game/clock';
 import { MiniBoard } from '../../game/board/MiniBoard';
 import type { Color, PlayedMove, Square } from '../../game/model';
+import { playerName } from '../../game/playerName';
 import { useMatch } from '../../store/MatchProvider';
 import { useClock } from '../Match/useClock';
 
@@ -47,7 +48,8 @@ export function OngoingMatchCard({ variant }: { variant: 'panel' | 'compact' }) 
   const live = useMatch((s) => s.lifecycle === 'playing');
 
   const opponentColor: Color = myColor === 'black' ? 'white' : 'black';
-  const opponent = game?.players?.[opponentColor].username ?? null;
+  const opponentRef = game?.players?.[opponentColor] ?? null;
+  const opponent = opponentRef === null ? null : playerName(t, opponentRef);
   const mine = myColor !== null && game?.activePlayer === myColor;
   const heading = t('home.ongoing');
 

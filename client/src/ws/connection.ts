@@ -53,6 +53,8 @@ export const CLOSE_REPLACED = 4001;
 export const CLOSE_DECK_INVALID = 4002;
 /** La sfida attesa non partirà più (`CloseChallenge`, `game/client.go`, F6): il motivo è nel reason. */
 export const CLOSE_CHALLENGE = 4003;
+/** La partita contro il bot non può partire (`CloseBot`, `game/client.go`): livello sconosciuto o bot spento. */
+export const CLOSE_BOT = 4004;
 const CLOSE_NORMAL = 1000;
 /** Chiusura senza saluti: handshake rifiutato o connessione caduta (lo stesso codice che usa il browser). */
 const CLOSE_ABNORMAL = 1006;
@@ -120,6 +122,8 @@ export type ConnectionStatus =
   | { readonly kind: 'deck_invalid' }
   /** La sfida attesa non partirà più (4003): rifiutata, scaduta o non più disponibile. */
   | { readonly kind: 'challenge_closed'; readonly reason: ChallengeCloseReason }
+  /** La partita contro il bot non può partire (4004). */
+  | { readonly kind: 'bot_unavailable' }
   /** Ticket rifiutato anche dopo il refresh: la sessione è scaduta. */
   | { readonly kind: 'unauthorized' }
   | { readonly kind: 'closed' };
@@ -298,6 +302,11 @@ export function createConnection(deps: ConnectionDeps): Connection {
           setStatus({ kind: 'challenge_closed', reason: challengeCloseReason(reason) });
           return;
         }
+        if (code === CLOSE_BOT) {
+          logger.debug('bot non disponibile (4004)');
+          setStatus({ kind: 'bot_unavailable' });
+          return;
+        }
         scheduleRetry();
       },
     });
@@ -336,7 +345,7 @@ export function createConnection(deps: ConnectionDeps): Connection {
 
     wake() {
       // Ferma per scelta (mai aperta, chiusa, sessione scaduta, sostituita da un'altra scheda): non si tocca.
-      if (status.kind === 'idle' || status.kind === 'closed' || status.kind === 'unauthorized' || status.kind === 'replaced' || status.kind === 'deck_invalid' || status.kind === 'challenge_closed') {
+      if (status.kind === 'idle' || status.kind === 'closed' || status.kind === 'unauthorized' || status.kind === 'replaced' || status.kind === 'deck_invalid' || status.kind === 'challenge_closed' || status.kind === 'bot_unavailable') {
         return;
       }
       generation++;

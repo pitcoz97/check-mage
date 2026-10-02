@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ManaCrystals } from '../../game/mana/ManaCrystals';
 import type { Color, PieceKind, PlayerEffects, SpellId } from '../../game/model';
 import { PieceIcon } from '../../game/pieces/PieceIcon';
+import { playerName } from '../../game/playerName';
 import { useCatalog } from '../../spells/CatalogProvider';
 import { auraIcon, triggerIcon } from '../../spells/effects.registry';
 import { EffectIcon } from '../../spells/icons/EffectIcon';
@@ -153,8 +154,10 @@ export function PlayerRow({ side }: { side: 'self' | 'opponent' }) {
 
   const color: Color = myColor === null ? (side === 'self' ? 'white' : 'black') : side === 'self' ? myColor : myColor === 'white' ? 'black' : 'white';
   const player = players?.[color] ?? null;
-  const name = player?.username ?? t(side === 'self' ? 'match.you' : 'match.opponent');
-  const elo = useElo(player?.id ?? null);
+  const name = player === null ? t(side === 'self' ? 'match.you' : 'match.opponent') : playerName(t, player);
+  const isBot = player?.bot !== undefined;
+  // Il bot non ha un profilo pubblico: niente ELO da chiedere.
+  const elo = useElo(player === null || isBot ? null : player.id);
   const library = side === 'self' ? (myDeckSize ?? deckSizes?.[color] ?? null) : (deckSizes?.[color] ?? null);
   const myMana = mana?.[color] ?? null;
   const handSize = handSizes?.[color] ?? null;
@@ -178,10 +181,10 @@ export function PlayerRow({ side }: { side: 'self' | 'opponent' }) {
           <span className="text-14 font-bold lg:text-15">{name}</span>
           <span className="sr-only">{t(color === 'white' ? 'match.colorWhite' : 'match.colorBlack')}</span>
           {elo !== null && <span className="text-14 font-medium text-muted lg:text-13 lg:font-normal">{t('match.panel.eloShort', { elo })}</span>}
-          {/* Amichevole (F8): accanto all'avversario, niente ELO in gioco. */}
+          {/* Amichevole (F8): accanto all'avversario, niente ELO in gioco. Contro il bot l'etichetta è «Bot». */}
           {side === 'opponent' && friendly && (
-            <span data-friendly className="self-center rounded-pill bg-arcane-deep px-1.5 py-px text-11 font-bold text-arcane-pale">
-              {t('match.friendly')}
+            <span data-friendly={isBot ? 'bot' : 'friend'} className="self-center rounded-pill bg-arcane-deep px-1.5 py-px text-11 font-bold text-arcane-pale">
+              {t(isBot ? 'bot.badge' : 'match.friendly')}
             </span>
           )}
         </span>
@@ -251,7 +254,7 @@ export function PlayerRow({ side }: { side: 'self' | 'opponent' }) {
         </span>
       )}
 
-      <Clock side={side} color={color} active={activePlayer === color} name={player?.username ?? ''} />
+      <Clock side={side} color={color} active={activePlayer === color} name={player === null ? '' : playerName(t, player)} />
     </div>
   );
 }

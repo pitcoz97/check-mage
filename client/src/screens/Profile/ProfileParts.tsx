@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 
 import type { GameHistoryEntry, PublicProfile } from '../../api/types';
 import { Spinner } from '../../design/components/Spinner';
+import type { BotIdentity } from '../../game/model';
+import { botName } from '../../game/playerName';
 import { useApi } from '../../store/AuthProvider';
 
 /** Pezzi condivisi dal proprio profilo e da quello degli altri giocatori. */
@@ -42,18 +44,24 @@ const OUTCOME_CHIP: Record<GameOutcome, string> = {
   unknown: 'bg-quiet text-muted',
 };
 
-/** Esito della partita per il giocatore: il lato dagli id, o dal nome sui server che non li mandano. */
+/**
+ * Esito della partita per il giocatore: il lato dagli id, o dal nome sui server che non li mandano. `opponentBot` è il
+ * livello se l'avversario era il bot (si mostra «Bot · livello», mai l'username del suo account).
+ */
 export function outcomeFor(
   game: GameHistoryEntry,
   userId: string,
   username: string,
-): { outcome: GameOutcome; opponent: string; opponentDeleted: boolean } {
+): { outcome: GameOutcome; opponent: string; opponentDeleted: boolean; opponentBot: BotIdentity | null } {
   const white = game.whiteId === null ? game.white === username : game.whiteId === userId;
-  const opponent = white ? game.black : game.white;
-  const opponentDeleted = white ? game.blackDeleted : game.whiteDeleted;
-  if (game.result === '1/2-1/2') return { outcome: 'draw', opponent, opponentDeleted };
-  if (game.result === 'unknown') return { outcome: 'unknown', opponent, opponentDeleted };
-  return { outcome: (game.result === '1-0') === white ? 'win' : 'loss', opponent, opponentDeleted };
+  const sides = {
+    opponent: white ? game.black : game.white,
+    opponentDeleted: white ? game.blackDeleted : game.whiteDeleted,
+    opponentBot: white ? game.blackBot : game.whiteBot,
+  };
+  if (game.result === '1/2-1/2') return { outcome: 'draw', ...sides };
+  if (game.result === 'unknown') return { outcome: 'unknown', ...sides };
+  return { outcome: (game.result === '1-0') === white ? 'win' : 'loss', ...sides };
 }
 
 type GamesState = { readonly kind: 'loading' } | { readonly kind: 'error' } | { readonly kind: 'ready'; readonly games: readonly GameHistoryEntry[] };
@@ -83,13 +91,18 @@ export function RecentGames({ userId, username, limit = 10 }: { userId: string; 
       {state.kind === 'ready' && state.games.length > 0 && (
         <ul className="flex flex-col gap-1.5">
           {state.games.map((game) => {
-            const { outcome, opponent, opponentDeleted } = outcomeFor(game, userId, username);
+            const { outcome, opponent, opponentDeleted, opponentBot } = outcomeFor(game, userId, username);
+            const name = opponentBot !== null ? botName(t, opponentBot) : opponentDeleted ? t('player.deletedPlayer') : opponent;
             const date = new Date(game.playedAt);
             return (
               <li key={game.id} data-game={game.id} data-outcome={outcome} className="flex items-center gap-3 rounded-10 bg-panel px-3 py-2 text-14">
                 <span className={`w-[84px] shrink-0 rounded-8 py-1 text-center text-12 font-extrabold ${OUTCOME_CHIP[outcome]}`}>{t(`player.result.${outcome}`)}</span>
-                <span className="min-w-0 grow truncate font-semibold">{t('player.against', { name: opponentDeleted ? t('player.deletedPlayer') : opponent })}</span>
-                {!game.rated && <span className="rounded-pill bg-arcane-deep px-2 py-0.5 text-11 font-bold text-arcane-pale">{t('player.friendly')}</span>}
+                <span className="min-w-0 grow truncate font-semibold">{t('player.against', { name })}</span>
+                {!game.rated && (
+                  <span data-game-tag={opponentBot === null ? 'friendly' : 'bot'} className="rounded-pill bg-arcane-deep px-2 py-0.5 text-11 font-bold text-arcane-pale">
+                    {t(opponentBot === null ? 'player.friendly' : 'bot.badge')}
+                  </span>
+                )}
                 {!Number.isNaN(date.getTime()) && <span className="shrink-0 text-12 text-muted">{date.toLocaleDateString(i18n.language, DATE_SHORT)}</span>}
               </li>
             );

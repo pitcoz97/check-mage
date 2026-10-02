@@ -149,6 +149,19 @@ describe('game_state', () => {
     expect(decodeOk(frame('game_state', publicState({ friendly: 'sì' }))).event).toMatchObject({ state: { friendly: false } });
   });
 
+  it('bot: il livello sul lato del bot; un livello sconosciuto resta un bot, con un warning', () => {
+    const withBot = publicState({ black_player: { id: -2, username: '#bot-intermediate', bot: 'intermediate' } });
+    expect(decodeOk(frame('game_state', withBot)).event).toMatchObject({
+      state: { players: { white: { id: '42', username: 'mario' }, black: { id: '-2', username: '#bot-intermediate', bot: 'intermediate' } } },
+    });
+    const human = decodeOk(frame('game_state', publicState())).event;
+    expect(human).toMatchObject({ state: { players: { white: { id: '42' } } } });
+    expect(JSON.stringify(human)).not.toContain('"bot"');
+    const future = decodeOk(frame('game_state', publicState({ black_player: { id: -9, username: '#bot-master', bot: 'master' } })));
+    expect(future.event).toMatchObject({ state: { players: { black: { bot: 'unknown' } } } });
+    expect(future.codes).toEqual(['enum_unknown']);
+  });
+
   it('riconnessione; giocatori o time control mancanti → null + warning, il colore non si deduce (C1)', () => {
     expect(decodeOk(frame('game_state', publicState({ reconnected: true }))).event).toMatchObject({ state: { reconnected: true } });
     const { white_player: _w, black_player: _b, time_control: _t, ...legacy } = publicState();
@@ -863,6 +876,18 @@ describe('REST', () => {
       value: [
         { whiteId: '7', blackId: '8', rated: false },
         { whiteId: null, blackId: null, rated: true },
+      ],
+    });
+  });
+
+  it('storico partite: il livello del bot sul suo lato, assente per le persone', () => {
+    const base = { id: 1, white: 'mario', black: '#bot-base', result: '1-0', time_control: '10+5', pgn: '', played_at: '2026-10-01T10:00:00Z' };
+    expect(normalizeGameHistory([{ ...base, black_bot: 'base', rated: false }, base, { ...base, white_bot: 'grandmaster' }])).toMatchObject({
+      ok: true,
+      value: [
+        { whiteBot: null, blackBot: 'base', rated: false },
+        { whiteBot: null, blackBot: null },
+        { whiteBot: 'unknown', blackBot: null },
       ],
     });
   });

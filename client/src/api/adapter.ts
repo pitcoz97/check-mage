@@ -24,6 +24,7 @@ import { z } from 'zod';
 
 import {
   BOARD_STATUSES,
+  BOT_LEVELS,
   COLORS,
   GAME_OVER_REASONS,
   GAME_RESULTS,
@@ -33,6 +34,7 @@ import {
   PROTOCOL_ERROR_CODES,
   type ActiveEffect,
   type AppliedEffect,
+  type BotIdentity,
   type ExpiredEffect,
   type HandCard,
   type MatchPlayers,
@@ -265,14 +267,26 @@ function decodeActiveEffects(ctx: Ctx, raw: unknown, field = 'active_effects'): 
 
 // --- Identità dei giocatori (`game/room.go:1350-1366`, ASSUMPTIONS C1) ---------------------------
 
-const wirePlayerSchema = z.object({ id: wireId, username: nonEmptyString });
+const wirePlayerSchema = z.object({ id: wireId, username: nonEmptyString, bot: loose });
+
+/** Il bot di un lato (`bot` del giocatore, `white_bot`/`black_bot` dello storico): assente = una persona; un livello sconosciuto resta un bot, con un warning. */
+function decodeBotLevel(ctx: Ctx, raw: unknown, field: string): BotIdentity | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  return readEnum(ctx, raw, BOT_LEVELS, field);
+}
 
 function decodePlayers(ctx: Ctx, white: unknown, black: unknown): MatchPlayers | null {
   const w = parseWith(wirePlayerSchema, white);
   const b = parseWith(wirePlayerSchema, black);
-  if (w.ok && b.ok) return { white: w.data, black: b.data };
-  warn(ctx, 'players_missing');
-  return null;
+  if (!w.ok || !b.ok) {
+    warn(ctx, 'players_missing');
+    return null;
+  }
+  const player = (p: typeof w.data, field: string) => {
+    const bot = decodeBotLevel(ctx, p.bot, field);
+    return bot === null ? { id: p.id, username: p.username } : { id: p.id, username: p.username, bot };
+  };
+  return { white: player(w.data, 'white_player.bot'), black: player(b.data, 'black_player.bot') };
 }
 
 // --- Time control (`game/room.go:1367-1370`) -------------------------------------------------------
@@ -1337,6 +1351,8 @@ export function normalizeGameHistory(data: unknown): Normalized<readonly GameHis
     rated: z.boolean().optional(),
     white_deleted: z.boolean().optional(),
     black_deleted: z.boolean().optional(),
+    white_bot: loose,
+    black_bot: loose,
     white: z.string(),
     black: z.string(),
     result: z.string(),
@@ -1354,6 +1370,8 @@ export function normalizeGameHistory(data: unknown): Normalized<readonly GameHis
     rated: g.rated ?? true,
     whiteDeleted: g.white_deleted === true,
     blackDeleted: g.black_deleted === true,
+    whiteBot: decodeBotLevel(ctx, g.white_bot, 'white_bot'),
+    blackBot: decodeBotLevel(ctx, g.black_bot, 'black_bot'),
     white: g.white,
     black: g.black,
     result: readEnum(ctx, g.result, GAME_RESULTS, 'result'),

@@ -1,6 +1,6 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
-import type { UserId, Username } from '../game/model';
+import type { BotLevel, UserId, Username } from '../game/model';
 import { log as defaultLog, type Logger } from '../lib/log';
 import { STORAGE_KEYS, type KeyValueStorage } from '../lib/storage';
 import { createConnection, type Connection, type ConnectionStatus, type SocketFactory, type TicketSource } from '../ws/connection';
@@ -24,12 +24,17 @@ import { createMatchStore, type MatchStoreState } from './matchStore';
 export const RECONNECT_WINDOW_MS = 30_000;
 
 /**
- * Cosa sta aspettando la sessione prima della partita: la coda, o una sfida diretta (F7) inviata (`sent`) o accettata
- * (`accepted`). Torna `null` quando la partita parte o si esce.
+ * Cosa sta aspettando la sessione prima della partita: la coda, una sfida diretta (F7) inviata (`sent`) o accettata
+ * (`accepted`), o una partita contro il bot. Torna `null` quando la partita parte o si esce.
  */
 export type PendingMatch =
   | { readonly kind: 'queue' }
-  | { readonly kind: 'challenge'; readonly id: string; readonly opponent: Username; readonly role: 'sent' | 'accepted' };
+  | { readonly kind: 'challenge'; readonly id: string; readonly opponent: Username; readonly role: 'sent' | 'accepted' }
+  | { readonly kind: 'bot'; readonly level: BotLevel; readonly color: BotColorChoice };
+
+/** Il colore chiesto contro il bot: il proprio, o casuale. */
+export const BOT_COLOR_CHOICES = ['white', 'random', 'black'] as const;
+export type BotColorChoice = (typeof BOT_COLOR_CHOICES)[number];
 
 export interface SessionState {
   readonly connection: ConnectionStatus;
@@ -54,6 +59,8 @@ export interface MatchSession {
    * accettarla. Una ricerca in coda in corso si chiude prima.
    */
   joinChallenge(id: string, opponent: Username, role: 'sent' | 'accepted'): void;
+  /** Avvia una partita contro il bot (`/ws?bot=<livello>&color=…`): parte subito, col colore chiesto. */
+  playBot(level: BotLevel, color: BotColorChoice): void;
   /** Esce dalla coda chiudendo la connessione (`LeaveQueue`, `game/client.go:81-88`). */
   cancel(): void;
   /** Riapre la connessione: dopo una sostituzione (4001) o per riprendere una partita salvata. */
@@ -148,6 +155,13 @@ export function createMatchSession(deps: MatchSessionDeps): MatchSession {
       match.getState().enterQueue();
       status.setState({ pending: { kind: 'challenge', id, opponent, role } });
       connection.open({ challenge: id });
+    },
+
+    playBot(level, color) {
+      connection.close();
+      match.getState().enterQueue();
+      status.setState({ pending: { kind: 'bot', level, color } });
+      connection.open({ bot: level, color });
     },
 
     cancel() {

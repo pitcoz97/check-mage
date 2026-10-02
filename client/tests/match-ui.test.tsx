@@ -60,7 +60,7 @@ async function signIn(server: MockServerHandle, name: string, storage: KeyValueS
   await storage.set('session', JSON.stringify({ accessToken: json.data.tokens.access_token, refreshToken: json.data.tokens.refresh_token }));
 }
 
-async function startMatch(scenario: string, name: string) {
+async function startMatch(scenario: string, name: string, start: (session: ReturnType<typeof createMatchSession>) => void = (s) => s.findMatch()) {
   const server = await startMockServer({ port: 0, quiet: true, botDelayMs: 20, reconnectTimeoutMs: 3000 });
   servers.push(server);
   const { storage } = memoryStorage();
@@ -80,7 +80,7 @@ async function startMatch(scenario: string, name: string) {
   });
 
   // Come fa la lobby: si entra nella schermata quando la partita è iniziata davvero.
-  session.findMatch();
+  start(session);
   await waitFor(() => expect(session.match.getState().lifecycle).toBe('playing'), { timeout: 15_000 });
 
   render(
@@ -295,4 +295,18 @@ describe('schermata di partita contro il mock', () => {
     },
     60_000,
   );
+});
+
+describe('partita contro il bot', () => {
+  it('nome tradotto ed etichetta «Bot», niente «Aggiungi agli amici»; a fine partita «Gioca ancora»', async () => {
+    const { session } = await startMatch('pvp', 'carla', (s) => s.playBot('base', 'white'));
+    expect(session.match.getState().myColor).toBe('white');
+    expect((await screen.findAllByText('Bot · Base')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('#bot-base')).toBeNull();
+    expect(document.querySelector('[data-friendly="bot"]')?.textContent).toBe('Bot');
+
+    session.send({ type: 'resign' });
+    expect((await screen.findAllByRole('button', { name: 'Gioca ancora' }, { timeout: 10_000 })).length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-add-opponent]')).toBeNull();
+  }, 30_000);
 });

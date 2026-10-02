@@ -7,6 +7,7 @@ import { RouterProvider } from 'react-router/dom';
 
 import { createAppRouter } from './app/router';
 import { boardThemeStore } from './game/board/boardTheme';
+import { playChoiceStore } from './screens/Lobby/playChoice';
 import { appEnv } from './config/env';
 import { initI18n } from './i18n';
 import { consoleSink, setLogSink } from './lib/log';
@@ -26,7 +27,7 @@ if (container === null) throw new Error('Elemento #root mancante in index.html')
 if (import.meta.env.DEV) setLogSink(consoleSink);
 
 // Lingua e tema della scacchiera prima del primo render: niente lampo con i valori di default.
-await Promise.all([initI18n(), boardThemeStore.getState().load()]);
+await Promise.all([initI18n(), boardThemeStore.getState().load(), playChoiceStore.getState().load()]);
 const env = appEnv();
 const auth = createAuth({ baseUrl: env.apiBaseUrl, storage });
 const session = createMatchSession({

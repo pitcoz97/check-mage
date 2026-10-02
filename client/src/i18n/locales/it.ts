@@ -93,6 +93,8 @@ export const it = {
     cancel: 'Annulla',
     searchMoved: 'La ricerca è continuata in un’altra scheda.',
     retry: 'Riprova',
+    startingBot: 'Avvio della partita contro il bot…',
+    botUnavailable: 'Il bot non è disponibile in questo momento. Riprova più tardi.',
   },
   home: {
     welcome: 'Bentornato, {{name}}',
@@ -113,6 +115,14 @@ export const it = {
       bot: 'Contro il bot',
     },
     playRanked: 'Gioca classificata',
+    playBot: 'Gioca contro il bot',
+    botLevel: 'Livello',
+    botColor: 'Colore',
+    botColors: {
+      white: 'Bianco',
+      random: 'Casuale',
+      black: 'Nero',
+    },
     fullRanking: 'Classifica completa',
     collectionOf: '/ {{total}} carte',
     browseCards: 'Sfoglia le carte',
@@ -349,6 +359,16 @@ export const it = {
       loss: 'Sconfitta',
       draw: 'Patta',
       unknown: '—',
+    },
+  },
+  bot: {
+    name: 'Bot · {{level}}',
+    unknown: 'Bot',
+    badge: 'Bot',
+    levels: {
+      base: 'Base',
+      intermediate: 'Intermedio',
+      advanced: 'Avanzato',
     },
   },
   challenge: {
@@ -588,6 +608,7 @@ export const it = {
         unknown: 'Motivo non disponibile.',
       },
       backToLobby: 'Torna alla lobby',
+      playAgain: 'Gioca ancora',
       addFriend: 'Aggiungi {{name}} agli amici',
       acceptFriend: 'Accetta la richiesta di {{name}}',
       requestSent: 'Richiesta d’amicizia inviata a {{name}}.',

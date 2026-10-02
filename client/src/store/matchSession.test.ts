@@ -134,6 +134,28 @@ describe('sessione di partita', () => {
     expect(sockets.last().url).toBe('ws://api/ws?ticket=t2');
   });
 
+  it('partita contro il bot: URL con livello e colore, attesa; 4004 se il bot non c’è', async () => {
+    const { session, sockets } = await setup();
+    session.playBot('advanced', 'black');
+    await flush();
+    expect(sockets.last().url).toBe('ws://api/ws?ticket=t1&bot=advanced&color=black');
+    expect(session.status.getState().pending).toEqual({ kind: 'bot', level: 'advanced', color: 'black' });
+    expect(session.match.getState().lifecycle).toBe('queued');
+
+    sockets.last().open();
+    sockets.last().drop(4004, 'bot_unavailable');
+    expect(session.status.getState().connection).toEqual({ kind: 'bot_unavailable' });
+
+    // Riprovando, la partita parte e l’attesa si azzera.
+    session.playBot('base', 'random');
+    await flush();
+    expect(sockets.last().url).toBe('ws://api/ws?ticket=t2&bot=base&color=random');
+    sockets.last().open();
+    sockets.last().receive({ ...gameState(), payload: { ...gameState().payload, friendly: true } });
+    await flush();
+    expect(session.status.getState().pending).toBeNull();
+  });
+
   it('Annulla chiude la connessione (uscita dalla coda) e azzera lo stato', async () => {
     const { session, sockets } = await setup();
     session.findMatch();

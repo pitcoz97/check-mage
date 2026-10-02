@@ -18,6 +18,7 @@ import { ConnectionBanner } from './ConnectionBanner';
 import { HintBox } from './HintBox';
 import { ManaPanel } from './ManaPanel';
 import { AddOpponent } from './AddOpponent';
+import { usePlayChoice } from '../Lobby/playChoice';
 import { MatchBoard } from './MatchBoard';
 import { MatchLayout } from './MatchLayout';
 import { MatchBottomBar } from './MatchSheet';
@@ -66,7 +67,11 @@ function OutcomePanel({ outcome }: { outcome: GameOutcome }) {
   const navigate = useNavigate();
   const session = useMatchSession();
   const myColor = useMatch((s) => s.myColor);
+  const players = useMatch((s) => s.game?.players ?? null);
   const headline = outcomeHeadline(outcome, myColor);
+  // Contro il bot: «Gioca ancora» col suo livello e il colore scelto l'ultima volta.
+  const botLevel = myColor === null || players === null ? undefined : players[myColor === 'white' ? 'black' : 'white'].bot;
+  const color = usePlayChoice().color;
   return (
     <Panel role="status" data-outcome={headline} className="flex flex-col gap-3 overflow-hidden rounded-16 p-5 pt-0">
       <span aria-hidden="true" className={`-mx-5 mb-2 block h-1.5 ${OUTCOME_BAND[headline]}`} />
@@ -74,9 +79,15 @@ function OutcomePanel({ outcome }: { outcome: GameOutcome }) {
       <p className="font-display text-28 leading-tight font-bold tracking-[0.02em]">{t(`match.over.${headline}`)}</p>
       <p className="text-14 text-tertiary">{t(`match.over.reason.${outcome.reason}`)}</p>
       <AddOpponent />
+      {botLevel !== undefined && botLevel !== 'unknown' && (
+        <Button size="lg" fullWidth data-action="play-again" onClick={() => session.playBot(botLevel, color)}>
+          {t('match.over.playAgain')}
+        </Button>
+      )}
       <Button
         size="lg"
         fullWidth
+        variant={botLevel === undefined || botLevel === 'unknown' ? 'primary' : 'secondary'}
         onClick={() => {
           session.leave();
           void navigate('/lobby');

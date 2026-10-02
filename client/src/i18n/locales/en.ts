@@ -91,6 +91,8 @@ export const en: Translation = {
     cancel: 'Cancel',
     searchMoved: 'The search continued in another tab.',
     retry: 'Try again',
+    startingBot: 'Starting the game against the bot…',
+    botUnavailable: 'The bot is not available right now. Try again later.',
   },
   home: {
     welcome: 'Welcome back, {{name}}',
@@ -111,6 +113,14 @@ export const en: Translation = {
       bot: 'Vs bot',
     },
     playRanked: 'Play ranked',
+    playBot: 'Play the bot',
+    botLevel: 'Level',
+    botColor: 'Colour',
+    botColors: {
+      white: 'White',
+      random: 'Random',
+      black: 'Black',
+    },
     fullRanking: 'Full ranking',
     collectionOf: '/ {{total}} cards',
     browseCards: 'Browse cards',
@@ -349,6 +359,16 @@ export const en: Translation = {
       unknown: '—',
     },
   },
+  bot: {
+    name: 'Bot · {{level}}',
+    unknown: 'Bot',
+    badge: 'Bot',
+    levels: {
+      base: 'Beginner',
+      intermediate: 'Intermediate',
+      advanced: 'Advanced',
+    },
+  },
   challenge: {
     region: 'Challenges',
     incoming: '{{name}} challenges you',
@@ -585,6 +605,7 @@ export const en: Translation = {
         unknown: 'Reason not available.',
       },
       backToLobby: 'Back to the lobby',
+      playAgain: 'Play again',
       addFriend: 'Add {{name}} as a friend',
       acceptFriend: 'Accept {{name}}’s request',
       requestSent: 'Friend request sent to {{name}}.',

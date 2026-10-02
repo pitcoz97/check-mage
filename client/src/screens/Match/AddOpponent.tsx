@@ -17,7 +17,8 @@ export function AddOpponent() {
   const friends = useFriends();
   const actions = useFriendActions(friends.replace);
   const opponent = myColor === null || players === null ? null : players[myColor === 'white' ? 'black' : 'white'];
-  if (opponent === null || friends.state.kind !== 'ready') return null;
+  // Il bot non è un giocatore da aggiungere agli amici.
+  if (opponent === null || opponent.bot !== undefined || friends.state.kind !== 'ready') return null;
 
   const { relation } = relationOf(friends.state.list, opponent.id);
   if (relation === 'friend') return null;

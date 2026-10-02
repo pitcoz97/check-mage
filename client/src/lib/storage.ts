@@ -66,6 +66,8 @@ export const STORAGE_KEYS = {
   session: 'session',
   /** Id dell'utente con una partita aperta, per riprenderla dopo un ricaricamento (ASSUMPTIONS C11). */
   activeMatch: 'active-match',
+  /** Scelte della card «Gioca»: modalità, livello e colore contro il bot. */
+  playChoice: 'play-choice',
 } as const;
 
 export const storage: KeyValueStorage = isNative()

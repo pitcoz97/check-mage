@@ -3,7 +3,7 @@
  * Riferimenti = chess-server `internal/`, branch `fix/backend-requests`.
  */
 
-import type { GameResult, UserId, Username } from '../game/model';
+import type { BotIdentity, GameResult, UserId, Username } from '../game/model';
 
 /** Utente autenticato (`handlers/auth.go:149-157`, `272-296`). */
 export interface UserAccount {
@@ -105,6 +105,9 @@ export interface GameHistoryEntry {
   /** Il giocatore ha cancellato l'account (P3): si mostra «Giocatore eliminato». */
   readonly whiteDeleted: boolean;
   readonly blackDeleted: boolean;
+  /** Il livello del bot, se quel lato è il bot: si mostra «Bot · livello». */
+  readonly whiteBot: BotIdentity | null;
+  readonly blackBot: BotIdentity | null;
 }
 
 /** Stato di un amico (`handlers/friends.go`, F3). */
