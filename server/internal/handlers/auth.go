@@ -39,6 +39,13 @@ func Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Consenso: termini e informativa accettati, almeno 14 anni (P1).
+	if !req.AcceptTerms || !req.AgeConfirmed {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(models.APIResponse{Success: false, Error: msgConsentRequired})
+		return
+	}
+
 	// Dopo il Decode della request, prima dell'hash:
 	if err := validation.ValidateRegister(req.Username, req.Email, req.Password); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -64,10 +71,10 @@ func Register(w http.ResponseWriter, r *http.Request) {
 	// Inserisci nel DB e ritorna l'id del nuovo utente
 	var userID int
 	err = db.DB.QueryRow(`
-        INSERT INTO users (username, email, password)
-        VALUES ($1, $2, $3)
+        INSERT INTO users (username, email, password, terms_version, terms_accepted_at)
+        VALUES ($1, $2, $3, $4, now())
         RETURNING id`,
-		req.Username, req.Email, string(hashedPassword),
+		req.Username, req.Email, string(hashedPassword), TermsVersion,
 	).Scan(&userID)
 
 	if err != nil {
@@ -100,11 +107,11 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cerca l'utente nel DB
+	// Cerca l'utente nel DB (un account cancellato ha un'email che nessuno può scrivere)
 	var user models.User
 	err := db.DB.QueryRow(`
         SELECT id, username, email, password, elo
-        FROM users WHERE email = $1`,
+        FROM users WHERE email = $1 AND deleted_at IS NULL`,
 		req.Email,
 	).Scan(&user.ID, &user.Username, &user.Email, &user.Password, &user.Elo)
 
@@ -146,6 +153,14 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// L'utente come in GET /me, con i termini accettati: il client sa subito se deve chiederli di nuovo (P2).
+	account, found, err := db.Accounts().Account(user.ID)
+	if err != nil || !found {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(models.APIResponse{Success: false, Error: "Errore recupero profilo"})
+		return
+	}
+
 	json.NewEncoder(w).Encode(models.APIResponse{
 		Success: true,
 		Data: map[string]interface{}{
@@ -153,7 +168,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 				AccessToken:  accessToken,
 				RefreshToken: refreshToken,
 			},
-			"user": user,
+			"user": accountView(account),
 		},
 	})
 }
@@ -228,7 +243,7 @@ func RefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	// Verifica che l'utente esista ancora nel DB
 	var username string
-	err = db.DB.QueryRow(`SELECT username FROM users WHERE id = $1`, userID).Scan(&username)
+	err = db.DB.QueryRow(`SELECT username FROM users WHERE id = $1 AND deleted_at IS NULL`, userID).Scan(&username)
 	if err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(models.APIResponse{
@@ -268,30 +283,10 @@ func RefreshToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Me restituisce il profilo dell'utente loggato
+// Me restituisce il profilo dell'utente loggato, con i termini accettati e lo
+// stato online nascosto (P2, P6). Un account cancellato non esiste più (404).
 func Me(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	claims := r.Context().Value(mw.UserKey).(jwt.MapClaims)
 	userID := int(claims["user_id"].(float64))
-
-	var user models.User
-	err := db.DB.QueryRow(`
-        SELECT id, username, email, elo, created_at
-        FROM users WHERE id = $1`, userID,
-	).Scan(&user.ID, &user.Username, &user.Email, &user.Elo, &user.CreatedAt)
-
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.APIResponse{
-			Success: false,
-			Error:   "Errore recupero profilo",
-		})
-		return
-	}
-
-	json.NewEncoder(w).Encode(models.APIResponse{
-		Success: true,
-		Data:    user,
-	})
+	replyAccount(w, userID)
 }

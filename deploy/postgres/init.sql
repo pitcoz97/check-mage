@@ -8,7 +8,11 @@ CREATE TABLE IF NOT EXISTS users (
     email       VARCHAR(255) UNIQUE NOT NULL,
     password    VARCHAR(255) NOT NULL,
     elo         INTEGER DEFAULT 1200,
-    created_at  TIMESTAMP DEFAULT NOW()
+    created_at  TIMESTAMP DEFAULT NOW(),
+    deleted_at  TIMESTAMPTZ,
+    terms_version     INTEGER NOT NULL DEFAULT 0,
+    terms_accepted_at TIMESTAMPTZ,
+    hide_presence     BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS games (

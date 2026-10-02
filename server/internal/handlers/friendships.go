@@ -341,17 +341,15 @@ type blockRequest struct {
 	UserID int `json:"user_id"`
 }
 
-// replyBlocks risponde con i bloccati, dal più recente.
-func replyBlocks(w http.ResponseWriter, userID int) {
+// blockList restituisce i bloccati, dal più recente.
+func blockList(userID int) ([]blockedView, error) {
 	ids, err := db.Friends().Blocks(userID)
 	if err != nil {
-		friendsDBFail(w, userID, err)
-		return
+		return nil, err
 	}
 	users, err := db.Users().UsersByIDs(ids)
 	if err != nil {
-		friendsDBFail(w, userID, err)
-		return
+		return nil, err
 	}
 	names := map[int]string{}
 	for _, u := range users {
@@ -362,6 +360,16 @@ func replyBlocks(w http.ResponseWriter, userID int) {
 		if name, found := names[id]; found {
 			out = append(out, blockedView{ID: id, Username: name})
 		}
+	}
+	return out, nil
+}
+
+// replyBlocks risponde con i bloccati, dal più recente.
+func replyBlocks(w http.ResponseWriter, userID int) {
+	out, err := blockList(userID)
+	if err != nil {
+		friendsDBFail(w, userID, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, models.APIResponse{Success: true, Data: out})
 }

@@ -62,15 +62,34 @@ func statusRank(status string) int {
 	}
 }
 
+// hiddenPresence restituisce gli utenti che hanno nascosto il proprio stato:
+// agli altri appaiono sempre offline (P6).
+func hiddenPresence() map[int]bool {
+	ids, err := db.Accounts().HiddenPresenceIDs()
+	if err != nil {
+		logger.L.Error("Errore lettura stati nascosti", zap.Error(err))
+	}
+	out := make(map[int]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out
+}
+
 // userStatuses restituisce lo stato degli utenti attivi: in partita vale più di
-// online. Chi non c'è è offline.
+// online. Chi non c'è, o ha nascosto il proprio stato, è offline.
 func userStatuses() map[int]string {
+	hidden := hiddenPresence()
 	out := map[int]string{}
 	for _, id := range presence.Default.OnlineIDs() {
-		out[id] = StatusOnline
+		if !hidden[id] {
+			out[id] = StatusOnline
+		}
 	}
 	for _, id := range playingIDs() {
-		out[id] = StatusPlaying
+		if !hidden[id] {
+			out[id] = StatusPlaying
+		}
 	}
 	return out
 }

@@ -17,6 +17,7 @@ func Leaderboard(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.DB.Query(`
         SELECT id, username, elo
         FROM users
+        WHERE deleted_at IS NULL
         ORDER BY elo DESC
         LIMIT 10
     `)
@@ -72,7 +73,9 @@ func GameHistory(w http.ResponseWriter, r *http.Request) {
             g.time_control,
             g.pgn,
             g.played_at,
-            g.rated
+            g.rated,
+            w.deleted_at IS NOT NULL AS white_deleted,
+            b.deleted_at IS NOT NULL AS black_deleted
         FROM games g
         JOIN users w ON w.id = g.white_id
         JOIN users b ON b.id = g.black_id
@@ -98,12 +101,15 @@ func GameHistory(w http.ResponseWriter, r *http.Request) {
 		PGN         string `json:"pgn"`
 		PlayedAt    string `json:"played_at"`
 		Rated       bool   `json:"rated"` // false per le amichevoli (F8)
+		// Il giocatore ha cancellato l'account: il client mostra «Giocatore eliminato» (P3).
+		WhiteDeleted bool `json:"white_deleted"`
+		BlackDeleted bool `json:"black_deleted"`
 	}
 
 	games := make([]GameEntry, 0) // [] e non null se vuota
 	for rows.Next() {
 		var g GameEntry
-		rows.Scan(&g.ID, &g.WhiteID, &g.BlackID, &g.White, &g.Black, &g.Result, &g.TimeControl, &g.PGN, &g.PlayedAt, &g.Rated)
+		rows.Scan(&g.ID, &g.WhiteID, &g.BlackID, &g.White, &g.Black, &g.Result, &g.TimeControl, &g.PGN, &g.PlayedAt, &g.Rated, &g.WhiteDeleted, &g.BlackDeleted)
 		games = append(games, g)
 	}
 
@@ -130,7 +136,7 @@ func GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	err = db.DB.QueryRow(`
         SELECT id, username, elo, created_at
-        FROM users WHERE id = $1`, userID,
+        FROM users WHERE id = $1 AND deleted_at IS NULL`, userID,
 	).Scan(&user.ID, &user.Username, &user.Elo, &user.CreatedAt)
 
 	if err != nil {

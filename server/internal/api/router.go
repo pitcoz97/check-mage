@@ -54,6 +54,10 @@ func NewRouter() *chi.Mux {
 		r.Use(mw.Auth)
 
 		r.Get("/me", handlers.Me)
+		r.Delete("/me", handlers.DeleteAccount)      // cancellazione dell'account (anonimizzazione)
+		r.Get("/me/export", handlers.ExportData)     // tutti i dati dell'utente (portabilità)
+		r.Post("/me/terms", handlers.AcceptTerms)    // riaccettazione di Informativa e Termini
+		r.Put("/me/privacy", handlers.UpdatePrivacy) // stato online nascosto
 		r.Get("/me/collection", handlers.Collection) // collezione di carte
 		r.Get("/me/decks", handlers.ListDecks)       // mazzi personali
 		r.Post("/me/decks", handlers.CreateDeck)

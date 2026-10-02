@@ -125,6 +125,10 @@ func createChallenge(w http.ResponseWriter, me, target db.UserSummary) {
 	case inMatch(me.ID):
 		fail(w, http.StatusConflict, msgChallengeSelfBusy)
 		return
+	case hiddenPresence()[target.ID]:
+		// Stato nascosto (P6): appare offline, anche se è in partita.
+		fail(w, http.StatusConflict, msgChallengeOffline)
+		return
 	case inMatch(target.ID):
 		fail(w, http.StatusConflict, msgChallengeTargetBusy)
 		return
