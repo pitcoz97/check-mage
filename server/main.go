@@ -62,6 +62,10 @@ func main() {
 	if err := db.EnsurePrivacySchema(); err != nil {
 		logger.L.Error("Errore aggiornamento schema users (privacy)", zap.Error(err))
 	}
+	// Account dei bot: colonna bot_level, nascosti da tutti gli elenchi
+	if err := db.EnsureBotSchema(); err != nil {
+		logger.L.Error("Errore aggiornamento schema users (bot)", zap.Error(err))
+	}
 
 	// Monitora la salute del DB ogni 30 secondi
 	go func() {

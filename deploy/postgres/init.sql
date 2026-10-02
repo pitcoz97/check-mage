@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS users (
     deleted_at  TIMESTAMPTZ,
     terms_version     INTEGER NOT NULL DEFAULT 0,
     terms_accepted_at TIMESTAMPTZ,
-    hide_presence     BOOLEAN NOT NULL DEFAULT FALSE
+    hide_presence     BOOLEAN NOT NULL DEFAULT FALSE,
+    bot_level         VARCHAR(16)  -- account dei bot (base, intermediate, advanced): nascosti dagli elenchi
 );
 
 CREATE TABLE IF NOT EXISTS games (
