@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatClock, isLowTime } from './clock';
+import { formatClock, isLowTime, phaseLimit } from './clock';
 
 describe('formatClock', () => {
   it('minuti e secondi sopra i 10 secondi', () => {
@@ -17,8 +17,15 @@ describe('formatClock', () => {
     expect(formatClock(-500)).toBe('0.0');
   });
 
-  it('tempo agli sgoccioli sotto il minuto', () => {
-    expect(isLowTime(59_999)).toBe(true);
-    expect(isLowTime(60_000)).toBe(false);
+  it('tempo della fase agli sgoccioli sotto i 15 secondi', () => {
+    expect(isLowTime(14_999)).toBe(true);
+    expect(isLowTime(15_000)).toBe(false);
+  });
+
+  it('tempo pieno di una fase: la Mossa ha il suo; senza time control i valori di default', () => {
+    expect(phaseLimit({ mainMs: 60_000, moveMs: 100_000 }, 'main2')).toBe(60_000);
+    expect(phaseLimit({ mainMs: 60_000, moveMs: 100_000 }, 'move')).toBe(100_000);
+    expect(phaseLimit(null, 'move')).toBe(120_000);
+    expect(phaseLimit(null, 'main1')).toBe(90_000);
   });
 });

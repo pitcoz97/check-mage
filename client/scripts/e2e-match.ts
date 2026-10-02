@@ -161,7 +161,7 @@ const SCENARIOS: Record<string, Scenario> = {
     await white.event(0, isType('hand'), 'hand privata');
     report.expect(white.hand.length === 4 && black.hand.length === 4, 'mani iniziali da 4');
     const tc = white.state?.timeControl;
-    report.expect(tc?.baseMs === 600_000 && tc.incrementMs === 5_000, `time_control ${JSON.stringify(tc)}`);
+    report.expect(tc?.mainMs === 90_000 && tc.moveMs === 120_000, `time_control per fase ${JSON.stringify(tc)}`);
 
     // Rifiuti richiesti.
     const fromBlack = black.send({ type: 'move', move: 'e7e5' });
@@ -204,7 +204,7 @@ const SCENARIOS: Record<string, Scenario> = {
     const elo = (await white.me()).elo;
     report.expect(profile.stats.losses === 1 && elo < 1200, `ELO e statistiche aggiornati (${elo})`);
     const games = await white.games(id);
-    report.expect(games.length === 1 && games[0]?.timeControl === '10+5', `storico partite con time_control ${String(games[0]?.timeControl)}`);
+    report.expect(games.length === 1 && games[0]?.timeControl === '90/120/90', `storico partite con time_control ${String(games[0]?.timeControl)}`);
     const unexpected = unexpectedWarnings([white, black]);
     report.expect(unexpected.length === 0 && white.failures.length + black.failures.length === 0, `nessun warning inatteso né decode failure ${unexpected.join(',')}`);
     return [white, black];
@@ -402,7 +402,7 @@ const SCENARIOS: Record<string, Scenario> = {
     await ensureColor(ctx, c, 'white');
     await playTurn(c);
     await c.until(() => c.gameOver !== null, 'game_over per tempo', 15_000);
-    ctx.report.expect(c.gameOver?.reason === 'timeout' && c.gameOver.winner === c.username, `tempo: ${c.gameOver?.reason}`);
+    ctx.report.expect(c.gameOver?.reason === 'timeout' && c.gameOver.winner === c.username, `tempo della mossa: ${c.gameOver?.reason}`);
     ctx.report.expect(finalStatus(c) === 'timeout', `status finale ${String(finalStatus(c))}`);
     const update = c.events.filter(isType('timer_update')).at(-1);
     ctx.report.expect(update?.turn === 'black', 'timer_update.turn è il giocatore attivo');
@@ -464,7 +464,8 @@ export async function runE2E(selected: readonly string[] = E2E_SCENARIOS): Promi
   const reports: ScenarioReport[] = [];
   const base = { port: 0, quiet: true, botDelayMs: 20, reconnectTimeoutMs: 3000, rateLimits: E2E_LIMITS };
   const server = await startMockServer(base);
-  const slowClockServer = await startMockServer({ ...base, baseTimeMs: 3000 });
+  // Tempi per fase brevi: nello scenario timeout il bot fermo perde per la Mossa scaduta.
+  const slowClockServer = await startMockServer({ ...base, phaseMainMs: 2_000, phaseMoveMs: 3_000 });
   const pacer = createPacer();
   try {
     for (const name of selected) {

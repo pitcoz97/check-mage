@@ -117,8 +117,8 @@ SERVER_PORT=8080
 ENV=development
 
 # Game
-DEFAULT_BASE_TIME=10m
-DEFAULT_INCREMENT=5s
+PHASE_TIME_MAIN=90s   # tempo di ogni fase Magie (main1, main2): scaduto, la fase si passa
+PHASE_TIME_MOVE=120s  # tempo della fase Mossa: scaduto, si perde
 RECONNECT_TIMEOUT=30s
 
 # Rate limiting (requests/second)

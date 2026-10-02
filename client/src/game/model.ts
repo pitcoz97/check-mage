@@ -41,6 +41,7 @@ export const GAME_OVER_REASONS = [
   'agreement',
   'resign',
   'timeout',
+  'timeout_strikes',
   'abandonment',
 ] as const;
 export type GameOverReason = (typeof GAME_OVER_REASONS)[number] | 'unknown';
@@ -55,9 +56,6 @@ export interface ManaState {
   readonly current: number;
   readonly max: number;
 }
-
-/** Tempi residui in millisecondi. */
-export type Clocks = PerColor<number>;
 
 /** Stato persistente su un pezzo (`freeze`, `shield`): spazio distinto dagli effetti di magia (A18). */
 export interface ActiveEffect {
@@ -103,10 +101,10 @@ export interface PlayerRef {
 /** Identità dei giocatori (`game/room.go:1365-1366`): il colore del giocatore si ricava confrontando gli id con `/me`. */
 export type MatchPlayers = PerColor<PlayerRef>;
 
-/** `game_state.time_control` (`game/room.go:1367-1370`). */
+/** `game_state.time_control` (`game/clock.go`): tempo di ogni fase Magie e della fase Mossa. */
 export interface TimeControl {
-  readonly baseMs: number;
-  readonly incrementMs: number;
+  readonly mainMs: number;
+  readonly moveMs: number;
 }
 
 /**
@@ -122,7 +120,10 @@ export interface PublicGameState {
   /** Tratto scacchistico secondo la FEN: può differire da `activePlayer` in `main2`. */
   readonly turn: Color | 'unknown';
   readonly status: BoardStatus;
-  readonly clocks: Clocks;
+  /** Tempo rimasto al giocatore attivo nella fase corrente (`phase_time`, `game/clock.go`); `null` se manca. */
+  readonly phaseTime: number | null;
+  /** Fasi Magie scadute di fila, per giocatore (`white_timeouts`/`black_timeouts`). */
+  readonly timeouts: PerColor<number>;
   readonly phase: Phase | 'unknown';
   readonly activePlayer: Color | 'unknown';
   readonly turnNumber: number;

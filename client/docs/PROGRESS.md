@@ -3,14 +3,17 @@
 > Punto di ripartenza, non diario. Massimo una pagina. Leggilo prima di tutto il resto.
 
 ## Step corrente
-**`feat/bot` (da rivedere):** partite contro il bot con tre livelli, magie a regole, amichevoli nello storico, colore
-scelto dal giocatore (ASSUMPTIONS §13, B1–B8). In `main`: catalogo, collezione, mazzi, carte sbloccate per ora (C12),
-deploy, amici, sfide amichevoli, amicizie vere e blocchi, privacy e documenti legali (`docs/legal/README.md`).
-Decisioni in `docs/ASSUMPTIONS.md` §7–§13. Il redesign (R1–R6) è unito in `main`.
+**`feat/phase-clock` (da rivedere):** tempo per fase: 90 s per ogni fase Magie (scaduta = passata e una
+scadenza; tre di fila = sconfitta), 120 s per la Mossa (scaduta = sconfitta) (ASSUMPTIONS §14, T1–T5). In `main`:
+catalogo, collezione, mazzi, carte sbloccate per ora (C12), deploy, amici, sfide amichevoli, amicizie vere e blocchi,
+privacy e documenti legali (`docs/legal/README.md`), bot a tre livelli. Decisioni in `docs/ASSUMPTIONS.md` §7–§14. Il redesign (R1–R6) è unito in `main`.
 Monorepo `check-mage`: client in `client/`, server in `server/` (modificabile sul branch della feature; qui non
 eseguibile).
 
 ## Completo
+- **Tempo per fase:** server con `game/clock.go` (`PHASE_TIME_MAIN`/`PHASE_TIME_MOVE`, `phase_timeout`, scadenze di
+  fila, `timeout_strikes`), niente orologio globale. Mock allineato. Client: orologio della fase, l'altro fermo sul
+  tempo pieno, segni delle scadenze, avviso, testi di fine partita. 739 test, `e2e-match` 11/11.
 - **Bot:** server con un secondo Stockfish (`engine.Bot`), livelli e regole delle magie in `internal/bot`, `/ws?bot=`
   (`game/bot.go`), account `#bot-<livello>` nascosti, `white_bot`/`black_bot` nello storico. Mock allineato (mosse
   senza motore, S40). Client: «Contro il bot» nella card Gioca con livello e colore ricordati, «Bot · livello» in

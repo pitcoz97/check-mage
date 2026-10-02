@@ -124,8 +124,8 @@ export function createGateway({ config, users, gate, log, decks, presence, chall
       white,
       black,
       rng,
-      baseTimeMs: setup.baseTimeMs ?? config.baseTimeMs,
-      incrementMs: config.incrementMs,
+      mainTimeMs: setup.phaseMainMs ?? config.phaseMainMs,
+      moveTimeMs: setup.phaseMoveMs ?? config.phaseMoveMs,
       reconnectTimeoutMs: config.reconnectTimeoutMs,
       ...(setup.overrides === undefined ? {} : { overrides: setup.overrides }),
       // Un mazzo assente è la ricetta condivisa (`match.NewWithDecks` con nil): il mazzo del bot.

@@ -83,6 +83,9 @@ export const CLOSE_CHALLENGE = 4003;
 /** `CloseBot` (`client.go`): la partita contro il bot non può partire (`bot_unavailable`). */
 export const CLOSE_BOT = 4004;
 
+/** `MaxStrikes` (`game/clock.go`): fasi Magie scadute di fila che fanno perdere. */
+export const MAX_STRIKES = 3;
+
 /** `NullMove` (`room.go:37`): mossa consumata da uno scudo, `--` nel PGN. */
 export const NULL_MOVE = '0000';
 
@@ -91,8 +94,9 @@ export interface RoomOptions {
   white: GameClient;
   black: GameClient;
   rng: Rng;
-  baseTimeMs: number;
-  incrementMs: number;
+  /** Tempo di una fase Magie (main1, main2) e della Mossa (`PhaseTimeMain`, `PhaseTimeMove`). */
+  mainTimeMs: number;
+  moveTimeMs: number;
   reconnectTimeoutMs: number;
   overrides?: MatchOverrides;
   /** Il mazzo attivo di ogni giocatore (`match.NewWithDecks`); assente = la ricetta condivisa. */
@@ -220,8 +224,11 @@ export class Room {
   readonly board: Board;
   readonly match: MatchState;
   tracker: Tracker;
-  whiteTime: number;
-  blackTime: number;
+  /** `PhaseLeft` (`game/clock.go`): tempo rimasto al giocatore attivo nella fase `phaseKey`. */
+  phaseLeft = 0;
+  private phaseKey = '';
+  /** Fasi Magie scadute di fila, per giocatore. */
+  readonly strikes: Record<Color, number> = { white: 0, black: 0 };
   private drawOfferer: GameClient | null = null;
   /** Seconda mossa di Fretta del turno (`game/special.go`, `extraMove`). */
   private extra: ExtraMove | null = null;
@@ -243,8 +250,6 @@ export class Room {
     this.white = options.white;
     this.black = options.black;
     this.match = new MatchState(options.rng, options.overrides, options.decks);
-    this.whiteTime = options.baseTimeMs;
-    this.blackTime = options.baseTimeMs;
     this.tracker = new Tracker(this.board.fen);
     this.recordPosition();
   }
@@ -334,12 +339,6 @@ export class Room {
     const attackerId = this.tracker.info(from)?.id ?? 0;
     if (shieldAbsorbed && isKingAttacked(passTurn(this.board.fen), senderColor)) shieldAbsorbed = false;
 
-    // L'incremento vale una volta per turno: la seconda mossa di Fretta non lo raddoppia.
-    if (!secondMove) {
-      if (senderColor === 'white') this.whiteTime += this.options.incrementMs;
-      else this.blackTime += this.options.incrementMs;
-    }
-
     if (shieldAbsorbed && captured !== null) {
       this.tracker.consumeShield(captured);
       this.board.fen = passTurn(this.board.fen);
@@ -427,6 +426,15 @@ export class Room {
 
   /** `room.go:573-620`. */
   private handlePassPhase(sender: GameClient): void {
+    this.passPhase(sender, '');
+  }
+
+  /**
+   * `passPhase` (`room.go`): con `timeoutKey` è lo scadere del tempo di quella fase (nulla se è già cambiata, le
+   * scadenze restano); un passa volontario in una fase Magie azzera le scadenze di fila.
+   */
+  private passPhase(sender: GameClient, timeoutKey: string): void {
+    if (timeoutKey !== '' && (this.ended || this.currentPhaseKey() !== timeoutKey)) return;
     if (this.ended) return this.sendError(sender, WS.gameOver);
     const senderColor = this.getColor(sender);
     if (!this.match.isActive(senderColor)) return this.sendError(sender, WS.notYourTurn);
@@ -436,6 +444,7 @@ export class Room {
       this.board.turn = sideToMove(this.board.fen);
       this.extra = null;
     } else if (!this.match.allows('pass_phase')) return this.sendError(sender, WS.cannotPassInPhase(this.match.currentPhase));
+    if (timeoutKey === '' && this.isMainPhase()) this.strikes[senderColor] = 0;
 
     const results = [this.match.advance(), ...this.match.autoAdvance()];
     const [expired, squares] = this.tickEffectsOnNewTurn(results);
@@ -478,6 +487,7 @@ export class Room {
       throw error;
     }
 
+    this.strikes[senderColor] = 0; // ha agito: le scadenze di fila ricominciano
     if (boardChanged) this.recordPosition();
     const autoResults = this.match.autoAdvance();
     // Gli stati creati dal cast partono prima delle scadenze del rollover.
@@ -1197,27 +1207,64 @@ export class Room {
     this.timers = [];
   }
 
-  /** `room.go:1279-1327`: scala il tempo realmente trascorso sul giocatore attivo della FSM. */
+  // --- Tempo per fase (`game/clock.go`) ---------------------------------------------------------------
+
+  /** `currentPhaseKey`: turno, giocatore attivo e fase. */
+  private currentPhaseKey(): string {
+    return `${String(this.match.turnNumber)}/${this.match.activePlayer}/${this.match.currentPhase}`;
+  }
+
+  private isMainPhase(): boolean {
+    return this.match.currentPhase === 'main1' || this.match.currentPhase === 'main2';
+  }
+
+  /** `syncPhaseClock`: a ogni cambio di fase il tempo riparte dal pieno. Restituisce il tempo rimasto. */
+  private syncPhaseClock(): number {
+    const key = this.currentPhaseKey();
+    if (key !== this.phaseKey) {
+      this.phaseKey = key;
+      this.phaseLeft = this.match.currentPhase === 'move' ? this.options.moveTimeMs : this.options.mainTimeMs;
+    }
+    return this.phaseLeft;
+  }
+
+  /** `runTimer`: scala il tempo della fase del giocatore attivo; un cambio di fase manda subito `timer_update`. */
   private tick(elapsedMs: number): void {
     if (this.ended) return;
-    let end: GameEnd | null = null;
-    if (this.match.activePlayer === 'white') {
-      this.whiteTime -= elapsedMs;
-      if (this.whiteTime <= 0) {
-        this.whiteTime = 0;
-        end = this.finish('0-1', 'timeout', 'timeout');
-      }
-    } else {
-      this.blackTime -= elapsedMs;
-      if (this.blackTime <= 0) {
-        this.blackTime = 0;
-        end = this.finish('1-0', 'timeout', 'timeout');
-      }
+    const before = this.phaseKey;
+    this.syncPhaseClock();
+    this.phaseLeft -= elapsedMs;
+    if (this.phaseLeft <= 0) {
+      this.phaseLeft = 0;
+      this.expirePhase(this.phaseKey);
+    } else if (this.phaseKey !== before) this.broadcastTimers();
+  }
+
+  /** `expirePhase`: Magie scaduta = passata e una scadenza (alla terza di fila si perde); Mossa scaduta = sconfitta. */
+  private expirePhase(key: string): void {
+    if (this.ended || this.currentPhaseKey() !== key) return;
+    const player = this.match.activePlayer;
+    const client = player === 'white' ? this.white : this.black;
+    const current = this.match.currentPhase;
+    const winner: GameResult = player === 'white' ? '0-1' : '1-0';
+    if (current === 'move') {
+      // Solo la seconda mossa di Fretta, facoltativa: si salta.
+      if (this.extra?.active === true && this.extra.player === player) return this.passPhase(client, key);
+      const end = this.finish(winner, 'timeout', 'timeout');
+      if (end === null) return;
+      this.broadcastTimers();
+      this.broadcastState();
+      return this.announceEnd(end);
     }
-    if (end === null) return;
-    this.broadcastTimers();
-    this.broadcastState();
-    this.announceEnd(end);
+    this.strikes[player]++;
+    const strikes = this.strikes[player];
+    const end = strikes >= MAX_STRIKES ? this.finish(winner, 'timeout_strikes', 'timeout') : null;
+    this.broadcast('phase_timeout', { player, phase: current, strikes });
+    if (end !== null) {
+      this.broadcastState();
+      return this.announceEnd(end);
+    }
+    this.passPhase(client, key);
   }
 
   /**
@@ -1256,7 +1303,8 @@ export class Room {
 
   /** `room.go:1190-1194`: `"minuti+secondi"`, es. `"10+5"`. */
   timeControl(): string {
-    return `${String(this.options.baseTimeMs / 60_000)}+${String(this.options.incrementMs / 1000)}`;
+    const main = String(this.options.mainTimeMs / 1000);
+    return `${main}/${String(this.options.moveTimeMs / 1000)}/${main}`;
   }
 
   /** `room.go:161-165`. */
@@ -1389,9 +1437,10 @@ export class Room {
       board: { fen: this.board.fen, moves: [...this.board.moves], turn: this.board.turn, status: this.board.status },
       white_player: { id: this.white.userId, username: this.white.username, ...this.botField('white') },
       black_player: { id: this.black.userId, username: this.black.username, ...this.botField('black') },
-      time_control: { base_ms: this.options.baseTimeMs, increment_ms: this.options.incrementMs },
-      white_time: Math.round(this.whiteTime),
-      black_time: Math.round(this.blackTime),
+      time_control: { main_ms: this.options.mainTimeMs, move_ms: this.options.moveTimeMs },
+      phase_time: Math.round(this.syncPhaseClock()),
+      white_timeouts: this.strikes.white,
+      black_timeouts: this.strikes.black,
       phase: this.match.currentPhase,
       active_player: this.match.activePlayer,
       turn_number: this.match.turnNumber,
@@ -1451,12 +1500,12 @@ export class Room {
     }
   }
 
-  /** `room.go:1331-1340`: `turn` è il giocatore attivo. */
+  /** `broadcastTimers` (`clock.go`): il tempo della fase del giocatore attivo; `turn` è il giocatore attivo. */
   private broadcastTimers(): void {
     this.broadcast('timer_update', {
-      white_time: Math.round(this.whiteTime),
-      black_time: Math.round(this.blackTime),
+      phase_time: Math.round(this.syncPhaseClock()),
       turn: this.match.activePlayer,
+      phase: this.match.currentPhase,
     });
   }
 

@@ -48,7 +48,8 @@ Gli id delle voci nate allo Step 0 sono stati mantenuti; le voci `Bn` sono bug t
 ### P2-1 — Scelta del time control
 - **Stato:** non più necessaria (2026-09-25, decisione di prodotto durante il redesign: il gioco resta a cadenza
   unica). Prima: da decidere insieme, perché servivano più code di matchmaking.
-- **Perché:** coda unica con time control fisso 10' + 5" (`config/config.go`, `game/manager.go:31`).
+- **Perché:** coda unica con time control fisso 10' + 5" (`config/config.go`, `game/manager.go:31`). Dal
+  2026-10-02 (`feat/phase-clock`) il tempo è per fase: 90 s per ogni fase Magie, 120 s per la Mossa (ASSUMPTIONS §14).
 
 ### P2-11 — Refresh token in cookie `HttpOnly`
 - **Stato:** aperta, **sospesa** (risposta del server: prima va deciso il dominio di produzione; con un cookie servono

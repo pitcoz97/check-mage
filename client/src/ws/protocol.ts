@@ -13,7 +13,6 @@
 import type { AdapterWarning } from '../api/adapter';
 import type {
   AppliedEffect,
-  Clocks,
   Color,
   ExpiredEffect,
   GameOverReason,
@@ -79,6 +78,7 @@ export const SERVER_MESSAGE_TYPES = [
   'aura_changed',
   'move_options',
   'timer_update',
+  'phase_timeout',
   'game_over',
   'error',
   'draw_offer',
@@ -146,8 +146,10 @@ export type ServerEvent =
   | { readonly type: 'aura_changed'; readonly player: Color; readonly grant: string; readonly active: boolean }
   /** Le mosse fuori dagli scacchi di chi riceve, nella sua fase Move (vuote se non è il suo turno). */
   | { readonly type: 'move_options'; readonly moveOptions: MoveOptions }
-  /** `turn` = giocatore di cui scorre il tempo, non il tratto scacchistico (`game/room.go:1331-1340`). */
-  | { readonly type: 'timer_update'; readonly clocks: Clocks; readonly turn: Color | 'unknown' }
+  /** `turn` = giocatore di cui scorre il tempo della fase, non il tratto scacchistico (`game/clock.go`). */
+  | { readonly type: 'timer_update'; readonly phaseTime: number; readonly turn: Color | 'unknown'; readonly phase: Phase | 'unknown' | null }
+  /** Il tempo di una fase Magie è scaduto: la fase è stata passata, `strikes` = scadenze di fila (`game/clock.go`). */
+  | { readonly type: 'phase_timeout'; readonly player: Color; readonly phase: Phase | 'unknown'; readonly strikes: number }
   | {
       readonly type: 'game_over';
       readonly result: GameResult;

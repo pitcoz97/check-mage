@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import WebSocket from 'ws';
 
+import type { MockConfig } from '../mock-server/config';
 import { startMockServer, type MockServerHandle } from '../mock-server/index';
 import { initI18n } from '../src/i18n';
 import { createLogger } from '../src/lib/log';
@@ -60,8 +61,13 @@ async function signIn(server: MockServerHandle, name: string, storage: KeyValueS
   await storage.set('session', JSON.stringify({ accessToken: json.data.tokens.access_token, refreshToken: json.data.tokens.refresh_token }));
 }
 
-async function startMatch(scenario: string, name: string, start: (session: ReturnType<typeof createMatchSession>) => void = (s) => s.findMatch()) {
-  const server = await startMockServer({ port: 0, quiet: true, botDelayMs: 20, reconnectTimeoutMs: 3000 });
+async function startMatch(
+  scenario: string,
+  name: string,
+  start: (session: ReturnType<typeof createMatchSession>) => void = (s) => s.findMatch(),
+  serverOptions: Partial<MockConfig> = {},
+) {
+  const server = await startMockServer({ port: 0, quiet: true, botDelayMs: 20, reconnectTimeoutMs: 3000, ...serverOptions });
   servers.push(server);
   const { storage } = memoryStorage();
   await signIn(server, name, storage);
@@ -308,5 +314,17 @@ describe('partita contro il bot', () => {
     session.send({ type: 'resign' });
     expect((await screen.findAllByRole('button', { name: 'Gioca ancora' }, { timeout: 10_000 })).length).toBeGreaterThan(0);
     expect(document.querySelector('[data-add-opponent]')).toBeNull();
+  }, 30_000);
+});
+
+describe('tempo per fase', () => {
+  it('Magie 1 scaduta: la fase passa da sola, avviso e primo segno della scadenza accanto al proprio orologio', async () => {
+    // Nello scenario spellbook il Bianco ha carte lanciabili: resta in Magie 1 finché il tempo non scade.
+    const { session } = await startMatch('spellbook', 'tina', (s) => s.findMatch(), { phaseMainMs: 1_500 });
+    expect(session.match.getState().game?.phase).toBe('main1');
+    expect((await screen.findAllByText('Tempo scaduto: Magie 1 saltata (1/3). Alla terza di fila perdi.', undefined, { timeout: 5_000 })).length).toBeGreaterThan(0);
+    expect(session.match.getState().game?.phase).toBe('move');
+    const self = document.querySelector('[data-region="main"] [data-player="self"]') ?? document.querySelector('[data-player="self"]');
+    expect(self?.querySelector('[data-strikes]')?.getAttribute('data-strikes')).toBe('1');
   }, 30_000);
 });

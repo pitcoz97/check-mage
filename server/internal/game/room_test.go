@@ -67,17 +67,9 @@ func TestNewRoom(t *testing.T) {
 		t.Errorf("FEN = %v, want %v", room.Board.FEN, expectedFEN)
 	}
 
-	// Verifica tempi
-	if room.WhiteTime != 10*time.Minute {
-		t.Errorf("WhiteTime = %v, want %v", room.WhiteTime, 10*time.Minute)
-	}
-
-	if room.BlackTime != 10*time.Minute {
-		t.Errorf("BlackTime = %v, want %v", room.BlackTime, 10*time.Minute)
-	}
-
-	if room.Increment != 5*time.Second {
-		t.Errorf("Increment = %v, want %v", room.Increment, 5*time.Second)
+	// Verifica tempi per fase
+	if room.MainTime != 10*time.Minute || room.MoveTime != 5*time.Second {
+		t.Errorf("tempi per fase = %v/%v", room.MainTime, room.MoveTime)
 	}
 }
 

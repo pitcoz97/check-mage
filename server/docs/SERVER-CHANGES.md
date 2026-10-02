@@ -354,3 +354,15 @@ Verifica: `go build ./... && go vet ./... && go test ./...`. Per cambiare i test
 
 Verifica: `go build ./... && go vet ./... && go test ./...`, poi `npm run e2e:bot -- --http … --ws …` dal client.
 La forza dei livelli si tara in `internal/bot/levels.go` (`profiles`) e con le soglie di `internal/bot/spells.go`.
+
+## 23. Tempo per fase
+
+| # | Cosa cambia | Azione nel client |
+|---|---|---|
+| 1 | Niente orologio globale: `PHASE_TIME_MAIN` (90 s) per main1 e main2, `PHASE_TIME_MOVE` (120 s) per la mossa (`game/clock.go`); `DEFAULT_BASE_TIME` e `DEFAULT_INCREMENT` tolti | Orologio della fase del giocatore attivo, l'altro fermo sul tempo pieno |
+| 2 | Fase Magie scaduta: passata dal server, `phase_timeout {player, phase, strikes}`; 3 di fila → `game_over` `timeout_strikes` | Segni delle scadenze, avviso, testo di fine partita |
+| 3 | Mossa scaduta → `game_over` `timeout` (la seconda mossa di Fretta invece si salta) | Testo di fine partita |
+| 4 | `game_state`: `time_control {main_ms, move_ms}`, `phase_time`, `white_timeouts`/`black_timeouts` (tolti `white_time`, `black_time`, `base_ms`, `increment_ms`); `timer_update {phase_time, turn, phase}`; storico `"90/120/90"` | Adapter (legge ancora gli orologi globali di un server precedente) |
+
+Verifica: `go build ./... && go vet ./... && go test ./...`. Sul server di produzione vanno tolte, se ci sono, le
+variabili `DEFAULT_BASE_TIME` e `DEFAULT_INCREMENT` (non fanno danni, ma non servono più).

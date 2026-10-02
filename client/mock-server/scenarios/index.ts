@@ -8,7 +8,9 @@ export interface ScenarioSetup {
   bot: BotBehavior | null;
   /** Solo scenari: preparazione di mani e mazzi, mana minimo. Il server reale non li ha. */
   overrides?: MatchOverrides;
-  baseTimeMs?: number;
+  /** Tempi per fase più corti (scenario `timeout`). */
+  phaseMainMs?: number;
+  phaseMoveMs?: number;
   hostile?: boolean;
 }
 
@@ -27,7 +29,8 @@ export function setupScenario(name: ScenarioName, config: MockConfig): ScenarioS
     case 'restart':
       return { bot: { afterMoves: { count: 1, action: 'restart', returnAfterMs: comeBack } } };
     case 'timeout':
-      return { bot: { stall: true }, baseTimeMs: Math.min(config.baseTimeMs, 15_000) };
+      // Il bot non agisce: le sue fasi Magie scadono, poi la Mossa scaduta gli fa perdere la partita.
+      return { bot: { stall: true }, phaseMainMs: Math.min(config.phaseMainMs, 2_000), phaseMoveMs: Math.min(config.phaseMoveMs, 3_000) };
     case 'draw':
       return { bot: { offerDrawOnFirstTurn: true, declineDrawsBeforeAccepting: 1 } };
     case 'spells':

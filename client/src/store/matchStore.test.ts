@@ -13,7 +13,8 @@ function publicState(overrides: Partial<PublicGameState> = {}): PublicGameState 
     moves: [],
     turn: 'white',
     status: 'active',
-    clocks: { white: 600_000, black: 600_000 },
+    phaseTime: 90_000,
+    timeouts: { white: 0, black: 0 },
     phase: 'draw',
     activePlayer: 'white',
     turnNumber: 1,
@@ -28,7 +29,7 @@ function publicState(overrides: Partial<PublicGameState> = {}): PublicGameState 
     reconnected: false,
     friendly: false,
     players: { white: { id: '1', username: 'mario' }, black: { id: '2', username: 'luigi' } },
-    timeControl: { baseMs: 600_000, incrementMs: 5_000 },
+    timeControl: { mainMs: 90_000, moveMs: 120_000 },
     ...overrides,
   };
 }
@@ -81,7 +82,7 @@ describe('applyServerEvent: aggiornamenti puntuali', () => {
     expect(black.game).toMatchObject({ phase: 'main1', activePlayer: 'black', turnNumber: 2, handSizes: { black: 5 }, deckSizes: { black: 35 } });
     expect(black.hand.at(-1)).toEqual(card('channel', 'e'));
     expect(black.myDeckSize).toBe(35);
-    expect(black.clockSync?.turn).toBe('black');
+    expect(black.clockSync).toMatchObject({ player: 'black', remaining: 90_000 });
   });
 
   it('cast proprio: la carta esce dalla mano; freeze e shield entrano negli effetti attivi', () => {
@@ -265,16 +266,28 @@ describe('applyServerEvent: aggiornamenti puntuali', () => {
     expect(expired.game?.activeEffects).toEqual([]);
   });
 
-  it('timer_update: orologi del server; interpolazione solo per il giocatore attivo', () => {
-    const state = applyServerEvent(run(START), { type: 'timer_update', clocks: { white: 590_000, black: 600_000 }, turn: 'white' }, 5_000);
-    expect(clockRemaining(state.clockSync, 'white', 5_750)).toBe(589_250);
-    expect(clockRemaining(state.clockSync, 'black', 5_750)).toBe(600_000);
+  it('timer_update: tempo della fase del giocatore attivo, interpolato; l’altro orologio è fermo', () => {
+    const state = applyServerEvent(run(START), { type: 'timer_update', phaseTime: 80_000, turn: 'white', phase: 'main1' }, 5_000);
+    expect(state.game?.phaseTime).toBe(80_000);
+    expect(clockRemaining(state.clockSync, 'white', 5_750)).toBe(79_250);
+    expect(clockRemaining(state.clockSync, 'black', 5_750)).toBeNull();
     expect(clockRemaining(state.clockSync, 'white', 5_000 + 900_000)).toBe(0);
     expect(clockRemaining(null, 'white', 0)).toBeNull();
-    // Cambio del giocatore attivo: il tempo del bianco si ferma al valore interpolato.
-    const switched = applyServerEvent(state, { type: 'phase_changed', phase: 'draw', activePlayer: 'black', turnNumber: 2 }, 6_000);
-    expect(clockRemaining(switched.clockSync, 'white', 9_000)).toBe(589_000);
-    expect(clockRemaining(switched.clockSync, 'black', 9_000)).toBe(597_000);
+    // A ogni cambio di fase il tempo riparte dal pieno: la Mossa ha il suo.
+    const move = applyServerEvent(state, { type: 'phase_changed', phase: 'move', activePlayer: 'white', turnNumber: 1 }, 6_000);
+    expect(clockRemaining(move.clockSync, 'white', 7_000)).toBe(119_000);
+    const black = applyServerEvent(move, { type: 'phase_changed', phase: 'main1', activePlayer: 'black', turnNumber: 2 }, 8_000);
+    expect(clockRemaining(black.clockSync, 'white', 9_000)).toBeNull();
+    expect(clockRemaining(black.clockSync, 'black', 9_000)).toBe(89_000);
+    // A fine partita l'orologio si ferma sul valore di quell'istante.
+    const over = applyServerEvent(black, { type: 'game_over', result: '1-0', reason: 'timeout_strikes', winner: 'mario' }, 10_000);
+    expect(clockRemaining(over.clockSync, 'black', 60_000)).toBe(88_000);
+  });
+
+  it('phase_timeout: scadenze di fila del giocatore e avviso', () => {
+    const state = applyServerEvent(run(START), { type: 'phase_timeout', player: 'black', phase: 'main2', strikes: 2 }, 5_000);
+    expect(state.game?.timeouts).toEqual({ white: 0, black: 2 });
+    expect(state.lastTimeout).toMatchObject({ player: 'black', phase: 'main2', strikes: 2 });
   });
 
   it('eventi prima del primo game_state non rompono nulla', () => {

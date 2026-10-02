@@ -18,7 +18,7 @@ var (
 func challengeSetup(t *testing.T) {
 	t.Helper()
 	resetManager()
-	config.C = &config.Config{DefaultBaseTime: 10 * time.Minute, DefaultIncrement: 5 * time.Second, ReconnectTimeout: time.Minute}
+	config.C = &config.Config{PhaseTimeMain: 90 * time.Second, PhaseTimeMove: 120 * time.Second, ReconnectTimeout: time.Minute}
 	prev := ChallengeTTL
 	t.Cleanup(func() { ChallengeTTL = prev })
 }

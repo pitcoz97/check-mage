@@ -1,14 +1,15 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
+import { phaseLimit } from '../game/clock';
 import type {
   ActiveEffect,
   AppliedEffect,
-  Clocks,
   Color,
   GameOverReason,
   GameResult,
   HandCard,
   PerColor,
+  Phase,
   ProtocolErrorInfo,
   PublicGameState,
   SpellId,
@@ -28,12 +29,25 @@ import { assertNever, type DrawDeclineReason, type ServerEvent } from '../ws/pro
 
 export type MatchLifecycle = 'idle' | 'queued' | 'playing' | 'over';
 
-/** Ultimo valore degli orologi ricevuto e l'istante di ricezione: base dell'interpolazione (`clockRemaining`). */
+/**
+ * Ultimo tempo della fase ricevuto (o ripartito a un cambio di fase) e l'istante: base dell'interpolazione
+ * (`clockRemaining`). Il tempo è del solo giocatore attivo (`game/clock.go`).
+ */
 export interface ClockSync {
-  readonly clocks: Clocks;
-  /** Giocatore di cui scorre il tempo (il giocatore attivo, `game/room.go:1279-1327`). */
-  readonly turn: Color | 'unknown';
+  readonly remaining: number;
+  /** Giocatore di cui scorre il tempo (il giocatore attivo). */
+  readonly player: Color | 'unknown';
+  /** `false` a fine partita: il valore resta fermo. */
+  readonly running: boolean;
   readonly at: number;
+}
+
+/** Fase Magie scaduta e passata dal server (`phase_timeout`), per l'avviso. */
+export interface PhaseTimeout {
+  readonly player: Color;
+  readonly phase: Phase | 'unknown';
+  readonly strikes: number;
+  readonly seq: number;
 }
 
 export interface OptimisticMove {
@@ -115,6 +129,7 @@ export interface MatchState {
   readonly hand: readonly HandCard[];
   readonly myDeckSize: number | null;
   readonly clockSync: ClockSync | null;
+  readonly lastTimeout: PhaseTimeout | null;
   /** `incoming`: l'avversario ha offerto patta; `outgoing`: la mia offerta è pendente. */
   readonly drawOffer: { readonly incoming: boolean; readonly outgoing: boolean };
   /** Esito della mia ultima offerta, per un avviso una tantum. */
@@ -148,6 +163,7 @@ export function initialMatchState(selfId: UserId | null): MatchState {
     hand: [],
     myDeckSize: null,
     clockSync: null,
+    lastTimeout: null,
     drawOffer: { incoming: false, outgoing: false },
     drawNotice: null,
     opponentConnected: true,
@@ -170,21 +186,13 @@ export function initialMatchState(selfId: UserId | null): MatchState {
 
 const withColor = <T>(values: PerColor<T>, color: Color, value: T): PerColor<T> => ({ ...values, [color]: value });
 
-/** Tempo residuo del giocatore all'istante `now`: scorre solo quello di `clockSync.turn`, mai sotto zero. */
+/**
+ * Tempo della fase rimasto a `color` all'istante `now`, mai sotto zero; `null` se non è la sua fase (il suo orologio
+ * è fermo e la UI mostra il tempo pieno della prossima fase).
+ */
 export function clockRemaining(sync: ClockSync | null, color: Color, now: number): number | null {
-  if (sync === null) return null;
-  const base = sync.clocks[color];
-  return sync.turn === color ? Math.max(0, base - Math.max(0, now - sync.at)) : base;
-}
-
-/** Riancora l'interpolazione a `at` con un nuovo giocatore attivo (il server lo fa scorrere da quel momento). */
-function reanchorClock(sync: ClockSync | null, turn: Color, at: number): ClockSync | null {
-  if (sync === null) return null;
-  return {
-    clocks: { white: clockRemaining(sync, 'white', at) ?? 0, black: clockRemaining(sync, 'black', at) ?? 0 },
-    turn,
-    at,
-  };
+  if (sync === null || sync.player !== color) return null;
+  return sync.running ? Math.max(0, sync.remaining - Math.max(0, now - sync.at)) : sync.remaining;
 }
 
 /**
@@ -271,11 +279,7 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
         game: next,
         myColor,
         myDeckSize: myColor === null ? state.myDeckSize : next.deckSizes[myColor],
-        clockSync: {
-          clocks: next.clocks,
-          turn: next.activePlayer,
-          at: receivedAt,
-        },
+        clockSync: next.phaseTime === null ? null : { remaining: next.phaseTime, player: next.activePlayer, running: true, at: receivedAt },
         drawOffer: movedByMe ? { ...state.drawOffer, incoming: false } : state.drawOffer,
         optimistic: null,
         // Valvola di sicurezza: uno stato nuovo vuol dire che il server ha già lavorato, il cast non è più in volo.
@@ -323,7 +327,8 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
       return {
         ...base,
         game: game === null ? game : { ...game, phase: event.phase, activePlayer: event.activePlayer, turnNumber: event.turnNumber },
-        clockSync: reanchorClock(state.clockSync, event.activePlayer, receivedAt),
+        // Ogni fase ha il suo tempo: riparte dal pieno finché non arriva il `timer_update` (`game/clock.go`).
+        clockSync: { remaining: phaseLimit(game?.timeControl ?? null, event.phase), player: event.activePlayer, running: true, at: receivedAt },
       };
 
     case 'spell_cast': {
@@ -390,8 +395,15 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
     case 'timer_update':
       return {
         ...base,
-        game: game === null ? game : { ...game, clocks: event.clocks },
-        clockSync: { clocks: event.clocks, turn: event.turn, at: receivedAt },
+        game: game === null ? game : { ...game, phaseTime: event.phaseTime },
+        clockSync: { remaining: event.phaseTime, player: event.turn, running: true, at: receivedAt },
+      };
+
+    case 'phase_timeout':
+      return {
+        ...base,
+        game: game === null ? game : { ...game, timeouts: withColor(game.timeouts, event.player, event.strikes) },
+        lastTimeout: { player: event.player, phase: event.phase, strikes: event.strikes, seq },
       };
 
     case 'game_over':
@@ -400,8 +412,11 @@ export function applyServerEvent(state: MatchState, event: ServerEvent, received
         lifecycle: 'over',
         outcome: { result: event.result, reason: event.reason, winner: event.winner },
         drawOffer: { incoming: false, outgoing: false },
-        // Gli orologi si fermano: il valore resta quello dell'ultimo aggiornamento.
-        clockSync: state.clockSync === null ? null : { ...state.clockSync, turn: 'unknown' },
+        // L'orologio si ferma: il valore resta quello dell'istante della fine.
+        clockSync:
+          state.clockSync === null
+            ? null
+            : { ...state.clockSync, remaining: state.clockSync.player === 'unknown' ? state.clockSync.remaining : (clockRemaining(state.clockSync, state.clockSync.player, receivedAt) ?? 0), running: false, at: receivedAt },
       };
 
     case 'error':

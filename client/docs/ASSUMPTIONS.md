@@ -497,3 +497,23 @@ I riferimenti sono al server di quel branch.
 |---|---|---|---|
 | S39 | Un `bot` con un livello sconosciuto resta un bot (`unknown`, nome «Bot»), con un warning; senza `bot` è una persona. | Compatibilità con livelli futuri. | `adapter.ts` |
 | S40 | Il mock non ha Stockfish: base a caso, intermedio la cattura di più valore, avanzato due mezze mosse. Le magie seguono le stesse regole del Go (`botPolicy.ts`). È l'unica parte non fedele del mock. | Il mock non esegue motori. | `mock-server/scenarios/botPolicy.ts` |
+
+## 14. Tempo per fase (`feat/phase-clock`)
+
+Supera l'orologio globale descritto sopra (righe di `game_state`/`timer_update` della §2, R5 «incremento», R9 e il
+`time_control "10+5"` di R12).
+
+### Decisioni
+| # | Decisione | Fonte |
+|---|---|---|
+| T1 | Ogni fase ha il suo tempo: Magie 1 e Magie 2 90 s, Mossa 120 s. Riparte a ogni cambio di fase; niente orologio globale né incremento. | tu |
+| T2 | Fase Magie scaduta: la passa il server e conta una scadenza. Mossa scaduta: si perde subito (salvo la seconda mossa di Fretta, che si salta). | tu |
+| T3 | Tre fasi Magie scadute di fila fanno perdere. Il conto si azzera quando il giocatore chiude da solo una fase Magie (passa o lancia una magia); la mossa non lo tocca, perché è obbligatoria. | tu + derivata |
+| T4 | Orologio del giocatore attivo: conto alla rovescia della fase, con i decimi sotto i 10 s e «poco tempo» sotto i 15 s. L'altro orologio è fermo e spento sul tempo pieno di una fase Magie (1:30). Accanto a ogni orologio tre segni per le scadenze di fila. | tu |
+| T5 | Quando scade una fase compare un avviso, per sé («Alla terza di fila perdi») o per l'avversario. | derivata |
+
+### Assunzioni del client
+| # | Assunzione | Motivo | Dove |
+|---|---|---|---|
+| S41 | Con un server precedente (orologi globali) `white_time`/`black_time` del giocatore attivo valgono come tempo della fase e il vecchio `time_control` vale come assente; senza tempi si usano 90/120 s. | Compatibilità durante l'aggiornamento. | `adapter.ts`, `game/clock.ts` |
+| S42 | A `phase_changed` il client fa ripartire l'orologio dal tempo pieno della nuova fase, senza aspettare il `timer_update` (che arriva subito dopo). | Evita un secondo di orologio sbagliato. | `matchStore.ts` |

@@ -412,8 +412,8 @@ Sempre in **millisecondi** (interi). Default partita: **10 minuti base + 5 secon
 | Variabile (`.env`) | Default | Significato |
 |--------------------|---------|-------------|
 | `SERVER_PORT` | `8080` | porta HTTP/WS |
-| `DEFAULT_BASE_TIME` | `10m` | tempo base per giocatore |
-| `DEFAULT_INCREMENT` | `5s` | incremento per mossa |
+| `PHASE_TIME_MAIN` | `90s` | tempo di ogni fase Magie (main1, main2) |
+| `PHASE_TIME_MOVE` | `120s` | tempo della fase Mossa |
 | `RECONNECT_TIMEOUT` | `30s` | finestra di riconnessione |
 | `RATE_GENERAL` / `RATE_AUTH` / `RATE_WS` | `10` / `3` / `1` | rate limit (req/s) |
 | `JWT_SECRET` | — | **obbligatorio**, firma i token |

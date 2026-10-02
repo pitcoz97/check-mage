@@ -79,7 +79,7 @@ func TestLoad_DefaultValues(t *testing.T) {
 	// Pulisce eventuali variabili d'ambiente esistenti
 	varsToClear := []string{
 		"DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME",
-		"JWT_SECRET", "SERVER_PORT", "DEFAULT_BASE_TIME", "DEFAULT_INCREMENT",
+		"JWT_SECRET", "SERVER_PORT", "PHASE_TIME_MAIN", "PHASE_TIME_MOVE",
 		"RECONNECT_TIMEOUT", "RATE_GENERAL", "RATE_AUTH", "RATE_WS", "ENV",
 	}
 
@@ -105,8 +105,8 @@ func TestLoad_DefaultValues(t *testing.T) {
 	if C.DBPort != "5432" {
 		t.Errorf("DBPort = %v, want %v", C.DBPort, "5432")
 	}
-	if C.DefaultBaseTime != 10*time.Minute {
-		t.Errorf("DefaultBaseTime = %v, want %v", C.DefaultBaseTime, 10*time.Minute)
+	if C.PhaseTimeMain != 90*time.Second || C.PhaseTimeMove != 120*time.Second {
+		t.Errorf("tempi per fase = %v/%v, want 90s/120s", C.PhaseTimeMain, C.PhaseTimeMove)
 	}
 }
 

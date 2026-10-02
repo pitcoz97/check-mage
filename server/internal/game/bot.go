@@ -96,7 +96,7 @@ func (m *Manager) JoinBot(client *Client, levelName, colorName string) bool {
 		white, black = botClient, client
 	}
 	roomID := "bot-" + newChallengeID()
-	room := newRoom(roomID, white, black, config.C.DefaultBaseTime, config.C.DefaultIncrement, true, seat)
+	room := newRoom(roomID, white, black, config.C.PhaseTimeMain, config.C.PhaseTimeMove, true, seat)
 	m.rooms[roomID] = room
 	// Solo il giocatore: lo stesso bot gioca più partite insieme, e non è mai «in partita».
 	m.userRooms[client.UserID] = roomID
