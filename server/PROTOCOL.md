@@ -75,7 +75,8 @@ Dopo `game_over` ogni azione riceve `error` con `code: "game_over"`.
 | `type` | `payload` | Destinatario |
 |--------|-----------|--------------|
 | `game_state` | vedi sotto | entrambi, ciascuno la sua vista (rune nascoste dell'avversario tolte) |
-| `timer_update` | `{ white_time, black_time, turn }` | entrambi, ~1/s (`turn` = giocatore attivo, di chi scorre il tempo) |
+| `timer_update` | `{ phase_time, turn, phase }` | entrambi, ~1/s e a ogni cambio di fase (`turn` = giocatore attivo, di chi scorre il tempo della fase) |
+| `phase_timeout` | `{ player, phase, strikes }` | entrambi: una fase Magie scaduta e passata dal server (vedi «Tempo per fase») |
 | `phase_changed` | `{ phase, active_player, turn_number }` | entrambi |
 | `hand` | `{ hand:[id...], mana, max_mana, deck_size }` | **solo proprietario** |
 | `card_drawn` | `{ card_id, deck_size }` | **solo chi pesca** |
@@ -112,8 +113,8 @@ scacchiera, alla riconnessione (con `reconnected: true`) e subito **prima** di
   "board": { "fen": "...", "moves": ["e2e4", "0000"], "turn": "white", "status": "active" },
   "white_player": { "id": 42, "username": "mario" },
   "black_player": { "id": 7, "username": "luigi" },
-  "time_control": { "base_ms": 600000, "increment_ms": 5000 },
-  "white_time": 600000, "black_time": 600000,
+  "time_control": { "main_ms": 90000, "move_ms": 120000 },
+  "phase_time": 90000, "white_timeouts": 0, "black_timeouts": 0,
   "phase": "main1", "active_player": "white", "turn_number": 1,
   "white_mana": 1, "white_max_mana": 1, "black_mana": 1, "black_max_mana": 1,
   "white_hand_size": 4, "black_hand_size": 4,
@@ -596,6 +597,27 @@ sfide aperte dei due giocatori si chiudono con `challenge_unavailable`.
   `friends` è la lista di `GET /me/friends` senza gli altri giocatori.
 - **Log:** il logger delle richieste non scrive la query string, quindi un `?token=` o `?ticket=` non finisce nei
   log.
+
+## Tempo per fase
+
+Non c'è un orologio globale: ogni fase del giocatore attivo ha il suo tempo, che riparte a ogni cambio di fase
+(`game/clock.go`).
+
+| Fase | Tempo (configurazione) | Se scade |
+|---|---|---|
+| `main1`, `main2` | `PHASE_TIME_MAIN`, default 90 s | il server passa la fase al posto del giocatore e manda `phase_timeout`; è una scadenza |
+| `move` | `PHASE_TIME_MOVE`, default 120 s | sconfitta: `game_over` con `reason: "timeout"` (status `timeout`) |
+
+- **Scadenze di fila:** `white_timeouts`/`black_timeouts` in `game_state`, `strikes` in `phase_timeout`. Alla terza
+  (`MaxStrikes`) la partita finisce con `reason: "timeout_strikes"` (status `timeout`). Il conto si azzera quando il
+  giocatore chiude da solo una fase Magie (`pass_phase` o un cast riuscito); la mossa non lo tocca.
+- **Seconda mossa di Fretta:** se scade il tempo della `move` dopo la prima mossa, la seconda si salta (nessuna
+  sconfitta).
+- **`game_state`:** `time_control {main_ms, move_ms}` e `phase_time` (ms rimasti al giocatore attivo).
+- **`timer_update`:** `{phase_time, turn, phase}`, ogni secondo e subito dopo un cambio di fase.
+- **Storico:** `time_control` è `"90/120/90"` (secondi di Magie 1, Mossa, Magie 2).
+- **Riconnessione e riavvio:** il tempo scorre mentre il giocatore è disconnesso (resta il timer d'abbandono); una
+  partita ripristinata dal DB riprende dal tempo che restava alla fase.
 
 ## Partite contro il bot
 
